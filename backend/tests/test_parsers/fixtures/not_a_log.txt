@@ -1,0 +1,3 @@
+This is just a plain text file.
+It's not a conversation log at all.
+The parser should reject this.

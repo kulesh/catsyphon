@@ -3,7 +3,7 @@ Tests for SQLAlchemy database models.
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
@@ -55,7 +55,7 @@ class TestProject:
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
         db_session.add(conversation)
         db_session.commit()
@@ -111,7 +111,7 @@ class TestConversation:
         self, db_session: Session, sample_project: Project, sample_developer: Developer
     ):
         """Test creating a conversation."""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         conversation = Conversation(
             id=uuid.uuid4(),
             project_id=sample_project.id,
@@ -140,7 +140,7 @@ class TestConversation:
             id=uuid.uuid4(),
             project_id=sample_project.id,
             agent_type="claude-code",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
         db_session.add(conversation)
         db_session.commit()
@@ -163,7 +163,7 @@ class TestEpoch:
 
     def test_create_epoch(self, db_session: Session, sample_conversation: Conversation):
         """Test creating an epoch."""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         epoch = Epoch(
             id=uuid.uuid4(),
             conversation_id=sample_conversation.id,
@@ -195,7 +195,7 @@ class TestEpoch:
             id=uuid.uuid4(),
             conversation_id=sample_conversation.id,
             sequence=1,
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
         db_session.add(epoch1)
         db_session.commit()
@@ -205,7 +205,7 @@ class TestEpoch:
             id=uuid.uuid4(),
             conversation_id=sample_conversation.id,
             sequence=1,  # Same sequence!
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
         db_session.add(epoch2)
 
@@ -232,7 +232,7 @@ class TestMessage:
         sample_epoch: Epoch,
     ):
         """Test creating a message."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         message = Message(
             id=uuid.uuid4(),
             epoch_id=sample_epoch.id,
@@ -269,7 +269,7 @@ class TestFileTouched:
         sample_epoch: Epoch,
     ):
         """Test creating a file touched record."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         file_touched = FileTouched(
             id=uuid.uuid4(),
             conversation_id=sample_conversation.id,

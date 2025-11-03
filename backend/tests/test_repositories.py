@@ -3,7 +3,7 @@ Tests for database repositories.
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -186,7 +186,7 @@ class TestConversationRepository:
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
 
         assert conversation.id is not None
@@ -219,7 +219,7 @@ class TestConversationRepository:
                 project_id=sample_project.id,
                 developer_id=sample_developer.id,
                 agent_type="claude-code",
-                start_time=datetime.utcnow(),
+                start_time=datetime.now(UTC),
             )
 
         conversations = repo.get_by_project(sample_project.id)
@@ -241,7 +241,7 @@ class TestConversationRepository:
                 project_id=sample_project.id,
                 developer_id=sample_developer.id,
                 agent_type="claude-code",
-                start_time=datetime.utcnow(),
+                start_time=datetime.now(UTC),
             )
 
         conversations = repo.get_by_developer(sample_developer.id)
@@ -262,14 +262,14 @@ class TestConversationRepository:
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
         repo.create(
             id=uuid.uuid4(),
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="copilot",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
         )
 
         claude_conversations = repo.get_by_agent_type("claude-code")
@@ -285,7 +285,7 @@ class TestConversationRepository:
         """Test getting conversations by date range."""
         repo = ConversationRepository(db_session)
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         yesterday = now - timedelta(days=1)
         two_days_ago = now - timedelta(days=2)
 
@@ -317,7 +317,7 @@ class TestConversationRepository:
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
             status="completed",
         )
         repo.create(
@@ -325,7 +325,7 @@ class TestConversationRepository:
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
             status="open",
         )
 
@@ -348,7 +348,7 @@ class TestConversationRepository:
                 project_id=sample_project.id,
                 developer_id=sample_developer.id,
                 agent_type="claude-code",
-                start_time=datetime.utcnow() - timedelta(minutes=i),
+                start_time=datetime.now(UTC) - timedelta(minutes=i),
             )
 
         recent = repo.get_recent(limit=3)
@@ -374,7 +374,7 @@ class TestConversationRepository:
                 project_id=sample_project.id,
                 developer_id=sample_developer.id,
                 agent_type="claude-code",
-                start_time=datetime.utcnow(),
+                start_time=datetime.now(UTC),
             )
 
         # Test limit and offset

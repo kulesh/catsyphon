@@ -2,7 +2,7 @@
 Tests for parsed conversation data models.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from catsyphon.models.parsed import (
     CodeChange,
@@ -23,7 +23,7 @@ class TestToolCall:
             parameters={"file_path": "/path/to/file.py"},
             result="File contents...",
             success=True,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
         )
 
         assert tool_call.tool_name == "Read"
@@ -78,7 +78,7 @@ class TestParsedMessage:
 
     def test_create_parsed_message(self):
         """Test creating a parsed message."""
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         message = ParsedMessage(
             role="user",
             content="Please fix the bug in auth.py",
@@ -101,7 +101,7 @@ class TestParsedMessage:
         message = ParsedMessage(
             role="assistant",
             content="I'll help with that.",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
         )
 
         assert message.tool_calls == []
@@ -114,7 +114,7 @@ class TestParsedConversation:
 
     def test_create_parsed_conversation(self):
         """Test creating a parsed conversation."""
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         messages = [
             ParsedMessage(
                 role="user",
@@ -147,7 +147,7 @@ class TestParsedConversation:
         conversation = ParsedConversation(
             agent_type="claude-code",
             agent_version=None,
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(UTC),
             end_time=None,
             messages=[],
         )

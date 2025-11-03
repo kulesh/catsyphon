@@ -43,6 +43,8 @@ class ParsedMessage:
     tool_calls: list[ToolCall] = field(default_factory=list)
     code_changes: list[CodeChange] = field(default_factory=list)
     entities: dict = field(default_factory=dict)
+    model: Optional[str] = None  # Claude model used (for assistant messages)
+    token_usage: Optional[dict] = None  # Token usage statistics
 
 
 @dataclass
@@ -55,6 +57,11 @@ class ParsedConversation:
     end_time: Optional[datetime]
     messages: list[ParsedMessage]
     metadata: dict = field(default_factory=dict)
+    session_id: Optional[str] = None  # Unique session identifier
+    git_branch: Optional[str] = None  # Git branch during conversation
+    working_directory: Optional[str] = None  # Working directory path
+    files_touched: list[str] = field(default_factory=list)  # List of file paths
+    code_changes: list[CodeChange] = field(default_factory=list)  # Code modifications
 
 
 @dataclass

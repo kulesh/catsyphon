@@ -2,9 +2,11 @@
 Tests for database connection management.
 """
 
+from unittest.mock import patch
+
 from sqlalchemy.orm import Session
 
-from catsyphon.db.connection import get_session
+from catsyphon.db.connection import check_connection, get_session, init_db
 from catsyphon.models.db import Developer, Project
 
 
@@ -175,3 +177,62 @@ class TestDatabaseOperations:
         # Verify ordering
         names = [p.name for p in projects if "Project" in p.name]
         assert names == sorted(names)
+
+
+class TestInitDb:
+    """Tests for init_db function."""
+
+    def test_init_db_creates_tables(self, test_engine):
+        """Test that init_db creates all tables."""
+        from sqlalchemy import inspect
+
+        from catsyphon.models.db import Base
+
+        # Drop all tables first
+        Base.metadata.drop_all(bind=test_engine)
+
+        # Initialize database
+        with patch("catsyphon.db.connection.engine", test_engine):
+            init_db()
+
+        # Verify tables exist by checking metadata
+        inspector = inspect(test_engine)
+        tables = inspector.get_table_names()
+
+        # Should have at least the main tables
+        expected_tables = {
+            "projects",
+            "developers",
+            "conversations",
+            "epochs",
+            "messages",
+        }
+        assert expected_tables.issubset(set(tables))
+
+
+class TestCheckConnection:
+    """Tests for check_connection function."""
+
+    def test_check_connection_returns_true_on_success(self, test_engine):
+        """Test that check_connection returns True when successful."""
+        with patch("catsyphon.db.connection.get_db") as mock_get_db:
+            # Mock successful database connection
+            mock_session = mock_get_db.return_value.__enter__.return_value
+            mock_session.execute.return_value = None
+
+            result = check_connection()
+
+            assert result is True
+            mock_session.execute.assert_called_once()
+
+    def test_check_connection_returns_false_on_failure(self):
+        """Test that check_connection returns False when connection fails."""
+        with patch("catsyphon.db.connection.get_db") as mock_get_db:
+            # Mock failed database connection
+            mock_get_db.return_value.__enter__.side_effect = Exception(
+                "Connection failed"
+            )
+
+            result = check_connection()
+
+            assert result is False

@@ -1,0 +1,3 @@
+{"parentUuid":"00000000-0000-0000-0000-000000000000","sessionId":"test-session-003","version":"2.0.17","type":"user","message":{"role":"user","content":"Test"},"uuid":"msg-001","timestamp":"2025-10-16T19:12:28.024Z"}
+{this is invalid json
+{"parentUuid":"msg-001","sessionId":"test-session-003","version":"2.0.17","type":"assistant","message":{"role":"assistant","content":"Missing timestamp"},"uuid":"msg-003"}

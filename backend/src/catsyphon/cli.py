@@ -30,6 +30,7 @@ def ingest(
     project: str = typer.Option(None, help="Project name"),
     developer: str = typer.Option(None, help="Developer username"),
     batch: bool = typer.Option(False, help="Process directory in batch mode"),
+    dry_run: bool = typer.Option(False, help="Parse without storing to database"),
 ) -> None:
     """
     Ingest conversation logs into the database.
@@ -37,13 +38,79 @@ def ingest(
     Parse and tag conversation logs, then store them in the database
     for analysis.
     """
+    from pathlib import Path
+
+    from catsyphon.parsers import get_default_registry
+
     console.print(f"[bold blue]Ingesting logs from:[/bold blue] {path}")
     console.print(f"  Project: {project or 'N/A'}")
     console.print(f"  Developer: {developer or 'N/A'}")
     console.print(f"  Batch mode: {batch}")
+    console.print(f"  Dry run: {dry_run}")
+    console.print()
 
-    # TODO: Implement ingestion pipeline
-    console.print("[yellow]⚠ Ingestion not yet implemented[/yellow]")
+    # Get parser registry
+    registry = get_default_registry()
+
+    # Convert path to Path object
+    log_path = Path(path)
+
+    if not log_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Path not found: {path}")
+        raise typer.Exit(1)
+
+    # Collect files to process
+    files_to_process = []
+    if log_path.is_file():
+        files_to_process = [log_path]
+    elif log_path.is_dir():
+        files_to_process = list(log_path.rglob("*.jsonl"))
+        if not files_to_process:
+            console.print("[yellow]No .jsonl files found in directory[/yellow]")
+            raise typer.Exit(0)
+    else:
+        console.print(f"[bold red]Error:[/bold red] Invalid path: {path}")
+        raise typer.Exit(1)
+
+    console.print(f"Found {len(files_to_process)} file(s) to process\n")
+
+    # Process files
+    successful = 0
+    failed = 0
+
+    for log_file in files_to_process:
+        try:
+            console.print(f"[blue]Parsing:[/blue] {log_file.name}... ", end="")
+
+            # Parse the file
+            conversation = registry.parse(log_file)
+
+            console.print(
+                f"[green]✓[/green] "
+                f"{len(conversation.messages)} messages, "
+                f"{sum(len(m.tool_calls) for m in conversation.messages)} tool calls"
+            )
+            successful += 1
+
+            # TODO: Store to database (when repository integration is added)
+            if not dry_run:
+                console.print(
+                    "  [yellow]Note: Database storage not yet implemented[/yellow]"
+                )
+
+        except Exception as e:
+            console.print(f"[red]✗[/red] {str(e)}")
+            failed += 1
+            continue
+
+    # Summary
+    console.print()
+    console.print("[bold]Summary:[/bold]")
+    console.print(f"  Successful: {successful}")
+    console.print(f"  Failed: {failed}")
+
+    if failed > 0:
+        raise typer.Exit(1)
 
 
 @app.command()

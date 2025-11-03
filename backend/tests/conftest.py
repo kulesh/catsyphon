@@ -6,7 +6,7 @@ and other components.
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Generator
 
 import pytest
@@ -107,8 +107,8 @@ def sample_conversation(
         developer_id=sample_developer.id,
         agent_type="claude-code",
         agent_version="1.0.0",
-        start_time=datetime.utcnow(),
-        end_time=datetime.utcnow() + timedelta(minutes=10),
+        start_time=datetime.now(UTC),
+        end_time=datetime.now(UTC) + timedelta(minutes=10),
         status="completed",
         success=True,
         iteration_count=3,
@@ -132,8 +132,8 @@ def sample_epoch(db_session: Session, sample_conversation: Conversation) -> Epoc
         outcome="success",
         sentiment="positive",
         sentiment_score=0.8,
-        start_time=datetime.utcnow(),
-        end_time=datetime.utcnow() + timedelta(minutes=5),
+        start_time=datetime.now(UTC),
+        end_time=datetime.now(UTC) + timedelta(minutes=5),
         duration_seconds=300,
         extra_data={"complexity": "medium"},
     )
@@ -154,7 +154,7 @@ def sample_message(
         conversation_id=sample_conversation.id,
         role="user",
         content="Please implement user authentication",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         sequence=1,
         tool_calls=[{"tool": "Write", "file": "auth.py"}],
         tool_results=[{"success": True}],
@@ -187,7 +187,7 @@ def sample_file_touched(
         lines_added=50,
         lines_deleted=0,
         lines_modified=0,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         extra_data={"language": "python"},
     )
     db_session.add(file_touched)
