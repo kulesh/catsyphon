@@ -409,6 +409,9 @@ class RawLog(Base):
     )  # 'json', 'markdown', 'xml', etc.
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )  # SHA-256 hash for deduplication
 
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

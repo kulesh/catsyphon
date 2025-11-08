@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from catsyphon.api.schemas import UploadResponse, UploadResult
 from catsyphon.db.connection import db_session
+from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers import get_default_registry
 from catsyphon.pipeline.ingestion import ingest_conversation
 
@@ -65,36 +66,49 @@ async def upload_conversation_logs(
                 # Parse the file
                 conversation = registry.parse(temp_path)
 
-                # Store to database
-                with db_session() as session:
-                    db_conversation = ingest_conversation(
-                        session=session,
-                        parsed=conversation,
-                        project_name=None,  # Auto-extract from log
-                        developer_username=None,  # Auto-extract from log
-                        file_path=None,  # Don't store temp file path
-                    )
-                    session.commit()
+                # Store to database (always skip duplicates for API uploads)
+                try:
+                    with db_session() as session:
+                        db_conversation = ingest_conversation(
+                            session=session,
+                            parsed=conversation,
+                            project_name=None,  # Auto-extract from log
+                            developer_username=None,  # Auto-extract from log
+                            file_path=temp_path,  # Pass temp path for hash calculation
+                            skip_duplicates=True,  # Always skip duplicates in API
+                        )
+                        session.commit()
 
-                    # Refresh to load relationships from database
-                    session.refresh(db_conversation)
+                        # Refresh to load relationships from database
+                        session.refresh(db_conversation)
 
-                    # Count related records from database object
-                    message_count = len(conversation.messages)  # Use parsed count
-                    epoch_count = len(db_conversation.epochs)
-                    files_count = len(db_conversation.files_touched)
+                        # Count related records from database object
+                        message_count = len(conversation.messages)  # Use parsed count
+                        epoch_count = len(db_conversation.epochs)
+                        files_count = len(db_conversation.files_touched)
 
+                        results.append(
+                            UploadResult(
+                                filename=uploaded_file.filename,
+                                status="success",
+                                conversation_id=db_conversation.id,
+                                message_count=message_count,
+                                epoch_count=epoch_count,
+                                files_count=files_count,
+                            )
+                        )
+                        success_count += 1
+
+                except DuplicateFileError:
+                    # File is a duplicate, return status="duplicate"
                     results.append(
                         UploadResult(
                             filename=uploaded_file.filename,
-                            status="success",
-                            conversation_id=db_conversation.id,
-                            message_count=message_count,
-                            epoch_count=epoch_count,
-                            files_count=files_count,
+                            status="duplicate",
+                            error="File has already been processed",
                         )
                     )
-                    success_count += 1
+                    success_count += 1  # Count duplicates as successful (not an error)
 
             finally:
                 # Clean up temporary file

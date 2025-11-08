@@ -236,7 +236,7 @@ class UploadResult(BaseModel):
     """Result for a single uploaded file."""
 
     filename: str
-    status: str  # "success" or "error"
+    status: str  # "success", "duplicate", or "error"
     conversation_id: Optional[UUID] = None
     message_count: int = 0
     epoch_count: int = 0

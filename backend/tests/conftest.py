@@ -254,13 +254,17 @@ def sample_conversation_tag(
 @pytest.fixture
 def sample_raw_log(db_session: Session, sample_conversation: Conversation) -> RawLog:
     """Create a sample raw log for testing."""
+    from catsyphon.utils.hashing import calculate_content_hash
+
+    raw_content = '{"messages": [{"role": "user", "content": "test"}]}'
     raw_log = RawLog(
         id=uuid.uuid4(),
         conversation_id=sample_conversation.id,
         agent_type="claude-code",
         log_format="json",
-        raw_content='{"messages": [{"role": "user", "content": "test"}]}',
+        raw_content=raw_content,
         file_path="/path/to/log.json",
+        file_hash=calculate_content_hash(raw_content),
         extra_data={"size_bytes": 1024},
     )
     db_session.add(raw_log)

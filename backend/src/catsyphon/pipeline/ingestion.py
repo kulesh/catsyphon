@@ -20,8 +20,10 @@ from catsyphon.db.repositories import (
     ProjectRepository,
     RawLogRepository,
 )
+from catsyphon.exceptions import DuplicateFileError
 from catsyphon.models.db import Conversation, FileTouched
 from catsyphon.models.parsed import ParsedConversation
+from catsyphon.utils.hashing import calculate_file_hash
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ def ingest_conversation(
     developer_username: Optional[str] = None,
     file_path: Optional[Path] = None,
     tags: Optional[dict] = None,
+    skip_duplicates: bool = True,
 ) -> Conversation:
     """
     Ingest a parsed conversation into the database.
@@ -44,11 +47,13 @@ def ingest_conversation(
         developer_username: Developer username (optional)
         file_path: Path to original log file (optional)
         tags: Pre-computed tags from tagging engine (optional)
+        skip_duplicates: If True, skip files that have already been processed (default: True)
 
     Returns:
         Created Conversation instance with all relationships loaded
 
     Raises:
+        DuplicateFileError: If file is a duplicate and skip_duplicates=False
         Exception: If database operation fails (transaction will be rolled back)
 
     Example:
@@ -71,6 +76,24 @@ def ingest_conversation(
             session.commit()
     """
     logger.info(f"Starting ingestion: {len(parsed.messages)} messages")
+
+    # Check for duplicate files before processing
+    if file_path:
+        raw_log_repo = RawLogRepository(session)
+        file_hash = calculate_file_hash(file_path)
+
+        if raw_log_repo.exists_by_file_hash(file_hash):
+            if skip_duplicates:
+                logger.info(
+                    f"Skipping duplicate file: {file_path} (hash: {file_hash[:8]}...)"
+                )
+                # Get existing conversation for this file
+                existing_raw_log = raw_log_repo.get_by_file_hash(file_hash)
+                if existing_raw_log:
+                    session.refresh(existing_raw_log.conversation)
+                    return existing_raw_log.conversation
+            else:
+                raise DuplicateFileError(file_hash, str(file_path))
 
     # Initialize repositories
     project_repo = ProjectRepository(session)

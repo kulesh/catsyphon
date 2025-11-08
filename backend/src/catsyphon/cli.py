@@ -31,6 +31,9 @@ def ingest(
     developer: str = typer.Option(None, help="Developer username"),
     batch: bool = typer.Option(False, help="Process directory in batch mode"),
     dry_run: bool = typer.Option(False, help="Parse without storing to database"),
+    skip_duplicates: bool = typer.Option(
+        True, help="Skip files that have already been processed"
+    ),
 ) -> None:
     """
     Ingest conversation logs into the database.
@@ -47,6 +50,7 @@ def ingest(
     console.print(f"  Developer: {developer or 'N/A'}")
     console.print(f"  Batch mode: {batch}")
     console.print(f"  Dry run: {dry_run}")
+    console.print(f"  Skip duplicates: {skip_duplicates}")
     console.print()
 
     # Get parser registry
@@ -94,6 +98,7 @@ def ingest(
             # Store to database (unless dry-run)
             if not dry_run:
                 from catsyphon.db.connection import get_db
+                from catsyphon.exceptions import DuplicateFileError
                 from catsyphon.pipeline.ingestion import ingest_conversation
 
                 try:
@@ -104,12 +109,16 @@ def ingest(
                             project_name=project,
                             developer_username=developer,
                             file_path=log_file,
+                            skip_duplicates=skip_duplicates,
                         )
                         session.commit()
                         console.print(
                             f"  [green]✓ Stored[/green] "
                             f"conversation={db_conversation.id}"
                         )
+                except DuplicateFileError as dup_error:
+                    console.print(f"  [yellow]⊘ Duplicate:[/yellow] {dup_error}")
+                    raise  # Re-raise to count as failed
                 except Exception as db_error:
                     console.print(f"  [red]✗ DB Error:[/red] {str(db_error)}")
                     raise  # Re-raise to count as failed

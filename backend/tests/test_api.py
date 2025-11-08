@@ -77,11 +77,26 @@ class TestHealthEndpoint:
         assert "database" in data
 
     def test_health_status_is_healthy(self, client: TestClient):
-        """Test that health status is 'healthy'."""
-        response = client.get("/health")
-        data = response.json()
+        """Test that health status is 'healthy' when database is connected."""
+        from unittest.mock import patch
 
-        assert data["status"] == "healthy"
+        with patch("catsyphon.db.connection.check_connection", return_value=True):
+            response = client.get("/health")
+            data = response.json()
+
+            assert data["status"] == "healthy"
+            assert data["database"] == "healthy"
+
+    def test_health_status_is_degraded(self, client: TestClient):
+        """Test that health status is 'degraded' when database is down."""
+        from unittest.mock import patch
+
+        with patch("catsyphon.db.connection.check_connection", return_value=False):
+            response = client.get("/health")
+            data = response.json()
+
+            assert data["status"] == "degraded"
+            assert data["database"] == "unhealthy"
 
     def test_health_database_status(self, client: TestClient):
         """Test that database status is included."""

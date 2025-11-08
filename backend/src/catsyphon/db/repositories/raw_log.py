@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import RawLog
+from catsyphon.utils.hashing import calculate_content_hash, calculate_file_hash
 
 
 class RawLogRepository(BaseRepository[RawLog]):
@@ -62,6 +63,37 @@ class RawLogRepository(BaseRepository[RawLog]):
             query = query.limit(limit)
         return query.all()
 
+    def get_by_file_hash(self, file_hash: str) -> Optional[RawLog]:
+        """
+        Get raw log by file hash.
+
+        Args:
+            file_hash: SHA-256 hash of the file
+
+        Returns:
+            Raw log instance if found, None otherwise
+        """
+        return (
+            self.session.query(RawLog).filter(RawLog.file_hash == file_hash).first()
+        )
+
+    def exists_by_file_hash(self, file_hash: str) -> bool:
+        """
+        Check if a raw log with the given file hash exists.
+
+        Args:
+            file_hash: SHA-256 hash of the file
+
+        Returns:
+            True if exists, False otherwise
+        """
+        return (
+            self.session.query(RawLog.id)
+            .filter(RawLog.file_hash == file_hash)
+            .first()
+            is not None
+        )
+
     def create_from_file(
         self,
         conversation_id: uuid.UUID,
@@ -83,6 +115,9 @@ class RawLogRepository(BaseRepository[RawLog]):
         Returns:
             Created raw log instance
         """
+        # Calculate file hash for deduplication
+        file_hash = calculate_file_hash(file_path)
+
         # Read file content
         raw_content = file_path.read_text(encoding="utf-8")
 
@@ -92,6 +127,7 @@ class RawLogRepository(BaseRepository[RawLog]):
             log_format=log_format,
             raw_content=raw_content,
             file_path=str(file_path),
+            file_hash=file_hash,
             **kwargs,
         )
 
@@ -118,11 +154,15 @@ class RawLogRepository(BaseRepository[RawLog]):
         Returns:
             Created raw log instance
         """
+        # Calculate content hash for deduplication
+        file_hash = calculate_content_hash(raw_content)
+
         return self.create(
             conversation_id=conversation_id,
             agent_type=agent_type,
             log_format=log_format,
             raw_content=raw_content,
             file_path=file_path,
+            file_hash=file_hash,
             **kwargs,
         )

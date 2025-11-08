@@ -401,13 +401,17 @@ class TestRawLog:
         self, db_session: Session, sample_conversation: Conversation
     ):
         """Test creating a raw log."""
+        from catsyphon.utils.hashing import calculate_content_hash
+
+        raw_content = '{"test": "data"}'
         raw_log = RawLog(
             id=uuid.uuid4(),
             conversation_id=sample_conversation.id,
             agent_type="claude-code",
             log_format="json",
-            raw_content='{"test": "data"}',
+            raw_content=raw_content,
             file_path="/logs/conversation.json",
+            file_hash=calculate_content_hash(raw_content),
         )
         db_session.add(raw_log)
         db_session.commit()
@@ -415,6 +419,8 @@ class TestRawLog:
         assert raw_log.agent_type == "claude-code"
         assert raw_log.log_format == "json"
         assert '"test"' in raw_log.raw_content
+        assert raw_log.file_hash is not None
+        assert len(raw_log.file_hash) == 64
 
 
 class TestCascadeDeletes:
