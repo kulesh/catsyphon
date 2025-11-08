@@ -4,6 +4,7 @@ Conversation API routes.
 Endpoints for querying and retrieving conversation data.
 """
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -23,15 +24,45 @@ from catsyphon.models.db import Conversation
 router = APIRouter()
 
 
-def _conversation_to_list_item(conv: Conversation) -> ConversationListItem:
-    """Convert Conversation model to ConversationListItem schema."""
-    # Now that schemas use extra_data, model_validate works directly!
+def _conversation_to_list_item(
+    conv: Conversation,
+    message_count: Optional[int] = None,
+    epoch_count: Optional[int] = None,
+    files_count: Optional[int] = None,
+) -> ConversationListItem:
+    """
+    Convert Conversation model to ConversationListItem schema.
+
+    Args:
+        conv: Conversation model instance
+        message_count: Pre-computed message count (from SQL aggregation)
+        epoch_count: Pre-computed epoch count (from SQL aggregation)
+        files_count: Pre-computed files count (from SQL aggregation)
+
+    Returns:
+        ConversationListItem schema
+
+    Note:
+        If counts are not provided, they will be computed from loaded relationships.
+        For better performance, use SQL aggregation via get_with_counts().
+    """
     item = ConversationListItem.model_validate(conv)
 
-    # Add computed counts
-    item.message_count = len(conv.messages) if conv.messages else 0
-    item.epoch_count = len(conv.epochs) if conv.epochs else 0
-    item.files_count = len(conv.files_touched) if conv.files_touched else 0
+    # Use pre-computed counts if provided, otherwise compute from relationships
+    if message_count is not None:
+        item.message_count = message_count
+    else:
+        item.message_count = len(conv.messages) if conv.messages else 0
+
+    if epoch_count is not None:
+        item.epoch_count = epoch_count
+    else:
+        item.epoch_count = len(conv.epochs) if conv.epochs else 0
+
+    if files_count is not None:
+        item.files_count = files_count
+    else:
+        item.files_count = len(conv.files_touched) if conv.files_touched else 0
 
     return item
 
@@ -89,19 +120,38 @@ async def list_conversations(
     if success is not None:
         filters["success"] = success
 
-    # Get conversations with relations (for counts and display)
-    conversations = repo.get_by_filters(
-        **filters,
-        load_relations=True,
-        limit=page_size,
-        offset=(page - 1) * page_size,
-    )
+    # Parse date filters if provided
+    if start_date:
+        try:
+            filters["start_date"] = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format")
+    if end_date:
+        try:
+            filters["end_date"] = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format")
 
     # Get total count for pagination
     total = repo.count_by_filters(**filters)
 
-    # Convert to response schema
-    items = [_conversation_to_list_item(conv) for conv in conversations]
+    # Get conversations WITH counts (efficient SQL aggregation)
+    results = repo.get_with_counts(
+        **filters,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
+
+    # Convert to response schema using pre-computed counts
+    items = [
+        _conversation_to_list_item(
+            conv,
+            message_count=msg_count,
+            epoch_count=epoch_count,
+            files_count=files_count,
+        )
+        for conv, msg_count, epoch_count, files_count in results
+    ]
 
     return ConversationListResponse(
         items=items,

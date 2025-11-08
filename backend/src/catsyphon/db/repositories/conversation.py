@@ -4,8 +4,9 @@ Conversation repository.
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from catsyphon.db.repositories.base import BaseRepository
@@ -297,3 +298,86 @@ class ConversationRepository(BaseRepository[Conversation]):
             query = query.filter(Conversation.start_time <= end_date)
 
         return query.count()
+
+    def get_with_counts(
+        self,
+        project_id: Optional[uuid.UUID] = None,
+        developer_id: Optional[uuid.UUID] = None,
+        agent_type: Optional[str] = None,
+        status: Optional[str] = None,
+        success: Optional[bool] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        order_by: str = "start_time",
+        order_dir: str = "desc",
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[Tuple[Conversation, int, int, int]]:
+        """
+        Get conversations with counts computed in SQL.
+
+        Returns list of (conversation, message_count, epoch_count, files_count) tuples.
+        This is much more efficient than loading all messages/epochs/files just to count them.
+
+        Args:
+            project_id: Filter by project
+            developer_id: Filter by developer
+            agent_type: Filter by agent type (partial match)
+            status: Filter by status
+            success: Filter by success status
+            start_date: Filter by start date (>=)
+            end_date: Filter by end date (<=)
+            order_by: Column to order by
+            order_dir: Order direction ('asc' or 'desc')
+            limit: Maximum number of results
+            offset: Number of results to skip
+
+        Returns:
+            List of (Conversation, message_count, epoch_count, files_count) tuples
+        """
+        from catsyphon.models.db import Message, Epoch, FileTouched
+
+        query = (
+            self.session.query(
+                Conversation,
+                func.coalesce(func.count(Message.id.distinct()), 0).label('message_count'),
+                func.coalesce(func.count(Epoch.id.distinct()), 0).label('epoch_count'),
+                func.coalesce(func.count(FileTouched.id.distinct()), 0).label('files_count'),
+            )
+            .outerjoin(Message, Conversation.id == Message.conversation_id)
+            .outerjoin(Epoch, Conversation.id == Epoch.conversation_id)
+            .outerjoin(FileTouched, Conversation.id == FileTouched.conversation_id)
+            .options(
+                joinedload(Conversation.project),
+                joinedload(Conversation.developer)
+            )
+            .group_by(Conversation.id)
+        )
+
+        # Apply filters (same as get_by_filters)
+        if project_id:
+            query = query.filter(Conversation.project_id == project_id)
+        if developer_id:
+            query = query.filter(Conversation.developer_id == developer_id)
+        if agent_type:
+            query = query.filter(Conversation.agent_type.ilike(f"%{agent_type}%"))
+        if status:
+            query = query.filter(Conversation.status == status)
+        if success is not None:
+            query = query.filter(Conversation.success == success)
+        if start_date:
+            query = query.filter(Conversation.start_time >= start_date)
+        if end_date:
+            query = query.filter(Conversation.start_time <= end_date)
+
+        # Ordering
+        order_col = getattr(Conversation, order_by, Conversation.start_time)
+        query = query.order_by(order_col.desc() if order_dir == "desc" else order_col.asc())
+
+        # Pagination
+        if limit:
+            query = query.limit(limit)
+        if offset:
+            query = query.offset(offset)
+
+        return query.all()
