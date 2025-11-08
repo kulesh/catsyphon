@@ -42,7 +42,13 @@ def test_engine():
                 if isinstance(column.type, postgresql.JSONB):
                     column.type = JSON()
 
-    engine = create_engine("sqlite:///:memory:", echo=False)
+    engine = create_engine(
+        "sqlite:///:memory:",
+        echo=False,
+        connect_args={
+            "check_same_thread": False
+        },  # Allow cross-thread access for TestClient
+    )
     Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
@@ -65,6 +71,36 @@ def db_session(test_engine) -> Generator[Session, None, None]:
     session.close()
     transaction.rollback()
     connection.close()
+
+
+@pytest.fixture
+def api_client(db_session: Session):
+    """Create a test client for FastAPI with database dependency override."""
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from catsyphon.api.app import app
+    from catsyphon.db.connection import get_db
+
+    # Override the get_db dependency to use test database
+    def override_get_db():
+        try:
+            yield db_session
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    # Disable lifespan startup checks for testing
+    with patch("catsyphon.api.app.run_all_startup_checks"):
+        client = TestClient(app)
+        yield client
+
+    # Clean up
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

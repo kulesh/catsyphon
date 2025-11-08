@@ -391,6 +391,215 @@ class TestConversationRepository:
         page2_ids = {c.id for c in page2}
         assert len(page1_ids & page2_ids) == 0  # No overlap
 
+    def test_get_with_counts_returns_accurate_counts(
+        self,
+        db_session: Session,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test get_with_counts returns accurate SQL-computed counts."""
+        from catsyphon.models.db import FileTouched
+
+        conv_repo = ConversationRepository(db_session)
+        epoch_repo = EpochRepository(db_session)
+        msg_repo = MessageRepository(db_session)
+
+        # Create conversation with multiple messages, epochs, and files
+        conv = conv_repo.create(
+            id=uuid.uuid4(),
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=datetime.now(UTC),
+        )
+
+        # Create 3 epochs
+        epochs = []
+        for i in range(3):
+            epoch = epoch_repo.create_epoch(
+                conversation_id=conv.id,
+                sequence=i,
+                start_time=datetime.now(UTC),
+            )
+            epochs.append(epoch)
+
+        # Create 5 messages
+        for i in range(5):
+            msg_repo.create_message(
+                epoch_id=epochs[0].id,
+                conversation_id=conv.id,
+                role="user",
+                content=f"Message {i}",
+                timestamp=datetime.now(UTC),
+                sequence=i,
+            )
+
+        # Create 2 files touched
+        for i in range(2):
+            file_touched = FileTouched(
+                id=uuid.uuid4(),
+                conversation_id=conv.id,
+                epoch_id=epochs[0].id,
+                file_path=f"test{i}.py",
+                change_type="modified",
+                timestamp=datetime.now(UTC),
+            )
+            db_session.add(file_touched)
+        db_session.commit()
+
+        # Use get_with_counts
+        results = conv_repo.get_with_counts(project_id=sample_project.id)
+
+        # Find our conversation
+        result = next(
+            (r for r in results if r[0].id == conv.id),
+            None,
+        )
+        assert result is not None
+
+        conversation, msg_count, epoch_count, files_count = result
+
+        # Verify counts are correct
+        assert msg_count == 5
+        assert epoch_count == 3
+        assert files_count == 2
+
+    def test_get_with_counts_uses_selectinload_not_joinedload(
+        self,
+        db_session: Session,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test that get_with_counts uses selectinload for relations."""
+        conv_repo = ConversationRepository(db_session)
+
+        _conv = conv_repo.create(  # noqa: F841 - Used for test setup
+            id=uuid.uuid4(),
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=datetime.now(UTC),
+        )
+
+        # This should not raise GROUP BY error
+        results = conv_repo.get_with_counts()
+
+        assert len(results) >= 1
+        conversation, msg_count, epoch_count, files_count = results[0]
+
+        # Project and developer should be loaded
+        assert conversation.project is not None
+        assert conversation.developer is not None
+
+    def test_get_with_counts_filters_work(
+        self,
+        db_session: Session,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test that get_with_counts applies filters correctly."""
+        conv_repo = ConversationRepository(db_session)
+
+        # Create conversations with different attributes
+        conv1 = conv_repo.create(
+            id=uuid.uuid4(),
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=datetime.now(UTC),
+            success=True,
+        )
+        conv2 = conv_repo.create(
+            id=uuid.uuid4(),
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="copilot",
+            start_time=datetime.now(UTC),
+            success=False,
+        )
+
+        # Filter by agent_type (partial match)
+        results = conv_repo.get_with_counts(agent_type="claude")
+        conv_ids = [r[0].id for r in results]
+
+        assert conv1.id in conv_ids
+        assert conv2.id not in conv_ids
+
+        # Filter by success
+        results = conv_repo.get_with_counts(success=True)
+        conv_ids = [r[0].id for r in results]
+
+        assert conv1.id in conv_ids
+        assert conv2.id not in conv_ids
+
+    def test_get_with_counts_pagination(
+        self,
+        db_session: Session,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test that get_with_counts supports pagination."""
+        conv_repo = ConversationRepository(db_session)
+
+        # Create 10 conversations
+        for i in range(10):
+            conv_repo.create(
+                id=uuid.uuid4(),
+                project_id=sample_project.id,
+                developer_id=sample_developer.id,
+                agent_type="claude-code",
+                start_time=datetime.now(UTC) - timedelta(minutes=i),
+            )
+
+        # Get first page
+        page1 = conv_repo.get_with_counts(limit=5, offset=0)
+        assert len(page1) == 5
+
+        # Get second page
+        page2 = conv_repo.get_with_counts(limit=5, offset=5)
+        assert len(page2) == 5
+
+        # Should be different conversations
+        ids1 = {r[0].id for r in page1}
+        ids2 = {r[0].id for r in page2}
+        assert len(ids1 & ids2) == 0
+
+    def test_get_with_counts_ordering(
+        self,
+        db_session: Session,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test get_with_counts ordering by different columns."""
+        conv_repo = ConversationRepository(db_session)
+
+        # Create conversations at different times
+        now = datetime.now(UTC)
+        for i in range(3):
+            conv_repo.create(
+                id=uuid.uuid4(),
+                project_id=sample_project.id,
+                developer_id=sample_developer.id,
+                agent_type="claude-code",
+                start_time=now - timedelta(minutes=i),
+            )
+
+        # Order by start_time desc (default)
+        results_desc = conv_repo.get_with_counts(
+            order_by="start_time", order_dir="desc"
+        )
+        times_desc = [r[0].start_time for r in results_desc]
+
+        # Should be in descending order (newest first)
+        assert times_desc == sorted(times_desc, reverse=True)
+
+        # Order by start_time asc
+        results_asc = conv_repo.get_with_counts(order_by="start_time", order_dir="asc")
+        times_asc = [r[0].start_time for r in results_asc]
+
+        # Should be in ascending order (oldest first)
+        assert times_asc == sorted(times_asc)
+
 
 class TestEpochRepository:
     """Tests for EpochRepository."""

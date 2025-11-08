@@ -38,8 +38,18 @@ class TestGetDbContextManager:
         mock_session = MagicMock(spec=Session)
 
         with patch("catsyphon.db.connection.SessionLocal", return_value=mock_session):
-            with get_db() as session:
-                assert session is mock_session
+            # get_db() is a generator, use contextlib to make it a context manager
+
+            gen = get_db()
+            session = next(gen)
+
+            assert session is mock_session
+
+            # Close the generator
+            try:
+                next(gen)
+            except StopIteration:
+                pass
 
             # Verify session lifecycle
             mock_session.commit.assert_called_once()
@@ -50,9 +60,16 @@ class TestGetDbContextManager:
         mock_session = MagicMock(spec=Session)
 
         with patch("catsyphon.db.connection.SessionLocal", return_value=mock_session):
-            with get_db() as session:
-                # Simulate adding data
-                session.add(MagicMock())
+            gen = get_db()
+            session = next(gen)
+            # Simulate adding data
+            session.add(MagicMock())
+
+            # Close generator normally
+            try:
+                next(gen)
+            except StopIteration:
+                pass
 
             # Should commit on successful exit
             mock_session.commit.assert_called_once()
@@ -64,12 +81,18 @@ class TestGetDbContextManager:
         mock_session = MagicMock(spec=Session)
 
         with patch("catsyphon.db.connection.SessionLocal", return_value=mock_session):
+            gen = get_db()
+            _ = next(gen)  # Get session from generator
+
             try:
-                with get_db():
-                    # Simulate an error
-                    raise ValueError("Test error")
+                # Simulate an error
+                raise ValueError("Test error")
             except ValueError:
-                pass
+                # Send exception to generator
+                try:
+                    gen.throw(ValueError("Test error"))
+                except ValueError:
+                    pass
 
             # Should rollback on exception
             mock_session.rollback.assert_called_once()
@@ -82,9 +105,10 @@ class TestGetDbContextManager:
 
         with patch("catsyphon.db.connection.SessionLocal", return_value=mock_session):
             # Test with exception
+            gen = get_db()
+            _ = next(gen)  # Get session from generator
             try:
-                with get_db():
-                    raise RuntimeError("Error")
+                gen.throw(RuntimeError("Error"))
             except RuntimeError:
                 pass
 
@@ -92,7 +116,11 @@ class TestGetDbContextManager:
 
             # Reset and test without exception
             mock_session.reset_mock()
-            with get_db():
+            gen = get_db()
+            _ = next(gen)  # Get session from generator
+            try:
+                next(gen)
+            except StopIteration:
                 pass
 
             mock_session.close.assert_called_once()
@@ -280,10 +308,11 @@ class TestCheckConnection:
 
     def test_check_connection_returns_true_on_success(self, test_engine):
         """Test that check_connection returns True when successful."""
-        with patch("catsyphon.db.connection.get_db") as mock_get_db:
+        with patch("catsyphon.db.connection.db_session") as mock_db_session:
             # Mock successful database connection
-            mock_session = mock_get_db.return_value.__enter__.return_value
+            mock_session = MagicMock()
             mock_session.execute.return_value = None
+            mock_db_session.return_value.__enter__.return_value = mock_session
 
             result = check_connection()
 
@@ -292,9 +321,9 @@ class TestCheckConnection:
 
     def test_check_connection_returns_false_on_failure(self):
         """Test that check_connection returns False when connection fails."""
-        with patch("catsyphon.db.connection.get_db") as mock_get_db:
+        with patch("catsyphon.db.connection.db_session") as mock_db_session:
             # Mock failed database connection
-            mock_get_db.return_value.__enter__.side_effect = Exception(
+            mock_db_session.return_value.__enter__.side_effect = Exception(
                 "Connection failed"
             )
 
