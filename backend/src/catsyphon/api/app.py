@@ -71,6 +71,28 @@ async def health() -> dict[str, str]:
     }
 
 
+@app.get("/ready")
+async def ready() -> dict:
+    """
+    Readiness probe endpoint for Kubernetes/load balancers.
+
+    Returns 200 OK if ready to serve requests, 503 Service Unavailable otherwise.
+    Includes startup metrics and current health status.
+    """
+    from fastapi import Response, status
+    from catsyphon.startup import check_readiness
+
+    is_ready, details = check_readiness()
+
+    if not is_ready:
+        return Response(
+            content=details,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    return details
+
+
 app.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )

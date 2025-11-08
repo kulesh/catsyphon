@@ -6,6 +6,9 @@ Fails fast with clear, actionable error messages when requirements aren't met.
 """
 
 import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from alembic import command as alembic_command
@@ -16,6 +19,24 @@ from sqlalchemy import text
 
 from catsyphon.config import settings
 from catsyphon.db.connection import SessionLocal, engine
+
+
+@dataclass
+class StartupMetrics:
+    """Metrics collected during startup checks."""
+
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    total_duration_ms: Optional[float] = None
+    environment_check_ms: Optional[float] = None
+    database_check_ms: Optional[float] = None
+    migrations_check_ms: Optional[float] = None
+    checks_passed: bool = False
+    last_check_time: Optional[datetime] = None
+
+
+# Global startup metrics (populated during startup)
+startup_metrics = StartupMetrics(started_at=datetime.utcnow())
 
 
 class StartupCheckError(Exception):
@@ -202,30 +223,99 @@ def run_all_startup_checks() -> None:
     2. Database connection
     3. Database migrations
 
+    Tracks timing metrics for each check.
+
     Raises:
         StartupCheckError: If any critical check fails
         SystemExit: After logging the error
     """
+    global startup_metrics
+    startup_start = time.time()
+
     checks = [
-        ("Environment Variables", check_required_environment),
-        ("Database Connection", check_database_connection),
-        ("Database Migrations", check_database_migrations),
+        ("Environment Variables", check_required_environment, "environment_check_ms"),
+        ("Database Connection", check_database_connection, "database_check_ms"),
+        ("Database Migrations", check_database_migrations, "migrations_check_ms"),
     ]
 
     print("\n" + "="*70)
     print("🚀 Starting CatSyphon Backend - Running Startup Checks")
     print("="*70 + "\n")
 
-    for check_name, check_func in checks:
+    for check_name, check_func, metric_name in checks:
         try:
-            print(f"  Checking {check_name}...", end=" ")
+            print(f"  Checking {check_name}...", end=" ", flush=True)
+            check_start = time.time()
             check_func()
-            print("✅ PASS")
+            check_duration = (time.time() - check_start) * 1000  # Convert to ms
+            setattr(startup_metrics, metric_name, check_duration)
+            print(f"✅ PASS ({check_duration:.1f}ms)")
         except StartupCheckError as e:
-            print("❌ FAIL")
+            check_duration = (time.time() - check_start) * 1000
+            setattr(startup_metrics, metric_name, check_duration)
+            print(f"❌ FAIL ({check_duration:.1f}ms)")
             print(str(e))
             sys.exit(1)
 
+    # Record successful completion
+    startup_metrics.completed_at = datetime.utcnow()
+    startup_metrics.total_duration_ms = (time.time() - startup_start) * 1000
+    startup_metrics.checks_passed = True
+    startup_metrics.last_check_time = datetime.utcnow()
+
     print("\n" + "="*70)
-    print("✅ All startup checks passed - Server is ready")
+    print(f"✅ All startup checks passed - Server is ready ({startup_metrics.total_duration_ms:.1f}ms)")
     print("="*70 + "\n")
+
+
+def check_readiness() -> tuple[bool, dict]:
+    """
+    Quick readiness check for Kubernetes/load balancer probes.
+
+    Returns:
+        tuple: (is_ready: bool, details: dict) where details contains:
+            - ready: bool
+            - database: str (healthy/unhealthy)
+            - startup_completed: bool
+            - startup_metrics: dict with timing information
+            - uptime_seconds: float
+    """
+    # Quick database ping (with timeout)
+    db_ready = False
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+            db_ready = True
+    except Exception:
+        db_ready = False
+
+    # Calculate uptime
+    uptime = (datetime.utcnow() - startup_metrics.started_at).total_seconds()
+
+    # Build response
+    ready = startup_metrics.checks_passed and db_ready
+    details = {
+        "ready": ready,
+        "database": "healthy" if db_ready else "unhealthy",
+        "startup_completed": startup_metrics.checks_passed,
+        "uptime_seconds": uptime,
+        "startup_metrics": {
+            "total_duration_ms": startup_metrics.total_duration_ms,
+            "environment_check_ms": startup_metrics.environment_check_ms,
+            "database_check_ms": startup_metrics.database_check_ms,
+            "migrations_check_ms": startup_metrics.migrations_check_ms,
+            "started_at": startup_metrics.started_at.isoformat() + "Z",
+            "completed_at": (
+                startup_metrics.completed_at.isoformat() + "Z"
+                if startup_metrics.completed_at
+                else None
+            ),
+            "last_check_time": (
+                startup_metrics.last_check_time.isoformat() + "Z"
+                if startup_metrics.last_check_time
+                else None
+            ),
+        },
+    }
+
+    return ready, details
