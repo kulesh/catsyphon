@@ -13,6 +13,7 @@ import type {
   MessageResponse,
   OverviewStats,
   ProjectResponse,
+  UploadResponse,
 } from '@/types/api';
 
 // ===== Error Handling =====
@@ -126,4 +127,42 @@ export async function getOverviewStats(
 
 export async function getHealth(): Promise<HealthResponse> {
   return apiFetch<HealthResponse>('/health');
+}
+
+// ===== Upload Endpoint =====
+
+export async function uploadConversationLogs(
+  files: File[]
+): Promise<UploadResponse> {
+  const formData = new FormData();
+
+  // Append all files with the same field name (FastAPI expects list[UploadFile])
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const url = '/api/upload/';
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      // Don't set Content-Type header - browser will set it with boundary for multipart
+    });
+
+    if (!response.ok) {
+      throw new ApiError(
+        response.status,
+        response.statusText,
+        await response.text()
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    throw new Error(`Network error: ${error}`);
+  }
 }

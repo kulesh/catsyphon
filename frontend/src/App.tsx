@@ -22,6 +22,12 @@ export default function App() {
                 >
                   Conversations
                 </Link>
+                <Link
+                  to="/upload"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Upload
+                </Link>
               </div>
             </div>
           </div>

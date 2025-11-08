@@ -227,3 +227,26 @@ class ConversationFilters(BaseModel):
     success: Optional[bool] = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=100)
+
+
+# ===== Upload Schemas =====
+
+
+class UploadResult(BaseModel):
+    """Result for a single uploaded file."""
+
+    filename: str
+    status: str  # "success" or "error"
+    conversation_id: Optional[UUID] = None
+    message_count: int = 0
+    epoch_count: int = 0
+    files_count: int = 0
+    error: Optional[str] = None
+
+
+class UploadResponse(BaseModel):
+    """Response schema for batch file upload."""
+
+    success_count: int
+    failed_count: int
+    results: list[UploadResult]

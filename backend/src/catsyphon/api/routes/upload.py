@@ -1,0 +1,118 @@
+"""
+Upload API routes.
+
+Endpoints for uploading and ingesting conversation log files.
+"""
+
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from catsyphon.api.schemas import UploadResponse, UploadResult
+from catsyphon.db.connection import get_db
+from catsyphon.parsers import get_default_registry
+from catsyphon.pipeline.ingestion import ingest_conversation
+
+router = APIRouter()
+
+
+@router.post("/", response_model=UploadResponse)
+async def upload_conversation_logs(
+    files: list[UploadFile] = File(...),
+) -> UploadResponse:
+    """
+    Upload and ingest one or more conversation log files.
+
+    Accepts .jsonl files, parses them, and stores them in the database.
+    Returns summary of successful and failed uploads with conversation IDs.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    registry = get_default_registry()
+    results: list[UploadResult] = []
+    success_count = 0
+    failed_count = 0
+
+    for uploaded_file in files:
+        # Validate file extension
+        if not uploaded_file.filename or not uploaded_file.filename.endswith(".jsonl"):
+            results.append(
+                UploadResult(
+                    filename=uploaded_file.filename or "unknown",
+                    status="error",
+                    error="Invalid file type. Only .jsonl files are supported.",
+                )
+            )
+            failed_count += 1
+            continue
+
+        try:
+            # Read file content
+            content = await uploaded_file.read()
+
+            # Save to temporary file for parsing
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".jsonl", delete=False
+            ) as temp_file:
+                temp_file.write(content)
+                temp_path = Path(temp_file.name)
+
+            try:
+                # Parse the file
+                conversation = registry.parse(temp_path)
+
+                # Store to database
+                with get_db() as session:
+                    db_conversation = ingest_conversation(
+                        session=session,
+                        parsed=conversation,
+                        project_name=None,  # Auto-extract from log
+                        developer_username=None,  # Auto-extract from log
+                        file_path=None,  # Don't store temp file path
+                    )
+                    session.commit()
+
+                    # Count related records
+                    message_count = len(conversation.messages)
+                    epoch_count = len(conversation.epochs) if conversation.epochs else 1
+                    files_count = (
+                        len(conversation.files_touched)
+                        if conversation.files_touched
+                        else 0
+                    )
+
+                    results.append(
+                        UploadResult(
+                            filename=uploaded_file.filename,
+                            status="success",
+                            conversation_id=db_conversation.id,
+                            message_count=message_count,
+                            epoch_count=epoch_count,
+                            files_count=files_count,
+                        )
+                    )
+                    success_count += 1
+
+            finally:
+                # Clean up temporary file
+                temp_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            results.append(
+                UploadResult(
+                    filename=uploaded_file.filename,
+                    status="error",
+                    error=str(e),
+                )
+            )
+            failed_count += 1
+
+    return UploadResponse(
+        success_count=success_count,
+        failed_count=failed_count,
+        results=results,
+    )

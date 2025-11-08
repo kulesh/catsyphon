@@ -171,3 +171,21 @@ export interface HealthResponse {
   status: 'healthy' | 'degraded';
   database: 'healthy' | 'unhealthy';
 }
+
+// ===== Upload Types =====
+
+export interface UploadResult {
+  filename: string;
+  status: 'success' | 'error';
+  conversation_id?: string;
+  message_count: number;
+  epoch_count: number;
+  files_count: number;
+  error?: string;
+}
+
+export interface UploadResponse {
+  success_count: number;
+  failed_count: number;
+  results: UploadResult[];
+}
