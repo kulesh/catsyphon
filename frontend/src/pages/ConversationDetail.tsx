@@ -2,9 +2,11 @@
  * Conversation Detail page - Full conversation with messages.
  */
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getConversation } from '@/lib/api';
+import { groupFilesByPath } from '@/lib/utils';
 import { format } from 'date-fns';
 
 export default function ConversationDetail() {
@@ -15,6 +17,12 @@ export default function ConversationDetail() {
     queryFn: () => getConversation(id!),
     enabled: !!id,
   });
+
+  // Group files by path for collapsible display
+  const groupedFiles = useMemo(() => {
+    if (!conversation?.files_touched) return [];
+    return groupFilesByPath(conversation.files_touched);
+  }, [conversation?.files_touched]);
 
   if (isLoading) {
     return (
@@ -241,39 +249,122 @@ export default function ConversationDetail() {
       {/* Files Touched Section */}
       {conversation.files_touched && conversation.files_touched.length > 0 && (
         <div className="bg-card border border-border rounded-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Files Touched</h2>
-          <div className="space-y-2">
-            {conversation.files_touched.map((file) => (
-              <div
-                key={file.id}
-                className="flex items-center justify-between border border-border rounded-md p-3 bg-background"
-              >
-                <div className="flex-1">
-                  <p className="font-mono text-sm">{file.file_path}</p>
-                  {file.change_type && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {file.change_type}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right text-sm ml-4">
-                  <div className="flex gap-3">
-                    <span className="text-green-600 dark:text-green-400">
-                      +{file.lines_added}
-                    </span>
-                    <span className="text-red-600 dark:text-red-400">
-                      -{file.lines_deleted}
-                    </span>
-                    {file.lines_modified > 0 && (
-                      <span className="text-blue-600 dark:text-blue-400">
-                        ~{file.lines_modified}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <details className="group" open>
+            <summary className="cursor-pointer list-none flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">
+                Files Touched
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({conversation.files_touched.length} modifications across {groupedFiles.length} unique files)
+                </span>
+              </h2>
+              <span className="text-muted-foreground group-open:rotate-180 transition-transform">
+                ▼
+              </span>
+            </summary>
+
+            <div className="space-y-2">
+              {groupedFiles.map((file) => {
+                const hasChanges = file.total_lines_added > 0 || file.total_lines_deleted > 0 || file.total_lines_modified > 0;
+
+                return (
+                  <details key={file.file_path} className="group/file border border-border rounded-md bg-background">
+                    <summary className="cursor-pointer list-none flex items-center justify-between p-3 hover:bg-accent/50">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="text-muted-foreground group-open/file:rotate-90 transition-transform">
+                          ▶
+                        </span>
+                        <p className="font-mono text-sm truncate">{file.file_path}</p>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          ({file.total_operations} operation{file.total_operations !== 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      {hasChanges && (
+                        <div className="text-right text-sm ml-4 shrink-0">
+                          <div className="flex gap-3">
+                            {file.total_lines_added > 0 && (
+                              <span className="text-green-600 dark:text-green-400">
+                                +{file.total_lines_added}
+                              </span>
+                            )}
+                            {file.total_lines_deleted > 0 && (
+                              <span className="text-red-600 dark:text-red-400">
+                                -{file.total_lines_deleted}
+                              </span>
+                            )}
+                            {file.total_lines_modified > 0 && (
+                              <span className="text-blue-600 dark:text-blue-400">
+                                ~{file.total_lines_modified}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </summary>
+
+                    <div className="px-6 py-3 space-y-2 border-t border-border">
+                      {Object.values(file.operations).map((operation) => {
+                        const icon = operation.change_type === 'read' ? '📖' :
+                                   operation.change_type === 'edit' || operation.change_type === 'modified' ? '✏️' :
+                                   operation.change_type === 'create' || operation.change_type === 'created' ? '➕' :
+                                   operation.change_type === 'delete' || operation.change_type === 'deleted' ? '🗑️' : '📄';
+
+                        const hasOperationChanges = operation.total_lines_added > 0 || operation.total_lines_deleted > 0 || operation.total_lines_modified > 0;
+
+                        return (
+                          <div key={operation.change_type} className="text-sm">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span>{icon}</span>
+                                <span className="capitalize">{operation.change_type}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({operation.count}×)
+                                </span>
+                              </div>
+                              {hasOperationChanges && (
+                                <div className="flex gap-3">
+                                  {operation.total_lines_added > 0 && (
+                                    <span className="text-green-600 dark:text-green-400">
+                                      +{operation.total_lines_added}
+                                    </span>
+                                  )}
+                                  {operation.total_lines_deleted > 0 && (
+                                    <span className="text-red-600 dark:text-red-400">
+                                      -{operation.total_lines_deleted}
+                                    </span>
+                                  )}
+                                  {operation.total_lines_modified > 0 && (
+                                    <span className="text-blue-600 dark:text-blue-400">
+                                      ~{operation.total_lines_modified}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="ml-6 mt-1 text-xs text-muted-foreground">
+                              {(() => {
+                                // Group by formatted timestamp
+                                const timestampCounts = new Map<string, number>();
+                                operation.modifications.forEach((mod) => {
+                                  const formatted = format(new Date(mod.timestamp), 'MMM d, yyyy h:mm a');
+                                  timestampCounts.set(formatted, (timestampCounts.get(formatted) || 0) + 1);
+                                });
+
+                                return Array.from(timestampCounts.entries()).map(([timestamp, count]) => (
+                                  <div key={timestamp}>
+                                    {timestamp} {count > 1 && `(${count}×)`}
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </details>
         </div>
       )}
 

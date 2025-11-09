@@ -189,3 +189,23 @@ export interface UploadResponse {
   failed_count: number;
   results: UploadResult[];
 }
+
+// ===== Grouped File Types (Frontend Only) =====
+
+export interface GroupedFileOperation {
+  change_type: string;
+  count: number;
+  total_lines_added: number;
+  total_lines_deleted: number;
+  total_lines_modified: number;
+  modifications: FileTouchedResponse[];
+}
+
+export interface GroupedFile {
+  file_path: string;
+  total_operations: number;
+  total_lines_added: number;
+  total_lines_deleted: number;
+  total_lines_modified: number;
+  operations: Record<string, GroupedFileOperation>;
+}
