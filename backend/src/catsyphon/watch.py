@@ -104,7 +104,8 @@ class RetryQueue:
             if entry.attempts >= self.max_retries:
                 # Remove files that have exceeded max retries
                 logger.warning(
-                    f"Giving up on {entry.file_path.name} after {entry.attempts} attempts"
+                    f"Giving up on {entry.file_path.name} "
+                    f"after {entry.attempts} attempts"
                 )
                 del self.queue[str(entry.file_path)]
                 continue
@@ -315,7 +316,9 @@ class WatcherDaemon:
 
         # Create components
         self.stats = WatcherStats()
-        self.retry_queue = RetryQueue(max_retries=max_retries, base_interval=retry_interval)
+        self.retry_queue = RetryQueue(
+            max_retries=max_retries, base_interval=retry_interval
+        )
         self.event_handler = FileWatcher(
             project_name=project_name,
             developer_username=developer_username,
@@ -392,7 +395,8 @@ class WatcherDaemon:
                         break
 
                     logger.info(
-                        f"Retrying {entry.file_path.name} (attempt {entry.attempts + 1})"
+                        f"Retrying {entry.file_path.name} "
+                        f"(attempt {entry.attempts + 1})"
                     )
 
                     # Process the file

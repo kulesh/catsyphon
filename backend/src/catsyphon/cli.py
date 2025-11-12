@@ -145,8 +145,12 @@ def watch(
     directory: str = typer.Argument(None, help="Directory to watch for new logs"),
     project: str = typer.Option(None, help="Project name for watched files"),
     developer: str = typer.Option(None, help="Developer username for watched files"),
-    poll_interval: int = typer.Option(None, help="File system polling interval (seconds)"),
-    retry_interval: int = typer.Option(None, help="Retry interval for failed files (seconds)"),
+    poll_interval: int = typer.Option(
+        None, help="File system polling interval (seconds)"
+    ),
+    retry_interval: int = typer.Option(
+        None, help="Retry interval for failed files (seconds)"
+    ),
     max_retries: int = typer.Option(None, help="Maximum retry attempts"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ) -> None:
@@ -168,7 +172,8 @@ def watch(
     watch_dir = directory or settings.watch_directory
     if not watch_dir:
         console.print(
-            "[bold red]Error:[/bold red] No directory specified and no default set in config"
+            "[bold red]Error:[/bold red] No directory specified "
+            "and no default set in config"
         )
         console.print("\nUsage:")
         console.print("  catsyphon watch /path/to/logs")
@@ -178,18 +183,24 @@ def watch(
     project_name = project or settings.watch_project_name or None
     developer_username = developer or settings.watch_developer_username or None
     poll = poll_interval if poll_interval is not None else settings.watch_poll_interval
-    retry = retry_interval if retry_interval is not None else settings.watch_retry_interval
+    retry = (
+        retry_interval if retry_interval is not None else settings.watch_retry_interval
+    )
     max_retry = max_retries if max_retries is not None else settings.watch_max_retries
     debounce = settings.watch_debounce_seconds
 
     # Validate directory
     dir_path = Path(watch_dir).expanduser()
     if not dir_path.exists():
-        console.print(f"[bold red]Error:[/bold red] Directory does not exist: {dir_path}")
+        console.print(
+            f"[bold red]Error:[/bold red] Directory does not exist: {dir_path}"
+        )
         raise typer.Exit(1)
 
     if not dir_path.is_dir():
-        console.print(f"[bold red]Error:[/bold red] Path is not a directory: {dir_path}")
+        console.print(
+            f"[bold red]Error:[/bold red] Path is not a directory: {dir_path}"
+        )
         raise typer.Exit(1)
 
     # Show configuration
