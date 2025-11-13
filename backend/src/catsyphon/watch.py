@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
-from typing import Optional, Set
+from typing import TYPE_CHECKING, Optional, Set
+
+if TYPE_CHECKING:
+    from catsyphon.tagging.pipeline import TaggingPipeline
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
@@ -140,6 +143,7 @@ class FileWatcher(FileSystemEventHandler):
         retry_queue: Optional[RetryQueue] = None,
         stats: Optional[WatcherStats] = None,
         debounce_seconds: float = 1.0,
+        tagging_pipeline: Optional["TaggingPipeline"] = None,
     ):
         super().__init__()
         self.project_name = project_name
@@ -147,6 +151,7 @@ class FileWatcher(FileSystemEventHandler):
         self.retry_queue = retry_queue or RetryQueue()
         self.stats = stats or WatcherStats()
         self.debounce_seconds = debounce_seconds
+        self.tagging_pipeline = tagging_pipeline
 
         # Track files being processed to avoid duplicate events
         self.processing: Set[str] = set()
@@ -246,6 +251,23 @@ class FileWatcher(FileSystemEventHandler):
                     # Parse conversation (auto-detects format)
                     parsed = self.parser_registry.parse(file_path)
 
+                    # Run tagging if enabled
+                    tags = None
+                    if self.tagging_pipeline:
+                        try:
+                            tags = self.tagging_pipeline.tag_conversation(parsed)
+                            logger.debug(
+                                f"Tagged {file_path.name}: "
+                                f"intent={tags.get('intent')}, "
+                                f"outcome={tags.get('outcome')}, "
+                                f"sentiment={tags.get('sentiment')}"
+                            )
+                        except Exception as tag_error:
+                            logger.warning(
+                                f"Tagging failed for {file_path.name}: {tag_error}"
+                            )
+                            tags = None  # Continue without tags
+
                     # Ingest into database
                     conversation_id = ingest_conversation(
                         session=session,
@@ -253,6 +275,7 @@ class FileWatcher(FileSystemEventHandler):
                         project_name=self.project_name,
                         developer_username=self.developer_username,
                         file_path=file_path,
+                        tags=tags,
                         skip_duplicates=True,
                     )
 
@@ -306,6 +329,7 @@ class WatcherDaemon:
         retry_interval: int = 300,
         max_retries: int = 3,
         debounce_seconds: float = 1.0,
+        enable_tagging: bool = False,
     ):
         self.directory = directory
         self.project_name = project_name
@@ -313,6 +337,23 @@ class WatcherDaemon:
         self.poll_interval = poll_interval
         self.retry_interval = retry_interval
         self.debounce_seconds = debounce_seconds
+        self.enable_tagging = enable_tagging
+
+        # Initialize tagging pipeline if enabled
+        tagging_pipeline = None
+        if enable_tagging:
+            from pathlib import Path
+
+            from catsyphon.tagging import TaggingPipeline
+
+            tagging_pipeline = TaggingPipeline(
+                openai_api_key=settings.openai_api_key,
+                openai_model=settings.openai_model,
+                cache_dir=Path(settings.tagging_cache_dir),
+                cache_ttl_days=settings.tagging_cache_ttl_days,
+                enable_cache=settings.tagging_enable_cache,
+            )
+            logger.info("✓ LLM tagging pipeline initialized")
 
         # Create components
         self.stats = WatcherStats()
@@ -325,6 +366,7 @@ class WatcherDaemon:
             retry_queue=self.retry_queue,
             stats=self.stats,
             debounce_seconds=debounce_seconds,
+            tagging_pipeline=tagging_pipeline,
         )
 
         # Watchdog observer
@@ -420,6 +462,7 @@ def start_watching(
     max_retries: int = 3,
     debounce_seconds: float = 1.0,
     verbose: bool = False,
+    enable_tagging: bool = False,
 ) -> None:
     """
     Start watching a directory for new conversation logs.
@@ -433,6 +476,7 @@ def start_watching(
         max_retries: Maximum number of retry attempts
         debounce_seconds: Wait time after file event before processing
         verbose: Enable verbose logging (includes SQL queries)
+        enable_tagging: Enable LLM-based tagging (uses OpenAI API)
     """
     # Validate directory
     if not directory.exists():
@@ -465,6 +509,7 @@ def start_watching(
         retry_interval=retry_interval,
         max_retries=max_retries,
         debounce_seconds=debounce_seconds,
+        enable_tagging=enable_tagging,
     )
 
     daemon.start()

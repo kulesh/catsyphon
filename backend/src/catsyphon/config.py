@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_max_tokens: int = 2000
 
+    # Tagging
+    tagging_enabled: bool = False  # Enable LLM tagging by default (opt-in via flag)
+    tagging_cache_dir: str = ".catsyphon_cache/tags"  # Cache directory for tags
+    tagging_cache_ttl_days: int = 30  # Cache time-to-live in days
+    tagging_enable_cache: bool = True  # Enable caching (reduces OpenAI costs)
+
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000

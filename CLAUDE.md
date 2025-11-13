@@ -106,11 +106,13 @@ uv run catsyphon serve                          # Production server on :8000
 uv run uvicorn catsyphon.api.app:app --reload   # Dev server with hot reload
 
 # CLI commands
-uv run catsyphon ingest <path> --project "name"  # One-time log import
-uv run catsyphon watch <path> --project "name"   # Live directory watching
-uv run catsyphon watch <path> --verbose          # With SQL query logs
-uv run catsyphon db-status                       # Database health check
-uv run catsyphon version                         # Show version
+uv run catsyphon ingest <path> --project "name"              # One-time log import
+uv run catsyphon ingest <path> --enable-tagging              # Import with LLM tagging
+uv run catsyphon watch <path> --project "name"               # Live directory watching
+uv run catsyphon watch <path> --enable-tagging               # Watch with LLM tagging
+uv run catsyphon watch <path> --verbose                      # With SQL query logs
+uv run catsyphon db-status                                   # Database health check
+uv run catsyphon version                                     # Show version
 
 # Testing & quality
 uv run pytest                                    # Run all tests
@@ -199,6 +201,11 @@ ENVIRONMENT=development
 LOG_LEVEL=INFO
 API_PORT=8000
 WATCH_POLL_INTERVAL=2
+
+# Tagging (optional)
+TAGGING_CACHE_DIR=.catsyphon_cache/tags  # Cache directory
+TAGGING_CACHE_TTL_DAYS=30                # Cache expiration
+TAGGING_ENABLE_CACHE=true                # Enable caching (reduces OpenAI costs)
 ```
 
 Managed via Pydantic Settings in `backend/src/catsyphon/config.py`.
@@ -244,7 +251,13 @@ uv run pytest -k "deduplication"            # Tests matching pattern
 
 2. **Real-Time Frontend Polling**: Dashboard and conversation list auto-refresh every 15 seconds with freshness indicators and new item highlighting
 
-3. **AI-Powered Tagging**: OpenAI gpt-4o-mini enriches conversations with sentiment, intent, and outcome analysis (~$10 per 1,000 conversations)
+3. **AI-Powered Tagging**: OpenAI gpt-4o-mini enriches conversations with metadata (opt-in via `--enable-tagging` flag):
+   - **Sentiment**: positive, neutral, negative, frustrated (with numeric score -1.0 to 1.0)
+   - **Intent**: feature_add, bug_fix, refactor, learning, debugging, other
+   - **Outcome**: success, partial, failed, abandoned, unknown
+   - **Features/Problems**: Lists of capabilities discussed and blockers encountered
+   - **Rule-Based Tags**: Automatic extraction of errors, tool usage, and patterns
+   - **File-Based Cache**: 30-day TTL cache reduces costs by 80-90% on re-ingestion (~$10 per 1,000 conversations uncached)
 
 4. **Deduplication System**: Hash-based duplicate detection prevents re-processing identical files
 

@@ -34,6 +34,9 @@ def ingest(
     skip_duplicates: bool = typer.Option(
         True, help="Skip files that have already been processed"
     ),
+    enable_tagging: bool = typer.Option(
+        False, "--enable-tagging", help="Enable LLM-based tagging (uses OpenAI API)"
+    ),
 ) -> None:
     """
     Ingest conversation logs into the database.
@@ -43,6 +46,7 @@ def ingest(
     """
     from pathlib import Path
 
+    from catsyphon.config import settings
     from catsyphon.parsers import get_default_registry
 
     console.print(f"[bold blue]Ingesting logs from:[/bold blue] {path}")
@@ -51,7 +55,28 @@ def ingest(
     console.print(f"  Batch mode: {batch}")
     console.print(f"  Dry run: {dry_run}")
     console.print(f"  Skip duplicates: {skip_duplicates}")
+    console.print(f"  LLM tagging: {enable_tagging}")
     console.print()
+
+    # Initialize tagging pipeline if enabled
+    tagging_pipeline = None
+    if enable_tagging:
+        if not settings.openai_api_key:
+            console.print(
+                "[bold red]Error:[/bold red] OPENAI_API_KEY not set in environment"
+            )
+            raise typer.Exit(1)
+
+        from catsyphon.tagging import TaggingPipeline
+
+        tagging_pipeline = TaggingPipeline(
+            openai_api_key=settings.openai_api_key,
+            openai_model=settings.openai_model,
+            cache_dir=Path(settings.tagging_cache_dir),
+            cache_ttl_days=settings.tagging_cache_ttl_days,
+            enable_cache=settings.tagging_enable_cache,
+        )
+        console.print("[green]✓ LLM tagging pipeline initialized[/green]\n")
 
     # Get parser registry
     registry = get_default_registry()
@@ -95,6 +120,21 @@ def ingest(
                 f"{sum(len(m.tool_calls) for m in conversation.messages)} tool calls"
             )
 
+            # Run tagging if enabled
+            tags = None
+            if tagging_pipeline:
+                console.print("  [cyan]Tagging...[/cyan] ", end="")
+                try:
+                    tags = tagging_pipeline.tag_conversation(conversation)
+                    console.print(
+                        f"[green]✓[/green] intent={tags.get('intent')}, "
+                        f"outcome={tags.get('outcome')}, "
+                        f"sentiment={tags.get('sentiment')}"
+                    )
+                except Exception as tag_error:
+                    console.print(f"[yellow]⚠ Tagging failed:[/yellow] {tag_error}")
+                    tags = None  # Continue without tags
+
             # Store to database (unless dry-run)
             if not dry_run:
                 from catsyphon.db.connection import get_db
@@ -109,6 +149,7 @@ def ingest(
                             project_name=project,
                             developer_username=developer,
                             file_path=log_file,
+                            tags=tags,
                             skip_duplicates=skip_duplicates,
                         )
                         session.commit()
@@ -153,6 +194,9 @@ def watch(
     ),
     max_retries: int = typer.Option(None, help="Maximum retry attempts"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    enable_tagging: bool = typer.Option(
+        False, "--enable-tagging", help="Enable LLM-based tagging (uses OpenAI API)"
+    ),
 ) -> None:
     """
     Watch a directory for new conversation logs and auto-ingest them.
@@ -203,6 +247,14 @@ def watch(
         )
         raise typer.Exit(1)
 
+    # Validate OpenAI API key if tagging enabled
+    if enable_tagging and not settings.openai_api_key:
+        console.print(
+            "[bold red]Error:[/bold red] --enable-tagging requires OPENAI_API_KEY "
+            "to be set in environment"
+        )
+        raise typer.Exit(1)
+
     # Show configuration
     console.print("[bold green]Starting watch daemon...[/bold green]")
     console.print(f"  Directory: {dir_path}")
@@ -210,6 +262,7 @@ def watch(
     console.print(f"  Developer: {developer_username or '[default]'}")
     console.print(f"  Poll interval: {poll}s")
     console.print(f"  Retry interval: {retry}s (max {max_retry} attempts)")
+    console.print(f"  LLM tagging: {enable_tagging}")
     console.print(f"  Log file: {settings.watch_log_file}")
     console.print("\n[dim]Press Ctrl+C to stop watching...[/dim]\n")
 
@@ -230,6 +283,7 @@ def watch(
             max_retries=max_retry,
             debounce_seconds=debounce,
             verbose=verbose,
+            enable_tagging=enable_tagging,
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]Watch daemon stopped by user[/yellow]")
