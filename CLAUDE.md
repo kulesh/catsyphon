@@ -115,12 +115,14 @@ uv run catsyphon db-status                                   # Database health c
 uv run catsyphon version                                     # Show version
 
 # Testing & quality
-uv run pytest                                    # Run all tests
-uv run pytest --cov=src/catsyphon               # With coverage
-uv run pytest tests/test_api_conversations.py   # Single test file
-uv run mypy src/                                # Type checking
-uv run black src/ tests/                        # Format code
-uv run ruff check src/ tests/                   # Lint
+python3 -m pytest                                # Run all tests (more stable than uv)
+python3 -m pytest --cov=src/catsyphon           # With coverage
+python3 -m pytest tests/test_api_conversations.py  # Single test file
+python3 -m pytest tests/test_watch/             # Watch daemon tests
+python3 -m mypy src/                            # Type checking
+python3 -m black src/ tests/                    # Format code
+python3 -m ruff check src/ tests/               # Lint
+python3 -m ruff check --fix src/ tests/         # Lint with auto-fix
 
 # Database migrations
 uv run alembic revision --autogenerate -m "Description"
@@ -135,6 +137,10 @@ cd frontend
 
 pnpm dev                # Development server with HMR (Vite)
 pnpm build              # Production build (tsc + vite)
+pnpm test               # Run Vitest tests in watch mode
+pnpm test -- --run      # Run tests once (CI mode)
+pnpm run test:coverage  # Run tests with coverage report
+pnpm run test:ui        # Interactive test UI
 pnpm lint               # ESLint
 pnpm tsc --noEmit       # TypeScript type checking
 pnpm preview            # Preview production build
