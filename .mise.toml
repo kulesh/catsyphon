@@ -1,7 +1,7 @@
 [tools]
 python = "3.11"  # Backend requirement
 node = "20"      # Frontend - LTS version
-uv = "latest"    # Python package manager
+uv = "latest"
 pnpm = "latest"  # Frontend package manager
 
 [env]
