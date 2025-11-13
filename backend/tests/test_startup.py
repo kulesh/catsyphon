@@ -172,3 +172,239 @@ class TestCheckReadiness:
 
             assert isinstance(ready, bool)
             assert isinstance(info, dict)
+
+
+class TestDatabaseMigrationCheck:
+    """Tests for database migration validation."""
+
+    @patch("catsyphon.startup.engine")
+    @patch("catsyphon.startup.ScriptDirectory")
+    @patch("catsyphon.startup.AlembicConfig")
+    def test_check_migrations_up_to_date(
+        self,
+        mock_alembic_config: MagicMock,
+        mock_script_dir: MagicMock,
+        mock_engine: MagicMock,
+    ):
+        """Test migration check when migrations are current."""
+        from catsyphon.startup import check_database_migrations
+        from alembic.runtime.migration import MigrationContext
+
+        # Mock Alembic config
+        mock_config = MagicMock()
+        mock_alembic_config.return_value = mock_config
+
+        # Mock script directory
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = "abc123"
+        mock_script_dir.from_config.return_value = mock_script
+
+        # Mock database connection
+        mock_connection = MagicMock()
+        mock_context = MagicMock()
+        mock_context.get_current_revision.return_value = "abc123"  # Same as head
+
+        mock_connection.__enter__ = MagicMock(return_value=mock_connection)
+        mock_connection.__exit__ = MagicMock(return_value=False)
+        mock_engine.connect.return_value = mock_connection
+
+        with patch("catsyphon.startup.MigrationContext") as mock_migration_ctx:
+            mock_migration_ctx.configure.return_value = mock_context
+
+            # Should not raise
+            check_database_migrations()
+
+    @patch("catsyphon.startup.engine")
+    @patch("catsyphon.startup.ScriptDirectory")
+    @patch("catsyphon.startup.AlembicConfig")
+    def test_check_migrations_uninitialized_database(
+        self,
+        mock_alembic_config: MagicMock,
+        mock_script_dir: MagicMock,
+        mock_engine: MagicMock,
+    ):
+        """Test migration check when database is uninitialized."""
+        from catsyphon.startup import check_database_migrations
+
+        mock_config = MagicMock()
+        mock_alembic_config.return_value = mock_config
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = "abc123"
+        mock_script_dir.from_config.return_value = mock_script
+
+        mock_connection = MagicMock()
+        mock_context = MagicMock()
+        mock_context.get_current_revision.return_value = None  # No version
+
+        mock_connection.__enter__ = MagicMock(return_value=mock_connection)
+        mock_connection.__exit__ = MagicMock(return_value=False)
+        mock_engine.connect.return_value = mock_connection
+
+        with patch("catsyphon.startup.MigrationContext") as mock_migration_ctx:
+            mock_migration_ctx.configure.return_value = mock_context
+
+            with pytest.raises(StartupCheckError) as exc_info:
+                check_database_migrations()
+
+            assert "no migration version" in str(exc_info.value).lower()
+
+    @patch("catsyphon.startup.engine")
+    @patch("catsyphon.startup.ScriptDirectory")
+    @patch("catsyphon.startup.AlembicConfig")
+    def test_check_migrations_out_of_date(
+        self,
+        mock_alembic_config: MagicMock,
+        mock_script_dir: MagicMock,
+        mock_engine: MagicMock,
+    ):
+        """Test migration check when pending migrations exist."""
+        from catsyphon.startup import check_database_migrations
+
+        mock_config = MagicMock()
+        mock_alembic_config.return_value = mock_config
+
+        # Mock pending revision
+        mock_rev = MagicMock()
+        mock_rev.revision = "new123"
+        mock_rev.doc = "Add new feature"
+
+        mock_script = MagicMock()
+        mock_script.get_current_head.return_value = "new123"
+        mock_script.iterate_revisions.return_value = [mock_rev]
+        mock_script_dir.from_config.return_value = mock_script
+
+        mock_connection = MagicMock()
+        mock_context = MagicMock()
+        mock_context.get_current_revision.return_value = "old456"  # Different
+
+        mock_connection.__enter__ = MagicMock(return_value=mock_connection)
+        mock_connection.__exit__ = MagicMock(return_value=False)
+        mock_engine.connect.return_value = mock_connection
+
+        with patch("catsyphon.startup.MigrationContext") as mock_migration_ctx:
+            mock_migration_ctx.configure.return_value = mock_context
+
+            with pytest.raises(StartupCheckError) as exc_info:
+                check_database_migrations()
+
+            error_msg = str(exc_info.value).lower()
+            assert "out of date" in error_msg or "pending" in error_msg
+
+    @patch("catsyphon.startup.AlembicConfig")
+    def test_check_migrations_config_not_found(self, mock_alembic_config: MagicMock):
+        """Test migration check when alembic.ini is missing."""
+        from catsyphon.startup import check_database_migrations
+
+        mock_alembic_config.side_effect = FileNotFoundError("alembic.ini not found")
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_database_migrations()
+
+        assert "configuration not found" in str(exc_info.value).lower()
+
+
+class TestDatabaseConnectionErrorHandling:
+    """Tests for specific database connection error scenarios."""
+
+    @patch("catsyphon.startup.SessionLocal")
+    @patch("catsyphon.startup.settings")
+    def test_connection_timeout_error(
+        self, mock_settings: MagicMock, mock_session_local: MagicMock
+    ):
+        """Test handling of connection timeout."""
+        mock_settings.postgres_host = "localhost"
+        mock_settings.postgres_port = 5432
+
+        mock_session = MagicMock()
+        mock_session.execute.side_effect = Exception("connection timed out")
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_local.return_value = mock_session
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_database_connection()
+
+        error_msg = str(exc_info.value).lower()
+        assert "timed out" in error_msg or "timeout" in error_msg
+
+    @patch("catsyphon.startup.SessionLocal")
+    @patch("catsyphon.startup.settings")
+    def test_database_not_exist_error(
+        self, mock_settings: MagicMock, mock_session_local: MagicMock
+    ):
+        """Test handling when database does not exist."""
+        mock_settings.postgres_db = "nonexistent"
+
+        mock_session = MagicMock()
+        mock_session.execute.side_effect = Exception(
+            "database nonexistent does not exist"
+        )
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_local.return_value = mock_session
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_database_connection()
+
+        error_msg = str(exc_info.value).lower()
+        assert "does not exist" in error_msg
+
+    @patch("catsyphon.startup.SessionLocal")
+    def test_unexpected_query_result(self, mock_session_local: MagicMock):
+        """Test handling of unexpected query result."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = 999  # Wrong result
+        mock_session.execute.return_value = mock_result
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_local.return_value = mock_session
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_database_connection()
+
+        assert "unexpected result" in str(exc_info.value).lower()
+
+
+class TestEnvironmentVariableValidation:
+    """Tests for comprehensive environment variable validation."""
+
+    @patch("catsyphon.startup.settings")
+    def test_missing_postgres_db(self, mock_settings: MagicMock):
+        """Test detection of missing POSTGRES_DB."""
+        mock_settings.postgres_host = "localhost"
+        mock_settings.postgres_db = ""  # Missing
+        mock_settings.postgres_user = "user"
+        mock_settings.postgres_password = "pass"
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_required_environment()
+
+        assert "POSTGRES_DB" in str(exc_info.value)
+
+    @patch("catsyphon.startup.settings")
+    def test_missing_postgres_user(self, mock_settings: MagicMock):
+        """Test detection of missing POSTGRES_USER."""
+        mock_settings.postgres_host = "localhost"
+        mock_settings.postgres_db = "db"
+        mock_settings.postgres_user = ""  # Missing
+        mock_settings.postgres_password = "pass"
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_required_environment()
+
+        assert "POSTGRES_USER" in str(exc_info.value)
+
+    @patch("catsyphon.startup.settings")
+    def test_missing_postgres_password(self, mock_settings: MagicMock):
+        """Test detection of missing POSTGRES_PASSWORD."""
+        mock_settings.postgres_host = "localhost"
+        mock_settings.postgres_db = "db"
+        mock_settings.postgres_user = "user"
+        mock_settings.postgres_password = ""  # Missing
+
+        with pytest.raises(StartupCheckError) as exc_info:
+            check_required_environment()
+
+        assert "POSTGRES_PASSWORD" in str(exc_info.value)
