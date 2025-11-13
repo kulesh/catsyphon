@@ -80,6 +80,7 @@ async def ready() -> dict:
     Includes startup metrics and current health status.
     """
     from fastapi import Response, status
+
     from catsyphon.startup import check_readiness
 
     is_ready, details = check_readiness()

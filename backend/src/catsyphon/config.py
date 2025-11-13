@@ -50,11 +50,15 @@ class Settings(BaseSettings):
     api_reload: bool = True
 
     # Watch daemon
-    watch_directory: str = ""  # Default directory to watch (empty = require explicit path)
+    watch_directory: str = (
+        ""  # Default directory to watch (empty = require explicit path)
+    )
     watch_project_name: str = ""  # Default project name for watched files
     watch_developer_username: str = ""  # Default developer username for watched files
     watch_poll_interval: int = 2  # File system polling interval in seconds
-    watch_retry_interval: int = 300  # Retry failed files every N seconds (default: 5 minutes)
+    watch_retry_interval: int = (
+        300  # Retry failed files every N seconds (default: 5 minutes)
+    )
     watch_max_retries: int = 3  # Maximum number of retry attempts before giving up
     watch_pid_file: str = "/tmp/catsyphon_watch.pid"  # Daemon PID file location
     watch_log_file: str = "/tmp/catsyphon_watch.log"  # Daemon log file location

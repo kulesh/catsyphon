@@ -2,13 +2,11 @@
 
 import time
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
-from threading import Event
+from unittest.mock import Mock, patch
 
 import pytest
 
 from catsyphon.watch import FileWatcher, RetryQueue, WatcherStats
-from catsyphon.exceptions import DuplicateFileError
 
 
 @pytest.fixture

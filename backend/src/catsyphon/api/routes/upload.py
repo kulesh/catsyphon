@@ -6,10 +6,8 @@ Endpoints for uploading and ingesting conversation log files.
 
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from sqlalchemy.orm import Session
 
 from catsyphon.api.schemas import UploadResponse, UploadResult
 from catsyphon.db.connection import db_session

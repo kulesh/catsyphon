@@ -2,7 +2,6 @@
 
 import logging
 import re
-from typing import Any
 
 from catsyphon.models.parsed import ConversationTags, ParsedConversation
 
@@ -85,9 +84,7 @@ class RuleTagger:
             True if errors detected, False otherwise
         """
         # Check messages for error patterns
-        combined_text = " ".join(
-            (msg.content or "").lower() for msg in parsed.messages
-        )
+        combined_text = " ".join((msg.content or "").lower() for msg in parsed.messages)
 
         for pattern in ERROR_PATTERNS:
             if re.search(pattern, combined_text, re.IGNORECASE):
@@ -106,9 +103,7 @@ class RuleTagger:
             List of tool names detected
         """
         tools = set()
-        combined_text = " ".join(
-            (msg.content or "").lower() for msg in parsed.messages
-        )
+        combined_text = " ".join((msg.content or "").lower() for msg in parsed.messages)
 
         for tool_name, pattern in TOOL_PATTERNS.items():
             if re.search(pattern, combined_text, re.IGNORECASE):
@@ -129,9 +124,7 @@ class RuleTagger:
         patterns = []
 
         # Check for common conversation patterns
-        combined_text = " ".join(
-            (msg.content or "").lower() for msg in parsed.messages
-        )
+        combined_text = " ".join((msg.content or "").lower() for msg in parsed.messages)
 
         # Long conversation pattern
         if len(parsed.messages) > 50:

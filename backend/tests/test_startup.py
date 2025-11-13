@@ -187,8 +187,8 @@ class TestDatabaseMigrationCheck:
         mock_engine: MagicMock,
     ):
         """Test migration check when migrations are current."""
+
         from catsyphon.startup import check_database_migrations
-        from alembic.runtime.migration import MigrationContext
 
         # Mock Alembic config
         mock_config = MagicMock()

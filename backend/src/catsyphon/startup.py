@@ -11,10 +11,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
-from alembic.script import ScriptDirectory
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
 from catsyphon.config import settings
@@ -137,8 +136,7 @@ def check_database_migrations() -> None:
 
         if current_revision is None:
             raise StartupCheckError(
-                "Database has no migration version\n"
-                "Database appears uninitialized",
+                "Database has no migration version\n" "Database appears uninitialized",
                 "Run migrations: alembic upgrade head",
             )
 
@@ -194,15 +192,16 @@ def check_required_environment() -> None:
         missing.append("POSTGRES_PASSWORD")
 
     # Check optional but recommended settings
-    if not settings.openai_api_key or settings.openai_api_key == "your_openai_api_key_here":
-        warnings.append(
-            "OPENAI_API_KEY not set (tagging features will not work)"
-        )
+    if (
+        not settings.openai_api_key
+        or settings.openai_api_key == "your_openai_api_key_here"
+    ):
+        warnings.append("OPENAI_API_KEY not set (tagging features will not work)")
 
     if missing:
         raise StartupCheckError(
-            f"Missing required environment variables:\n" +
-            "\n".join(f"  - {var}" for var in missing),
+            "Missing required environment variables:\n"
+            + "\n".join(f"  - {var}" for var in missing),
             "Set these variables in your .env file",
         )
 
@@ -238,9 +237,9 @@ def run_all_startup_checks() -> None:
         ("Database Migrations", check_database_migrations, "migrations_check_ms"),
     ]
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("🚀 Starting CatSyphon Backend - Running Startup Checks")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     for check_name, check_func, metric_name in checks:
         try:
@@ -263,9 +262,11 @@ def run_all_startup_checks() -> None:
     startup_metrics.checks_passed = True
     startup_metrics.last_check_time = datetime.utcnow()
 
-    print("\n" + "="*70)
-    print(f"✅ All startup checks passed - Server is ready ({startup_metrics.total_duration_ms:.1f}ms)")
-    print("="*70 + "\n")
+    print("\n" + "=" * 70)
+    print(
+        f"✅ All startup checks passed - Server is ready ({startup_metrics.total_duration_ms:.1f}ms)"
+    )
+    print("=" * 70 + "\n")
 
 
 def check_readiness() -> tuple[bool, dict]:

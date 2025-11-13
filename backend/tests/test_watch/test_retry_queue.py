@@ -4,9 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from catsyphon.watch import RetryQueue, RetryEntry
+from catsyphon.watch import RetryQueue
 
 
 class TestRetryQueue:

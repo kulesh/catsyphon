@@ -123,12 +123,16 @@ async def list_conversations(
     # Parse date filters if provided
     if start_date:
         try:
-            filters["start_date"] = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            filters["start_date"] = datetime.fromisoformat(
+                start_date.replace("Z", "+00:00")
+            )
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start_date format")
     if end_date:
         try:
-            filters["end_date"] = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            filters["end_date"] = datetime.fromisoformat(
+                end_date.replace("Z", "+00:00")
+            )
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid end_date format")
 

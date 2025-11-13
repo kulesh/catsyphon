@@ -20,7 +20,9 @@ def temp_cache_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 @patch("catsyphon.tagging.pipeline.LLMTagger")
-def tagging_pipeline(mock_llm_tagger_class: Mock, temp_cache_dir: Path) -> TaggingPipeline:
+def tagging_pipeline(
+    mock_llm_tagger_class: Mock, temp_cache_dir: Path
+) -> TaggingPipeline:
     """Create a tagging pipeline instance with mocked LLM tagger."""
     # Mock LLM tagger to avoid OpenAI client initialization
     mock_llm_tagger_class.return_value = Mock()
@@ -66,7 +68,9 @@ class TestTaggingPipeline:
     """Tests for TaggingPipeline class."""
 
     @patch("catsyphon.tagging.pipeline.LLMTagger")
-    def test_initialization_with_cache(self, mock_llm_tagger_class: Mock, temp_cache_dir: Path):
+    def test_initialization_with_cache(
+        self, mock_llm_tagger_class: Mock, temp_cache_dir: Path
+    ):
         """Test pipeline initialization with cache enabled."""
         mock_llm_tagger_class.return_value = Mock()
 
@@ -83,7 +87,9 @@ class TestTaggingPipeline:
         assert pipeline.llm_tagger is not None
 
     @patch("catsyphon.tagging.pipeline.LLMTagger")
-    def test_initialization_without_cache(self, mock_llm_tagger_class: Mock, temp_cache_dir: Path):
+    def test_initialization_without_cache(
+        self, mock_llm_tagger_class: Mock, temp_cache_dir: Path
+    ):
         """Test pipeline initialization with cache disabled."""
         mock_llm_tagger_class.return_value = Mock()
 

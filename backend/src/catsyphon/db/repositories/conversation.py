@@ -316,8 +316,9 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         Get conversations with counts computed in SQL.
 
-        Returns list of (conversation, message_count, epoch_count, files_count) tuples.
-        This is much more efficient than loading all messages/epochs/files just to count them.
+        Returns list of (conversation, message_count, epoch_count,
+        files_count) tuples. This is much more efficient than loading all
+        messages/epochs/files just to count them.
 
         Args:
             project_id: Filter by project
@@ -335,21 +336,24 @@ class ConversationRepository(BaseRepository[Conversation]):
         Returns:
             List of (Conversation, message_count, epoch_count, files_count) tuples
         """
-        from catsyphon.models.db import Message, Epoch, FileTouched
+        from catsyphon.models.db import Epoch, FileTouched, Message
 
         query = (
             self.session.query(
                 Conversation,
-                func.coalesce(func.count(Message.id.distinct()), 0).label('message_count'),
-                func.coalesce(func.count(Epoch.id.distinct()), 0).label('epoch_count'),
-                func.coalesce(func.count(FileTouched.id.distinct()), 0).label('files_count'),
+                func.coalesce(func.count(Message.id.distinct()), 0).label(
+                    "message_count"
+                ),
+                func.coalesce(func.count(Epoch.id.distinct()), 0).label("epoch_count"),
+                func.coalesce(func.count(FileTouched.id.distinct()), 0).label(
+                    "files_count"
+                ),
             )
             .outerjoin(Message, Conversation.id == Message.conversation_id)
             .outerjoin(Epoch, Conversation.id == Epoch.conversation_id)
             .outerjoin(FileTouched, Conversation.id == FileTouched.conversation_id)
             .options(
-                selectinload(Conversation.project),
-                selectinload(Conversation.developer)
+                selectinload(Conversation.project), selectinload(Conversation.developer)
             )
             .group_by(Conversation.id)
         )
@@ -372,7 +376,9 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         # Ordering
         order_col = getattr(Conversation, order_by, Conversation.start_time)
-        query = query.order_by(order_col.desc() if order_dir == "desc" else order_col.asc())
+        query = query.order_by(
+            order_col.desc() if order_dir == "desc" else order_col.asc()
+        )
 
         # Pagination
         if limit:

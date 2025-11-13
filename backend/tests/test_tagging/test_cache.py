@@ -1,6 +1,5 @@
 """Tests for file-based tag cache."""
 
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 

@@ -1,13 +1,11 @@
 """Tests for file upload API endpoint."""
 
 import io
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from catsyphon.api.app import app
-from catsyphon.db.connection import get_session
 
 
 @pytest.fixture

@@ -2,10 +2,7 @@
 
 import logging
 import signal
-import time
-from pathlib import Path
-from threading import Event
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 

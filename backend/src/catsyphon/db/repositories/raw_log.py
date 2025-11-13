@@ -73,9 +73,7 @@ class RawLogRepository(BaseRepository[RawLog]):
         Returns:
             Raw log instance if found, None otherwise
         """
-        return (
-            self.session.query(RawLog).filter(RawLog.file_hash == file_hash).first()
-        )
+        return self.session.query(RawLog).filter(RawLog.file_hash == file_hash).first()
 
     def exists_by_file_hash(self, file_hash: str) -> bool:
         """
@@ -88,9 +86,7 @@ class RawLogRepository(BaseRepository[RawLog]):
             True if exists, False otherwise
         """
         return (
-            self.session.query(RawLog.id)
-            .filter(RawLog.file_hash == file_hash)
-            .first()
+            self.session.query(RawLog.id).filter(RawLog.file_hash == file_hash).first()
             is not None
         )
 
