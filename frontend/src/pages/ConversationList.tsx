@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { getConversations, getDevelopers, getProjects } from '@/lib/api';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { ConversationFilters } from '@/types/api';
+import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
 
 export default function ConversationList() {
   const navigate = useNavigate();
@@ -41,7 +42,10 @@ export default function ConversationList() {
     queryFn: () => getConversations(filters),
     placeholderData: (previousData) => previousData, // Show cached data while refetching
     refetchOnMount: false, // Don't refetch when navigating back to this page
+    refetchInterval: 15000, // Auto-refresh every 15 seconds
   });
+
+  const secondsUntilRefresh = useRefreshCountdown(15000, dataUpdatedAt);
 
   // Detect new items when data changes
   useEffect(() => {
@@ -141,7 +145,7 @@ export default function ConversationList() {
             </span>
           )}
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-            Auto-refresh: 15s
+            Auto-refresh: {secondsUntilRefresh}s
           </span>
         </div>
       </div>
