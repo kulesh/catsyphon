@@ -431,6 +431,11 @@ class ClaudeCodeParser:
         role = message.get("role")
         content = message.get("content", "")
 
+        # Validate required fields
+        if not role:
+            logger.warning(f"Message {msg_data.get('uuid')} missing role, skipping")
+            return None
+
         # Extract timestamp
         timestamp_str = msg_data.get("timestamp")
         if not timestamp_str:
