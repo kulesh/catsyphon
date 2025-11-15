@@ -23,6 +23,11 @@ import {
   Trash2,
   Plus,
   FolderOpen,
+  AlertCircle,
+  FileCheck,
+  Database,
+  RefreshCw,
+  Zap,
 } from 'lucide-react';
 import {
   uploadSingleConversationLog,
@@ -31,8 +36,15 @@ import {
   deleteWatchConfig,
   startWatching,
   stopWatching,
+  getWatchStatus,
+  getIngestionJobs,
+  getIngestionStats,
 } from '@/lib/api';
-import type { UploadResult, WatchConfigurationResponse } from '@/types/api';
+import type {
+  UploadResult,
+  WatchConfigurationResponse,
+  IngestionJobResponse,
+} from '@/types/api';
 
 type Tab = 'upload' | 'watch' | 'activity' | 'history';
 
@@ -761,14 +773,348 @@ function WatchConfigCard({
 }
 
 function LiveActivityTab() {
+  // Fetch watch status with auto-refresh every 5 seconds
+  const { data: watchStatus, isLoading: isLoadingStatus } = useQuery({
+    queryKey: ['watchStatus'],
+    queryFn: getWatchStatus,
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
+  });
+
+  // Fetch ingestion stats with auto-refresh every 10 seconds
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
+    queryKey: ['ingestionStats'],
+    queryFn: getIngestionStats,
+    refetchInterval: 10000,
+  });
+
+  // Fetch recent jobs with auto-refresh every 5 seconds
+  const { data: recentJobs, isLoading: isLoadingJobs } = useQuery({
+    queryKey: ['recentIngestionJobs'],
+    queryFn: () => getIngestionJobs({ limit: 50 }),
+    refetchInterval: 5000,
+  });
+
+  const isLoading = isLoadingStatus || isLoadingStats || isLoadingJobs;
+
+  if (isLoading && !watchStatus && !stats && !recentJobs) {
+    return (
+      <div className="text-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+        <p className="mt-4 text-muted-foreground">Loading live activity...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-card border border-border rounded-lg p-8">
-      <h2 className="text-2xl font-semibold mb-4">Live Activity</h2>
-      <p className="text-muted-foreground">
-        Monitor active watch directories and recent ingestion jobs in real-time.
-      </p>
-      <div className="mt-8 text-center text-muted-foreground">
-        Coming soon - real-time job stream with auto-refresh
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold mb-2">Live Activity</h2>
+          <p className="text-muted-foreground">
+            Real-time monitoring of watch directories and ingestion jobs
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          Auto-refreshing
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Watch Status Card */}
+        <div className="p-6 bg-card border border-border rounded-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <FolderSearch className="h-5 w-5 text-primary" />
+            </div>
+            <h3 className="font-semibold">Watch Directories</h3>
+          </div>
+          {watchStatus ? (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Total</span>
+                <span className="text-2xl font-bold">{watchStatus.total_configs}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Active</span>
+                <span className="text-lg font-semibold text-green-600">
+                  {watchStatus.active_count}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Inactive</span>
+                <span className="text-lg font-semibold text-gray-500">
+                  {watchStatus.inactive_count}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <Loader2 className="h-6 w-6 animate-spin mt-4 text-muted-foreground" />
+          )}
+        </div>
+
+        {/* Ingestion Stats Card */}
+        <div className="p-6 bg-card border border-border rounded-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-green-500/10 rounded-lg">
+              <Database className="h-5 w-5 text-green-600" />
+            </div>
+            <h3 className="font-semibold">Total Jobs</h3>
+          </div>
+          {stats ? (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">All Time</span>
+                <span className="text-2xl font-bold">{stats.total_jobs}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-green-600">Success</span>
+                <span className="font-semibold">{stats.by_status.success || 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-destructive">Failed</span>
+                <span className="font-semibold">{stats.by_status.failed || 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Duplicate</span>
+                <span className="font-semibold">{stats.by_status.duplicate || 0}</span>
+              </div>
+            </div>
+          ) : (
+            <Loader2 className="h-6 w-6 animate-spin mt-4 text-muted-foreground" />
+          )}
+        </div>
+
+        {/* Performance Card */}
+        <div className="p-6 bg-card border border-border rounded-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-purple-500/10 rounded-lg">
+              <Zap className="h-5 w-5 text-purple-600" />
+            </div>
+            <h3 className="font-semibold">Performance</h3>
+          </div>
+          {stats ? (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Avg Time</span>
+                <span className="text-2xl font-bold">
+                  {stats.avg_processing_time_ms
+                    ? `${stats.avg_processing_time_ms.toFixed(0)}ms`
+                    : 'N/A'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Incremental</span>
+                <span className="text-lg font-semibold text-purple-600">
+                  {stats.incremental_percentage
+                    ? `${stats.incremental_percentage.toFixed(1)}%`
+                    : '0%'}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">
+                {stats.incremental_jobs} of {stats.total_jobs} jobs used incremental parsing
+              </div>
+            </div>
+          ) : (
+            <Loader2 className="h-6 w-6 animate-spin mt-4 text-muted-foreground" />
+          )}
+        </div>
+      </div>
+
+      {/* Active Watch Configs */}
+      {watchStatus && watchStatus.active_configs.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold mb-3">Active Watch Directories</h3>
+          <div className="grid gap-3">
+            {watchStatus.active_configs.map((config) => (
+              <div
+                key={config.id}
+                className="p-4 bg-green-500/5 border border-green-500/20 rounded-lg"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  <FolderSearch className="h-4 w-4 text-green-600" />
+                  <span className="font-medium">{config.directory}</span>
+                  {config.enable_tagging && (
+                    <span className="ml-auto text-xs bg-primary/10 text-primary px-2 py-1 rounded">
+                      AI Tagging
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Jobs Feed */}
+      <div>
+        <h3 className="text-lg font-semibold mb-3">Recent Ingestion Jobs</h3>
+        {recentJobs && recentJobs.length > 0 ? (
+          <div className="space-y-2 max-h-[600px] overflow-y-auto">
+            {recentJobs.map((job) => (
+              <IngestionJobCard key={job.id} job={job} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 bg-card border border-border rounded-lg">
+            <FileCheck className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+            <p className="text-muted-foreground">No ingestion jobs yet</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Upload files or configure watch directories to get started
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Ingestion Job Card Component
+interface IngestionJobCardProps {
+  job: IngestionJobResponse;
+}
+
+function IngestionJobCard({ job }: IngestionJobCardProps) {
+  // Status badge styling
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'success':
+        return {
+          bg: 'bg-green-500/10',
+          text: 'text-green-600',
+          border: 'border-green-500',
+          icon: CheckCircle,
+        };
+      case 'failed':
+        return {
+          bg: 'bg-destructive/10',
+          text: 'text-destructive',
+          border: 'border-destructive',
+          icon: XCircle,
+        };
+      case 'duplicate':
+        return {
+          bg: 'bg-yellow-500/10',
+          text: 'text-yellow-600',
+          border: 'border-yellow-500',
+          icon: AlertCircle,
+        };
+      case 'processing':
+        return {
+          bg: 'bg-primary/10',
+          text: 'text-primary',
+          border: 'border-primary',
+          icon: Loader2,
+        };
+      default:
+        return {
+          bg: 'bg-gray-500/10',
+          text: 'text-gray-600',
+          border: 'border-gray-500',
+          icon: Clock,
+        };
+    }
+  };
+
+  // Source type badge styling
+  const getSourceBadge = (sourceType: string) => {
+    switch (sourceType) {
+      case 'watch':
+        return { bg: 'bg-blue-500/10', text: 'text-blue-600', label: 'Watch' };
+      case 'upload':
+        return { bg: 'bg-purple-500/10', text: 'text-purple-600', label: 'Upload' };
+      case 'cli':
+        return { bg: 'bg-orange-500/10', text: 'text-orange-600', label: 'CLI' };
+      default:
+        return { bg: 'bg-gray-500/10', text: 'text-gray-600', label: sourceType };
+    }
+  };
+
+  const statusBadge = getStatusBadge(job.status);
+  const sourceBadge = getSourceBadge(job.source_type);
+  const StatusIcon = statusBadge.icon;
+
+  // Format timestamp
+  const timeAgo = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
+
+  return (
+    <div
+      className={`p-4 rounded-lg border transition-colors ${statusBadge.bg} ${statusBadge.border}`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        {/* Left side - Status and File */}
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <StatusIcon
+            className={`h-5 w-5 mt-0.5 flex-shrink-0 ${statusBadge.text} ${
+              job.status === 'processing' ? 'animate-spin' : ''
+            }`}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`font-medium ${statusBadge.text}`}>
+                {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+              </span>
+              <span className="text-xs text-muted-foreground">•</span>
+              <span className="text-xs text-muted-foreground">
+                {timeAgo(job.started_at)}
+              </span>
+            </div>
+            {job.file_path && (
+              <p className="text-sm text-muted-foreground truncate" title={job.file_path}>
+                {job.file_path.split('/').pop()}
+              </p>
+            )}
+            {job.error_message && (
+              <p className="text-xs text-destructive mt-1">{job.error_message}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Right side - Metadata */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Source Type Badge */}
+          <span
+            className={`px-2 py-1 text-xs font-medium rounded ${sourceBadge.bg} ${sourceBadge.text}`}
+          >
+            {sourceBadge.label}
+          </span>
+
+          {/* Incremental Badge */}
+          {job.incremental && (
+            <span className="px-2 py-1 text-xs font-medium rounded bg-purple-500/10 text-purple-600">
+              ⚡ Incremental
+            </span>
+          )}
+
+          {/* Processing Time */}
+          {job.processing_time_ms !== null && (
+            <span className="text-xs text-muted-foreground">
+              {job.processing_time_ms}ms
+            </span>
+          )}
+
+          {/* Messages Added */}
+          {job.messages_added > 0 && (
+            <span className="text-xs text-muted-foreground">
+              +{job.messages_added} msg
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
