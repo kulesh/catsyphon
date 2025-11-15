@@ -23,6 +23,12 @@ export default function App() {
                   Conversations
                 </Link>
                 <Link
+                  to="/ingestion"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Ingestion
+                </Link>
+                <Link
                   to="/upload"
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >

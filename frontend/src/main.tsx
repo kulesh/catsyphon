@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard.tsx';
 import ConversationList from './pages/ConversationList.tsx';
 import ConversationDetail from './pages/ConversationDetail.tsx';
 import Upload from './pages/Upload.tsx';
+import Ingestion from './pages/Ingestion.tsx';
 import { queryClient } from './lib/queryClient';
 
 const router = createBrowserRouter([
@@ -32,6 +33,10 @@ const router = createBrowserRouter([
       {
         path: 'upload',
         element: <Upload />,
+      },
+      {
+        path: 'ingestion',
+        element: <Ingestion />,
       },
     ],
   },
