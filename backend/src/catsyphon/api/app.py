@@ -9,7 +9,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from catsyphon.api.routes import conversations, ingestion, metadata, stats, upload, watch
+from catsyphon.api.routes import (
+    conversations,
+    ingestion,
+    metadata,
+    stats,
+    upload,
+    watch,
+)
 from catsyphon.startup import run_all_startup_checks
 
 
