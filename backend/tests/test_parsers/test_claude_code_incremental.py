@@ -293,3 +293,81 @@ class TestClaudeCodeParserIncremental:
         assert result.new_messages[0].content == "First"
         assert result.new_messages[1].content == "Middle"
         assert result.new_messages[2].content == "Second"
+
+    def test_parse_incremental_filters_non_conversational_messages(
+        self,
+        parser: ClaudeCodeParser,
+        tmp_path: Path,
+    ):
+        """Test that incremental parse filters out non-conversational messages.
+
+        This test ensures that file snapshots, summaries, and other non-conversational
+        message types are filtered out during incremental parsing, matching the behavior
+        of the full parse path.
+
+        Regression test for: Parser allows null role causing database constraint violation
+        """
+        # Content with mix of conversational and non-conversational messages
+        content = (
+            '{"sessionId":"test-123","version":"2.0.0","cwd":"/tmp","gitBranch":"main",'
+            '"timestamp":"2025-01-13T10:00:00.000Z","type":"user","message":{"role":"user",'
+            '"content":"Hello"}}\n'
+            # File snapshot (should be filtered)
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:01.000Z",'
+            '"type":"file_snapshot","file":"test.py","content":"print(1)"}\n'
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:02.000Z","type":"assistant",'
+            '"message":{"role":"assistant","content":"Hi there!","model":"claude-sonnet-4"}}\n'
+            # Summary (should be filtered)
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:03.000Z",'
+            '"type":"summary","content":"Conversation summary"}\n'
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:04.000Z","type":"user",'
+            '"message":{"role":"user","content":"How are you?"}}\n'
+            # Metadata (should be filtered)
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:05.000Z",'
+            '"type":"metadata","key":"value"}\n'
+        )
+
+        log_file = tmp_path / "test.jsonl"
+        log_file.write_text(content, encoding="utf-8")
+
+        result = parser.parse_incremental(log_file, 0, 0)
+
+        # Should only include the 3 conversational messages
+        assert len(result.new_messages) == 3
+        assert result.new_messages[0].role == "user"
+        assert result.new_messages[0].content == "Hello"
+        assert result.new_messages[1].role == "assistant"
+        assert result.new_messages[1].content == "Hi there!"
+        assert result.new_messages[2].role == "user"
+        assert result.new_messages[2].content == "How are you?"
+
+    def test_parse_incremental_filters_messages_without_role(
+        self,
+        parser: ClaudeCodeParser,
+        tmp_path: Path,
+    ):
+        """Test that messages without a role field are filtered out.
+
+        This ensures we don't attempt to create database records with null roles,
+        which would violate the NOT NULL constraint.
+        """
+        # Content with messages that don't have the role field
+        content = (
+            '{"sessionId":"test-123","version":"2.0.0","cwd":"/tmp","gitBranch":"main",'
+            '"timestamp":"2025-01-13T10:00:00.000Z","type":"user","message":{"role":"user",'
+            '"content":"Valid message"}}\n'
+            # Message without role (should be filtered)
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:01.000Z",'
+            '"type":"some_event","message":{"content":"No role field"}}\n'
+            '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:02.000Z","type":"assistant",'
+            '"message":{"role":"assistant","content":"Another valid message","model":"claude-sonnet-4"}}\n'
+        )
+
+        log_file = tmp_path / "test.jsonl"
+        log_file.write_text(content, encoding="utf-8")
+
+        result = parser.parse_incremental(log_file, 0, 0)
+
+        # Should only include the 2 valid conversational messages
+        assert len(result.new_messages) == 2
+        assert all(msg.role in ("user", "assistant") for msg in result.new_messages)
