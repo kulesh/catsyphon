@@ -190,6 +190,84 @@ export interface UploadResponse {
   results: UploadResult[];
 }
 
+// ===== Watch Configuration Types =====
+
+export interface WatchConfigurationCreate {
+  directory: string;
+  project_id?: string | null;
+  developer_id?: string | null;
+  enable_tagging?: boolean;
+  extra_config?: Record<string, any>;
+  created_by?: string | null;
+}
+
+export interface WatchConfigurationUpdate {
+  directory?: string;
+  project_id?: string | null;
+  developer_id?: string | null;
+  enable_tagging?: boolean;
+  extra_config?: Record<string, any>;
+  is_active?: boolean;
+}
+
+export interface WatchConfigurationResponse {
+  id: string;
+  directory: string;
+  project_id: string | null;
+  developer_id: string | null;
+  enable_tagging: boolean;
+  is_active: boolean;
+  stats: Record<string, any>;
+  extra_config: Record<string, any>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  last_started_at: string | null;
+  last_stopped_at: string | null;
+}
+
+export interface WatchStatus {
+  total_configs: number;
+  active_count: number;
+  inactive_count: number;
+  active_configs: WatchConfigurationResponse[];
+}
+
+// ===== Ingestion Job Types =====
+
+export interface IngestionJobFilters {
+  source_type?: 'watch' | 'upload' | 'cli';
+  status?: 'success' | 'failed' | 'duplicate' | 'skipped';
+  page?: number;
+  page_size?: number;
+}
+
+export interface IngestionJobResponse {
+  id: string;
+  source_type: 'watch' | 'upload' | 'cli';
+  source_config_id: string | null;
+  file_path: string | null;
+  raw_log_id: string | null;
+  conversation_id: string | null;
+  status: 'success' | 'failed' | 'duplicate' | 'skipped' | 'processing';
+  error_message: string | null;
+  processing_time_ms: number | null;
+  incremental: boolean;
+  messages_added: number;
+  started_at: string;
+  completed_at: string | null;
+  created_by: string | null;
+}
+
+export interface IngestionStatsResponse {
+  total_jobs: number;
+  by_status: Record<string, number>;
+  by_source_type: Record<string, number>;
+  avg_processing_time_ms: number | null;
+  incremental_jobs: number;
+  incremental_percentage: number | null;
+}
+
 // ===== Grouped File Types (Frontend Only) =====
 
 export interface GroupedFileOperation {

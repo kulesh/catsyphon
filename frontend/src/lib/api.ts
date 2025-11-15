@@ -10,10 +10,17 @@ import type {
   ConversationListResponse,
   DeveloperResponse,
   HealthResponse,
+  IngestionJobFilters,
+  IngestionJobResponse,
+  IngestionStatsResponse,
   MessageResponse,
   OverviewStats,
   ProjectResponse,
   UploadResponse,
+  WatchConfigurationCreate,
+  WatchConfigurationResponse,
+  WatchConfigurationUpdate,
+  WatchStatus,
 } from '@/types/api';
 
 // ===== Error Handling =====
@@ -196,4 +203,118 @@ export async function uploadSingleConversationLog(
     }
     throw new Error(`Network error: ${error}`);
   }
+}
+
+// ===== Watch Configuration Endpoints =====
+
+export async function getWatchConfigs(
+  activeOnly = false
+): Promise<WatchConfigurationResponse[]> {
+  const params = new URLSearchParams();
+  if (activeOnly) params.append('active_only', 'true');
+
+  const query = params.toString();
+  return apiFetch<WatchConfigurationResponse[]>(
+    `/watch/configs${query ? `?${query}` : ''}`
+  );
+}
+
+export async function getWatchConfig(
+  id: string
+): Promise<WatchConfigurationResponse> {
+  return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}`);
+}
+
+export async function createWatchConfig(
+  data: WatchConfigurationCreate
+): Promise<WatchConfigurationResponse> {
+  return apiFetch<WatchConfigurationResponse>('/watch/configs', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateWatchConfig(
+  id: string,
+  data: WatchConfigurationUpdate
+): Promise<WatchConfigurationResponse> {
+  return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteWatchConfig(id: string): Promise<void> {
+  return apiFetch<void>(`/watch/configs/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function startWatching(
+  id: string
+): Promise<WatchConfigurationResponse> {
+  return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}/start`, {
+    method: 'POST',
+  });
+}
+
+export async function stopWatching(
+  id: string
+): Promise<WatchConfigurationResponse> {
+  return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}/stop`, {
+    method: 'POST',
+  });
+}
+
+export async function getWatchStatus(): Promise<WatchStatus> {
+  return apiFetch<WatchStatus>('/watch/status');
+}
+
+// ===== Ingestion Job Endpoints =====
+
+export async function getIngestionJobs(
+  filters?: IngestionJobFilters
+): Promise<IngestionJobResponse[]> {
+  const params = new URLSearchParams();
+
+  if (filters) {
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        params.append(key, String(value));
+      }
+    });
+  }
+
+  const query = params.toString();
+  return apiFetch<IngestionJobResponse[]>(
+    `/ingestion/jobs${query ? `?${query}` : ''}`
+  );
+}
+
+export async function getIngestionJob(
+  id: string
+): Promise<IngestionJobResponse> {
+  return apiFetch<IngestionJobResponse>(`/ingestion/jobs/${id}`);
+}
+
+export async function getIngestionStats(): Promise<IngestionStatsResponse> {
+  return apiFetch<IngestionStatsResponse>('/ingestion/stats');
+}
+
+export async function getConversationIngestionJobs(
+  conversationId: string
+): Promise<IngestionJobResponse[]> {
+  return apiFetch<IngestionJobResponse[]>(
+    `/ingestion/jobs/conversation/${conversationId}`
+  );
+}
+
+export async function getWatchConfigIngestionJobs(
+  configId: string,
+  page = 1,
+  pageSize = 50
+): Promise<IngestionJobResponse[]> {
+  return apiFetch<IngestionJobResponse[]>(
+    `/ingestion/jobs/watch-config/${configId}?page=${page}&page_size=${pageSize}`
+  );
 }
