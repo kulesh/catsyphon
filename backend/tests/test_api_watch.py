@@ -347,14 +347,13 @@ class TestStartWatching:
     def test_start_already_active_config(
         self, api_client: TestClient, active_watch_config: WatchConfiguration
     ):
-        """Test activating an already-active configuration."""
+        """Test activating an already-active configuration (should fail)."""
         assert active_watch_config.is_active is True
 
         response = api_client.post(f"/watch/configs/{active_watch_config.id}/start")
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["is_active"] is True
+        assert response.status_code == 400
+        assert "already active" in response.json()["detail"].lower()
 
     def test_start_nonexistent_config(self, api_client: TestClient):
         """Test activating a non-existent configuration."""
@@ -385,14 +384,13 @@ class TestStopWatching:
     def test_stop_inactive_config(
         self, api_client: TestClient, watch_config: WatchConfiguration
     ):
-        """Test deactivating an already-inactive configuration."""
+        """Test deactivating an already-inactive configuration (should fail)."""
         assert watch_config.is_active is False
 
         response = api_client.post(f"/watch/configs/{watch_config.id}/stop")
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["is_active"] is False
+        assert response.status_code == 400
+        assert "not active" in response.json()["detail"].lower()
 
     def test_stop_nonexistent_config(self, api_client: TestClient):
         """Test deactivating a non-existent configuration."""
