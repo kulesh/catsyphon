@@ -137,12 +137,12 @@ def ingest(
 
             # Store to database (unless dry-run)
             if not dry_run:
-                from catsyphon.db.connection import get_db
+                from catsyphon.db.connection import db_session
                 from catsyphon.exceptions import DuplicateFileError
                 from catsyphon.pipeline.ingestion import ingest_conversation
 
                 try:
-                    with get_db() as session:
+                    with db_session() as session:
                         db_conversation = ingest_conversation(
                             session=session,
                             parsed=conversation,

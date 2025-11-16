@@ -23,6 +23,7 @@ from catsyphon.db.repositories import (
     MessageRepository,
     ProjectRepository,
     RawLogRepository,
+    WorkspaceRepository,
 )
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.models.db import Conversation, Epoch, FileTouched, Message, RawLog
@@ -31,6 +32,55 @@ from catsyphon.parsers.incremental import IncrementalParseResult
 from catsyphon.utils.hashing import calculate_file_hash
 
 logger = logging.getLogger(__name__)
+
+
+def _get_or_create_default_workspace(session: Session) -> UUID:
+    """
+    Get or create a default workspace for ingestion.
+
+    This is a temporary helper until proper multi-workspace support is implemented.
+    Creates a default workspace named "Default" if none exists.
+
+    Args:
+        session: Database session
+
+    Returns:
+        UUID of the default workspace
+    """
+    workspace_repo = WorkspaceRepository(session)
+
+    # Try to get the first workspace
+    workspaces = workspace_repo.get_all(limit=1)
+    if workspaces:
+        return workspaces[0].id
+
+    # No workspaces exist - create a default one
+    # First, we need an organization
+    from catsyphon.db.repositories import OrganizationRepository
+
+    org_repo = OrganizationRepository(session)
+    orgs = org_repo.get_all(limit=1)
+
+    if orgs:
+        org_id = orgs[0].id
+    else:
+        # Create default organization
+        default_org = org_repo.create(
+            name="Default Organization", slug="default-organization"
+        )
+        session.flush()  # Get the ID
+        org_id = default_org.id
+
+    # Create default workspace
+    default_workspace = workspace_repo.create(
+        organization_id=org_id,
+        name="Default Workspace",
+        slug="default-workspace",
+    )
+    session.flush()  # Get the ID
+
+    logger.info(f"Created default workspace: {default_workspace.id}")
+    return default_workspace.id
 
 
 def ingest_conversation(
@@ -93,6 +143,10 @@ def ingest_conversation(
             session.commit()
     """
     logger.info(f"Starting ingestion: {len(parsed.messages)} messages")
+
+    # Get or create default workspace
+    workspace_id = _get_or_create_default_workspace(session)
+    logger.debug(f"Using workspace: {workspace_id}")
 
     # Initialize timing for ingestion job tracking
     start_time = datetime.utcnow()
@@ -163,7 +217,9 @@ def ingest_conversation(
 
     # Check for existing conversation by session_id (if provided)
     if parsed.session_id:
-        existing_conversation = conversation_repo.get_by_session_id(parsed.session_id)
+        existing_conversation = conversation_repo.get_by_session_id(
+            parsed.session_id, workspace_id
+        )
 
         if existing_conversation:
             if update_mode == "skip":
@@ -299,14 +355,16 @@ def ingest_conversation(
     # Step 1: Get or create Project
     project_id = None
     if project_name:
-        project = project_repo.get_or_create_by_name(project_name)
+        project = project_repo.get_or_create_by_name(project_name, workspace_id)
         project_id = project.id
         logger.debug(f"Project: {project.name} ({project.id})")
 
     # Step 2: Get or create Developer
     developer_id = None
     if developer_username:
-        developer = developer_repo.get_or_create_by_username(developer_username)
+        developer = developer_repo.get_or_create_by_username(
+            developer_username, workspace_id
+        )
         developer_id = developer.id
         logger.debug(f"Developer: {developer.username} ({developer.id})")
 
@@ -314,6 +372,7 @@ def ingest_conversation(
     if not is_update:
         # Create new conversation
         conversation = conversation_repo.create(
+            workspace_id=workspace_id,
             project_id=project_id,
             developer_id=developer_id,
             agent_type=parsed.agent_type,

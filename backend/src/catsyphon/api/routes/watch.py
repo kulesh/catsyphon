@@ -378,10 +378,22 @@ async def get_watch_status(
     Returns:
         Dictionary with watch status information including runtime daemon status
     """
+    workspace_id = _get_default_workspace_id(session)
+    if workspace_id is None:
+        # No workspace exists yet
+        return {
+            "total_configs": 0,
+            "active_count": 0,
+            "inactive_count": 0,
+            "running_daemons": 0,
+            "total_daemons": 0,
+            "active_configs": [],
+        }
+
     repo = WatchConfigurationRepository(session)
 
-    active_configs = repo.get_all_active()
-    inactive_configs = repo.get_all_inactive()
+    active_configs = repo.get_all_active(workspace_id)
+    inactive_configs = repo.get_all_inactive(workspace_id)
 
     # Get DaemonManager from app state
     daemon_manager: DaemonManager = request.app.state.daemon_manager
@@ -390,7 +402,7 @@ async def get_watch_status(
     daemon_status = daemon_manager.get_all_status()
 
     return {
-        "total_configs": repo.count(),
+        "total_configs": repo.count_by_workspace(workspace_id),
         "active_count": len(active_configs),
         "inactive_count": len(inactive_configs),
         "running_daemons": daemon_status["running_daemons"],
