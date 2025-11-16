@@ -321,23 +321,17 @@ class DaemonManager:
 
         logger.info("✓ DaemonManager shut down")
 
-    def get_daemon_status(self, config_id: UUID) -> Optional[dict]:
+    def _format_daemon_status(self, entry: DaemonEntry, config_id: UUID) -> dict:
         """
-        Get runtime status for a specific daemon.
+        Format daemon status dictionary (lock-free helper).
 
         Args:
+            entry: Daemon entry to format
             config_id: Watch configuration ID
 
         Returns:
-            Status dictionary or None if not running
+            Status dictionary
         """
-        with self._lock:
-            if config_id not in self._daemons:
-                return None
-
-            entry = self._daemons[config_id]
-
-        # Get stats snapshot
         stats = entry.daemon.stats
         uptime = (datetime.now() - entry.started_at).total_seconds()
 
@@ -367,6 +361,24 @@ class DaemonManager:
             "retry_queue_size": len(entry.daemon.retry_queue),
         }
 
+    def get_daemon_status(self, config_id: UUID) -> Optional[dict]:
+        """
+        Get runtime status for a specific daemon.
+
+        Args:
+            config_id: Watch configuration ID
+
+        Returns:
+            Status dictionary or None if not running
+        """
+        with self._lock:
+            if config_id not in self._daemons:
+                return None
+            entry = self._daemons[config_id]
+
+        # Format status outside the lock
+        return self._format_daemon_status(entry, config_id)
+
     def get_all_status(self) -> dict:
         """
         Get status for all daemons.
@@ -374,11 +386,17 @@ class DaemonManager:
         Returns:
             Dictionary with overall status and per-daemon status
         """
+        # Get snapshot of all daemon entries with lock held (quick operation)
         with self._lock:
-            daemon_statuses = {
-                str(config_id): self.get_daemon_status(config_id)
-                for config_id in self._daemons.keys()
+            entries = {
+                config_id: entry for config_id, entry in self._daemons.items()
             }
+
+        # Format statuses outside the lock to avoid nested locking
+        daemon_statuses = {
+            str(config_id): self._format_daemon_status(entry, config_id)
+            for config_id, entry in entries.items()
+        }
 
         running_count = sum(
             1 for status in daemon_statuses.values() if status["is_running"]
