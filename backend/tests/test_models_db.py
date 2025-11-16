@@ -75,10 +75,11 @@ class TestModelRepr:
 class TestProject:
     """Tests for Project model."""
 
-    def test_create_project(self, db_session: Session):
+    def test_create_project(self, db_session: Session, sample_workspace):
         """Test creating a project."""
         project = Project(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             name="My Project",
             description="Test project description",
         )
@@ -86,6 +87,7 @@ class TestProject:
         db_session.commit()
 
         assert project.id is not None
+        assert project.workspace_id == sample_workspace.id
         assert project.name == "My Project"
         assert project.description == "Test project description"
         assert project.created_at is not None
@@ -99,11 +101,16 @@ class TestProject:
         assert "Test Project" in repr_str
 
     def test_project_conversations_relationship(
-        self, db_session: Session, sample_project: Project, sample_developer: Developer
+        self,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
     ):
         """Test project-conversations relationship."""
         conversation = Conversation(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -120,10 +127,11 @@ class TestProject:
 class TestDeveloper:
     """Tests for Developer model."""
 
-    def test_create_developer(self, db_session: Session):
+    def test_create_developer(self, db_session: Session, sample_workspace):
         """Test creating a developer."""
         developer = Developer(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             username="john_doe",
             email="john@example.com",
             extra_data={"role": "engineer", "team": "backend"},
@@ -132,15 +140,17 @@ class TestDeveloper:
         db_session.commit()
 
         assert developer.id is not None
+        assert developer.workspace_id == sample_workspace.id
         assert developer.username == "john_doe"
         assert developer.email == "john@example.com"
         assert developer.extra_data["role"] == "engineer"
         assert developer.created_at is not None
 
-    def test_developer_without_email(self, db_session: Session):
+    def test_developer_without_email(self, db_session: Session, sample_workspace):
         """Test creating a developer without email."""
         developer = Developer(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             username="jane_doe",
         )
         db_session.add(developer)
@@ -160,12 +170,17 @@ class TestConversation:
     """Tests for Conversation model."""
 
     def test_create_conversation(
-        self, db_session: Session, sample_project: Project, sample_developer: Developer
+        self,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
     ):
         """Test creating a conversation."""
         start_time = datetime.now(UTC)
         conversation = Conversation(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -185,11 +200,12 @@ class TestConversation:
         assert conversation.iteration_count == 1
 
     def test_conversation_default_values(
-        self, db_session: Session, sample_project: Project
+        self, db_session: Session, sample_workspace, sample_project: Project
     ):
         """Test conversation default values."""
         conversation = Conversation(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             agent_type="claude-code",
             start_time=datetime.now(UTC),

@@ -1,7 +1,6 @@
 """Tests for DaemonManager multi-directory watch daemon management."""
 
 import time
-from pathlib import Path
 from threading import Thread
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -21,17 +20,20 @@ def temp_watch_dir(tmp_path):
 
 
 @pytest.fixture
-def watch_config(db_session, temp_watch_dir):
+def watch_config(db_session, sample_workspace, temp_watch_dir):
     """Create a test watch configuration in database."""
     # Create project and developer
-    project = Project(name="test-project")
-    developer = Developer(username="test-user", email="test@example.com")
+    project = Project(workspace_id=sample_workspace.id, name="test-project")
+    developer = Developer(
+        workspace_id=sample_workspace.id, username="test-user", email="test@example.com"
+    )
     db_session.add(project)
     db_session.add(developer)
     db_session.flush()
 
     # Create watch configuration
     config = WatchConfiguration(
+        workspace_id=sample_workspace.id,
         directory=str(temp_watch_dir),
         project_id=project.id,
         developer_id=developer.id,
@@ -185,9 +187,10 @@ class TestDaemonManager:
         # Cleanup
         manager.stop_daemon(watch_config.id, save_stats=False)
 
-    def test_start_daemon_directory_not_found(self, db_session):
+    def test_start_daemon_directory_not_found(self, db_session, sample_workspace):
         """Test starting daemon with non-existent directory raises error."""
         config = WatchConfiguration(
+            workspace_id=sample_workspace.id,
             directory="/nonexistent/path",
             is_active=False,
             enable_tagging=False,
@@ -202,9 +205,12 @@ class TestDaemonManager:
         with pytest.raises(ValueError, match="does not exist"):
             manager.start_daemon(config)
 
-    def test_start_daemon_with_extra_config(self, db_session, temp_watch_dir):
+    def test_start_daemon_with_extra_config(
+        self, db_session, sample_workspace, temp_watch_dir
+    ):
         """Test starting daemon with custom config options."""
         config = WatchConfiguration(
+            workspace_id=sample_workspace.id,
             directory=str(temp_watch_dir),
             is_active=False,
             enable_tagging=False,
@@ -253,7 +259,7 @@ class TestDaemonManager:
         with pytest.raises(ValueError, match="No daemon running"):
             manager.stop_daemon(fake_id, save_stats=False)
 
-    def test_stop_all_daemons(self, db_session, temp_watch_dir):
+    def test_stop_all_daemons(self, db_session, sample_workspace, temp_watch_dir):
         """Test stopping all daemons."""
         # Create multiple configs
         configs = []
@@ -262,6 +268,7 @@ class TestDaemonManager:
             dir_path.mkdir()
 
             config = WatchConfiguration(
+                workspace_id=sample_workspace.id,
                 directory=str(dir_path),
                 is_active=False,
                 enable_tagging=False,
@@ -314,7 +321,7 @@ class TestDaemonManager:
         status = manager.get_daemon_status(fake_id)
         assert status is None
 
-    def test_get_all_status(self, db_session, temp_watch_dir):
+    def test_get_all_status(self, db_session, sample_workspace, temp_watch_dir):
         """Test getting status for all daemons."""
         # Create multiple configs
         configs = []
@@ -323,6 +330,7 @@ class TestDaemonManager:
             dir_path.mkdir()
 
             config = WatchConfiguration(
+                workspace_id=sample_workspace.id,
                 directory=str(dir_path),
                 is_active=False,
                 enable_tagging=False,
@@ -466,9 +474,12 @@ class TestDaemonManager:
             # Verify stats were synced
             assert mock_repo.update_stats.called
 
-    def test_health_check_detects_crashed_daemon(self, db_session, temp_watch_dir):
+    def test_health_check_detects_crashed_daemon(
+        self, db_session, sample_workspace, temp_watch_dir
+    ):
         """Test health check thread detects crashed daemons."""
         config = WatchConfiguration(
+            workspace_id=sample_workspace.id,
             directory=str(temp_watch_dir),
             is_active=True,
             enable_tagging=False,
@@ -506,13 +517,16 @@ class TestDaemonManager:
         # Cleanup
         manager.shutdown(timeout=5)
 
-    def test_check_daemon_health_directly(self, db_session, temp_watch_dir):
+    def test_check_daemon_health_directly(
+        self, db_session, sample_workspace, temp_watch_dir
+    ):
         """Test _check_daemon_health method directly without background thread.
 
         This is a fast unit test that validates health check logic without
         waiting for the loop interval.
         """
         config = WatchConfiguration(
+            workspace_id=sample_workspace.id,
             directory=str(temp_watch_dir),
             is_active=True,
             enable_tagging=False,
@@ -551,10 +565,13 @@ class TestDaemonManager:
 class TestDaemonManagerIntegration:
     """Integration tests for DaemonManager with real WatcherDaemon."""
 
-    def test_end_to_end_daemon_lifecycle(self, db_session, temp_watch_dir):
+    def test_end_to_end_daemon_lifecycle(
+        self, db_session, sample_workspace, temp_watch_dir
+    ):
         """Test complete daemon lifecycle: start, monitor, stop."""
         # Create configuration
         config = WatchConfiguration(
+            workspace_id=sample_workspace.id,
             directory=str(temp_watch_dir),
             is_active=False,
             enable_tagging=False,

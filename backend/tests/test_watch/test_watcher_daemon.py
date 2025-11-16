@@ -1,6 +1,5 @@
 """Tests for WatcherDaemon lifecycle and integration."""
 
-import logging
 import signal
 from unittest.mock import Mock, patch
 

@@ -1,9 +1,7 @@
 """Tests for CollectorRepository."""
 
-import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
-import pytest
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.collector import CollectorRepository

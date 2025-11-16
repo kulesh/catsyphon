@@ -1,8 +1,6 @@
 """Tests for OrganizationRepository."""
 
-import uuid
 
-import pytest
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.organization import OrganizationRepository

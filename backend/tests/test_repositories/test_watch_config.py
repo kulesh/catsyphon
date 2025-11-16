@@ -5,7 +5,7 @@ Tests both inherited BaseRepository methods and WatchConfiguration-specific meth
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 from sqlalchemy.orm import Session
@@ -249,9 +249,7 @@ class TestWatchConfigurationSpecificMethods:
         self, watch_repo: WatchConfigurationRepository, sample_workspace
     ):
         """Test retrieving a watch configuration with non-existent directory."""
-        config = watch_repo.get_by_directory(
-            "/non/existent/path", sample_workspace.id
-        )
+        config = watch_repo.get_by_directory("/non/existent/path", sample_workspace.id)
 
         assert config is None
 
