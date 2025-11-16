@@ -71,6 +71,7 @@ class TestOverviewStats:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -80,6 +81,7 @@ class TestOverviewStats:
         # Create conversations with different statuses
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -88,6 +90,7 @@ class TestOverviewStats:
         )
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -96,6 +99,7 @@ class TestOverviewStats:
         )
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -117,6 +121,7 @@ class TestOverviewStats:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -126,6 +131,7 @@ class TestOverviewStats:
         # Create conversations with different agent types
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -133,6 +139,7 @@ class TestOverviewStats:
         )
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -140,6 +147,7 @@ class TestOverviewStats:
         )
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="copilot",
@@ -160,6 +168,7 @@ class TestOverviewStats:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -170,6 +179,7 @@ class TestOverviewStats:
         for _ in range(3):
             repo.create(
                 id=uuid.uuid4(),
+                workspace_id=sample_workspace.id,
                 project_id=sample_project.id,
                 developer_id=sample_developer.id,
                 agent_type="claude-code",
@@ -178,6 +188,7 @@ class TestOverviewStats:
             )
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -197,6 +208,7 @@ class TestOverviewStats:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -210,6 +222,7 @@ class TestOverviewStats:
         # Create recent conversation
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -219,6 +232,7 @@ class TestOverviewStats:
         # Create old conversation (should not be counted)
         repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -239,6 +253,7 @@ class TestOverviewStats:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -252,6 +267,7 @@ class TestOverviewStats:
         # Create conversations at different times
         _conv1 = repo.create(  # noqa: F841 - Used for test setup
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -259,6 +275,7 @@ class TestOverviewStats:
         )
         _conv2 = repo.create(  # noqa: F841 - Used for test setup
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",

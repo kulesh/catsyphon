@@ -21,12 +21,15 @@ from catsyphon.models.db import (
 
 
 @pytest.fixture
-def watch_config(db_session: Session, sample_project: Project) -> WatchConfiguration:
+def watch_config(
+    db_session: Session, sample_workspace, sample_project: Project
+) -> WatchConfiguration:
     """Create a watch configuration for testing."""
     from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
 
     repo = WatchConfigurationRepository(db_session)
     config = repo.create(
+        workspace_id=sample_workspace.id,
         directory="/test/watch",
         project_id=sample_project.id,
         is_active=True,
@@ -144,7 +147,9 @@ class TestListIngestionJobs:
         data = response.json()
 
         # Should only include watch + success jobs
-        assert all(j["source_type"] == "watch" and j["status"] == "success" for j in data)
+        assert all(
+            j["source_type"] == "watch" and j["status"] == "success" for j in data
+        )
         assert len(data) == 1
 
     def test_list_pagination(
@@ -448,7 +453,6 @@ class TestIngestionJobsIntegration:
         assert response.json()["status"] == "processing"
 
         # Update to success
-        from datetime import timedelta
 
         completed = datetime.now(UTC)
         repo.update(
@@ -468,9 +472,7 @@ class TestIngestionJobsIntegration:
         assert data["processing_time_ms"] == 1500
         assert data["messages_added"] == 25
 
-    def test_filter_combinations(
-        self, api_client: TestClient, db_session: Session
-    ):
+    def test_filter_combinations(self, api_client: TestClient, db_session: Session):
         """Test various filter combinations."""
         repo = IngestionJobRepository(db_session)
         started = datetime.now(UTC)
@@ -497,9 +499,7 @@ class TestIngestionJobsIntegration:
         assert response.status_code == 200
         assert len(response.json()) == 1
 
-    def test_stats_accuracy(
-        self, api_client: TestClient, db_session: Session
-    ):
+    def test_stats_accuracy(self, api_client: TestClient, db_session: Session):
         """Test that statistics are accurate across multiple queries."""
         repo = IngestionJobRepository(db_session)
         started = datetime.now(UTC)

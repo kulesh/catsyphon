@@ -5,7 +5,7 @@ Tests both inherited BaseRepository methods and WatchConfiguration-specific meth
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 import pytest
 from sqlalchemy.orm import Session
@@ -22,11 +22,15 @@ def watch_repo(db_session: Session) -> WatchConfigurationRepository:
 
 @pytest.fixture
 def sample_watch_config(
-    db_session: Session, sample_project: Project, sample_developer: Developer
+    db_session: Session,
+    sample_workspace,
+    sample_project: Project,
+    sample_developer: Developer,
 ) -> WatchConfiguration:
     """Create a sample watch configuration for testing."""
     config = WatchConfiguration(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         directory="/path/to/watch",
         project_id=sample_project.id,
         developer_id=sample_developer.id,
@@ -46,10 +50,14 @@ class TestBaseRepositoryMethods:
     """Test inherited BaseRepository CRUD methods."""
 
     def test_create_watch_config(
-        self, watch_repo: WatchConfigurationRepository, sample_project: Project
+        self,
+        watch_repo: WatchConfigurationRepository,
+        sample_workspace,
+        sample_project: Project,
     ):
         """Test creating a new watch configuration."""
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/new/watch/path",
             project_id=sample_project.id,
             enable_tagging=False,
@@ -68,11 +76,15 @@ class TestBaseRepositoryMethods:
         assert config.updated_at is not None
 
     def test_create_minimal_watch_config(
-        self, watch_repo: WatchConfigurationRepository, db_session: Session
+        self,
+        watch_repo: WatchConfigurationRepository,
+        sample_workspace,
+        db_session: Session,
     ):
         """Test creating a watch configuration with minimal required fields."""
         # In real usage, Pydantic schemas provide defaults, so test with explicit values
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/minimal/path",
             enable_tagging=False,
             is_active=False,
@@ -112,12 +124,13 @@ class TestBaseRepositoryMethods:
     def test_get_all(
         self,
         watch_repo: WatchConfigurationRepository,
+        sample_workspace,
         sample_watch_config: WatchConfiguration,
     ):
         """Test retrieving all watch configurations."""
         # Create additional configs
-        watch_repo.create(directory="/path/one")
-        watch_repo.create(directory="/path/two")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/one")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/two")
 
         configs = watch_repo.get_all()
 
@@ -127,23 +140,27 @@ class TestBaseRepositoryMethods:
         assert "/path/one" in directories
         assert "/path/two" in directories
 
-    def test_get_all_with_limit(self, watch_repo: WatchConfigurationRepository):
+    def test_get_all_with_limit(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving watch configurations with limit."""
         # Create multiple configs
-        watch_repo.create(directory="/path/1")
-        watch_repo.create(directory="/path/2")
-        watch_repo.create(directory="/path/3")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/1")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/2")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/3")
 
         configs = watch_repo.get_all(limit=2)
 
         assert len(configs) == 2
 
-    def test_get_all_with_offset(self, watch_repo: WatchConfigurationRepository):
+    def test_get_all_with_offset(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving watch configurations with offset."""
         # Create configs
-        watch_repo.create(directory="/path/1")
-        watch_repo.create(directory="/path/2")
-        watch_repo.create(directory="/path/3")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/1")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/2")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/3")
 
         all_configs = watch_repo.get_all()
         offset_configs = watch_repo.get_all(offset=1)
@@ -199,12 +216,13 @@ class TestBaseRepositoryMethods:
     def test_count(
         self,
         watch_repo: WatchConfigurationRepository,
+        sample_workspace,
         sample_watch_config: WatchConfiguration,
     ):
         """Test counting watch configurations."""
         # Create additional configs
-        watch_repo.create(directory="/path/one")
-        watch_repo.create(directory="/path/two")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/one")
+        watch_repo.create(workspace_id=sample_workspace.id, directory="/path/two")
 
         count = watch_repo.count()
 
@@ -217,32 +235,43 @@ class TestWatchConfigurationSpecificMethods:
     def test_get_by_directory(
         self,
         watch_repo: WatchConfigurationRepository,
+        sample_workspace,
         sample_watch_config: WatchConfiguration,
     ):
         """Test retrieving a watch configuration by directory path."""
-        config = watch_repo.get_by_directory("/path/to/watch")
+        config = watch_repo.get_by_directory("/path/to/watch", sample_workspace.id)
 
         assert config is not None
         assert config.id == sample_watch_config.id
         assert config.directory == "/path/to/watch"
 
     def test_get_by_directory_not_found(
-        self, watch_repo: WatchConfigurationRepository
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
     ):
         """Test retrieving a watch configuration with non-existent directory."""
-        config = watch_repo.get_by_directory("/non/existent/path")
+        config = watch_repo.get_by_directory("/non/existent/path", sample_workspace.id)
 
         assert config is None
 
-    def test_get_all_active(self, watch_repo: WatchConfigurationRepository):
+    def test_get_all_active(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving all active watch configurations."""
         # Create active and inactive configs
-        active1 = watch_repo.create(directory="/active/one", is_active=True)
-        active2 = watch_repo.create(directory="/active/two", is_active=True)
-        watch_repo.create(directory="/inactive/one", is_active=False)
-        watch_repo.create(directory="/inactive/two", is_active=False)
+        active1 = watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/active/one", is_active=True
+        )
+        active2 = watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/active/two", is_active=True
+        )
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/inactive/one", is_active=False
+        )
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/inactive/two", is_active=False
+        )
 
-        active_configs = watch_repo.get_all_active()
+        active_configs = watch_repo.get_all_active(sample_workspace.id)
 
         assert len(active_configs) == 2
         config_ids = [c.id for c in active_configs]
@@ -251,25 +280,41 @@ class TestWatchConfigurationSpecificMethods:
         # Verify all returned configs are active
         assert all(c.is_active for c in active_configs)
 
-    def test_get_all_active_empty(self, watch_repo: WatchConfigurationRepository):
+    def test_get_all_active_empty(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving active configs when none exist."""
         # Create only inactive configs
-        watch_repo.create(directory="/inactive/one", is_active=False)
-        watch_repo.create(directory="/inactive/two", is_active=False)
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/inactive/one", is_active=False
+        )
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/inactive/two", is_active=False
+        )
 
-        active_configs = watch_repo.get_all_active()
+        active_configs = watch_repo.get_all_active(sample_workspace.id)
 
         assert len(active_configs) == 0
 
-    def test_get_all_inactive(self, watch_repo: WatchConfigurationRepository):
+    def test_get_all_inactive(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving all inactive watch configurations."""
         # Create active and inactive configs
-        watch_repo.create(directory="/active/one", is_active=True)
-        watch_repo.create(directory="/active/two", is_active=True)
-        inactive1 = watch_repo.create(directory="/inactive/one", is_active=False)
-        inactive2 = watch_repo.create(directory="/inactive/two", is_active=False)
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/active/one", is_active=True
+        )
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/active/two", is_active=True
+        )
+        inactive1 = watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/inactive/one", is_active=False
+        )
+        inactive2 = watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/inactive/two", is_active=False
+        )
 
-        inactive_configs = watch_repo.get_all_inactive()
+        inactive_configs = watch_repo.get_all_inactive(sample_workspace.id)
 
         assert len(inactive_configs) == 2
         config_ids = [c.id for c in inactive_configs]
@@ -278,13 +323,19 @@ class TestWatchConfigurationSpecificMethods:
         # Verify all returned configs are inactive
         assert all(not c.is_active for c in inactive_configs)
 
-    def test_get_all_inactive_empty(self, watch_repo: WatchConfigurationRepository):
+    def test_get_all_inactive_empty(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving inactive configs when none exist."""
         # Create only active configs
-        watch_repo.create(directory="/active/one", is_active=True)
-        watch_repo.create(directory="/active/two", is_active=True)
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/active/one", is_active=True
+        )
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/active/two", is_active=True
+        )
 
-        inactive_configs = watch_repo.get_all_inactive()
+        inactive_configs = watch_repo.get_all_inactive(sample_workspace.id)
 
         assert len(inactive_configs) == 0
 
@@ -403,25 +454,38 @@ class TestWatchConfigurationSpecificMethods:
     def test_get_by_project(
         self,
         watch_repo: WatchConfigurationRepository,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
         """Test retrieving watch configurations by project."""
         # Create configs for the project
         config1 = watch_repo.create(
-            directory="/project/path/one", project_id=sample_project.id
+            workspace_id=sample_workspace.id,
+            directory="/project/path/one",
+            project_id=sample_project.id,
         )
         config2 = watch_repo.create(
-            directory="/project/path/two", project_id=sample_project.id
+            workspace_id=sample_workspace.id,
+            directory="/project/path/two",
+            project_id=sample_project.id,
         )
 
         # Create configs for other projects or no project
         other_project_id = uuid.uuid4()
-        watch_repo.create(directory="/other/path", project_id=other_project_id)
-        watch_repo.create(directory="/no/project/path")
+        watch_repo.create(
+            workspace_id=sample_workspace.id,
+            directory="/other/path",
+            project_id=other_project_id,
+        )
+        watch_repo.create(
+            workspace_id=sample_workspace.id, directory="/no/project/path"
+        )
 
         # Get configs for sample_project
-        project_configs = watch_repo.get_by_project(sample_project.id)
+        project_configs = watch_repo.get_by_project(
+            sample_project.id, sample_workspace.id
+        )
 
         assert len(project_configs) >= 2
         config_ids = [c.id for c in project_configs]
@@ -430,10 +494,14 @@ class TestWatchConfigurationSpecificMethods:
         # Verify all returned configs belong to the project
         assert all(c.project_id == sample_project.id for c in project_configs)
 
-    def test_get_by_project_empty(self, watch_repo: WatchConfigurationRepository):
+    def test_get_by_project_empty(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test retrieving configs for a project with no configs."""
         non_existent_project_id = uuid.uuid4()
-        project_configs = watch_repo.get_by_project(non_existent_project_id)
+        project_configs = watch_repo.get_by_project(
+            non_existent_project_id, sample_workspace.id
+        )
 
         assert len(project_configs) == 0
 
@@ -444,10 +512,12 @@ class TestWatchConfigurationRelationships:
     def test_project_relationship(
         self,
         watch_repo: WatchConfigurationRepository,
+        sample_workspace,
         sample_project: Project,
     ):
         """Test that project relationship is properly loaded."""
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/test/path",
             project_id=sample_project.id,
         )
@@ -460,10 +530,12 @@ class TestWatchConfigurationRelationships:
     def test_developer_relationship(
         self,
         watch_repo: WatchConfigurationRepository,
+        sample_workspace,
         sample_developer: Developer,
     ):
         """Test that developer relationship is properly loaded."""
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/test/path",
             developer_id=sample_developer.id,
         )
@@ -473,9 +545,12 @@ class TestWatchConfigurationRelationships:
         assert config.developer.id == sample_developer.id
         assert config.developer.username == sample_developer.username
 
-    def test_optional_relationships(self, watch_repo: WatchConfigurationRepository):
+    def test_optional_relationships(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test that project and developer relationships are optional."""
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/test/path",
             # No project_id or developer_id
         )
@@ -512,9 +587,12 @@ class TestWatchConfigurationEdgeCases:
         assert updated.project_id == original_project_id
         assert updated.stats == {"files_processed": 100}
 
-    def test_empty_stats_and_config(self, watch_repo: WatchConfigurationRepository):
+    def test_empty_stats_and_config(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test creating config with empty stats and extra_config."""
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/test/path",
             stats={},
             extra_config={},
@@ -523,7 +601,9 @@ class TestWatchConfigurationEdgeCases:
         assert config.stats == {}
         assert config.extra_config == {}
 
-    def test_complex_stats_and_config(self, watch_repo: WatchConfigurationRepository):
+    def test_complex_stats_and_config(
+        self, watch_repo: WatchConfigurationRepository, sample_workspace
+    ):
         """Test creating config with complex nested stats and config."""
         complex_stats = {
             "files_processed": 100,
@@ -537,6 +617,7 @@ class TestWatchConfigurationEdgeCases:
         }
 
         config = watch_repo.create(
+            workspace_id=sample_workspace.id,
             directory="/test/path",
             stats=complex_stats,
             extra_config=complex_config,

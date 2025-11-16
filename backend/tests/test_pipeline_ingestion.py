@@ -54,7 +54,7 @@ class TestBasicIngestion:
         assert len(conversation.messages) == 2
         assert len(conversation.epochs) == 1
 
-    def test_ingest_with_project(self, db_session: Session):
+    def test_ingest_with_project(self, db_session: Session, sample_workspace):
         """Test ingestion creates/gets project."""
         parsed = ParsedConversation(
             agent_type="claude-code",
@@ -80,14 +80,16 @@ class TestBasicIngestion:
 
         # Verify project was created
         project_repo = ProjectRepository(db_session)
-        project = project_repo.get_by_name("test-project")
+        project = project_repo.get_by_name("test-project", sample_workspace.id)
         assert project is not None
 
-    def test_ingest_with_existing_project(self, db_session: Session):
+    def test_ingest_with_existing_project(self, db_session: Session, sample_workspace):
         """Test ingestion reuses existing project."""
         # Create project first
         project_repo = ProjectRepository(db_session)
-        existing_project = project_repo.create(name="existing-project")
+        existing_project = project_repo.create(
+            workspace_id=sample_workspace.id, name="existing-project"
+        )
         db_session.flush()
 
         parsed = ParsedConversation(
@@ -117,7 +119,7 @@ class TestBasicIngestion:
         project_names = [p.name for p in all_projects]
         assert project_names.count("existing-project") == 1
 
-    def test_ingest_with_developer(self, db_session: Session):
+    def test_ingest_with_developer(self, db_session: Session, sample_workspace):
         """Test ingestion creates/gets developer."""
         parsed = ParsedConversation(
             agent_type="claude-code",
@@ -143,7 +145,7 @@ class TestBasicIngestion:
 
         # Verify developer was created
         dev_repo = DeveloperRepository(db_session)
-        developer = dev_repo.get_by_username("john")
+        developer = dev_repo.get_by_username("john", sample_workspace.id)
         assert developer is not None
 
     def test_ingest_creates_conversation(self, db_session: Session):

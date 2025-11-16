@@ -1,14 +1,15 @@
 """Tests for plugin discovery and loading."""
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from catsyphon.parsers.metadata import ParserCapability, ParserMetadata
-from catsyphon.plugins.loader import PluginLoadError, PluginLoader
-from catsyphon.plugins.manifest import PluginManifest, PluginMetadata as PluginMetadataSchema
+from catsyphon.plugins.loader import PluginLoader, PluginLoadError
+from catsyphon.plugins.manifest import (
+    PluginMetadata as PluginMetadataSchema,
+)
 
 
 class DummyParser:
@@ -57,7 +58,7 @@ def plugin_dir(tmp_path):
         json.dump(manifest1, f)
 
     # Create parser module
-    parser_code = '''
+    parser_code = """
 class DummyParser:
     def __init__(self):
         from catsyphon.parsers.metadata import ParserMetadata, ParserCapability
@@ -80,7 +81,7 @@ class DummyParser:
     def parse(self, file_path):
         from unittest.mock import MagicMock
         return MagicMock()
-'''
+"""
 
     with open(plugin1 / "test_parser_1.py", "w") as f:
         f.write(parser_code)

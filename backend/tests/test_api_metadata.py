@@ -25,14 +25,22 @@ class TestListProjects:
         assert data == []
 
     def test_list_projects_returns_all(
-        self, api_client: TestClient, db_session: Session, sample_project: Project
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
     ):
         """Test listing projects returns all projects."""
         repo = ProjectRepository(db_session)
 
         # Create additional projects
-        repo.create(id=uuid.uuid4(), name="Project Alpha")
-        repo.create(id=uuid.uuid4(), name="Project Beta")
+        repo.create(
+            id=uuid.uuid4(), workspace_id=sample_workspace.id, name="Project Alpha"
+        )
+        repo.create(
+            id=uuid.uuid4(), workspace_id=sample_workspace.id, name="Project Beta"
+        )
 
         response = api_client.get("/projects")
 
@@ -63,12 +71,13 @@ class TestListProjects:
         assert "created_at" in project
 
     def test_list_projects_includes_all_fields(
-        self, api_client: TestClient, db_session: Session
+        self, api_client: TestClient, db_session: Session, sample_workspace
     ):
         """Test that all project fields are included in response."""
         repo = ProjectRepository(db_session)
         proj = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             name="Test Project",
             description="Test Description",
         )
@@ -95,14 +104,28 @@ class TestListDevelopers:
         assert data == []
 
     def test_list_developers_returns_all(
-        self, api_client: TestClient, db_session: Session, sample_developer: Developer
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_developer: Developer,
     ):
         """Test listing developers returns all developers."""
         repo = DeveloperRepository(db_session)
 
         # Create additional developers
-        repo.create(id=uuid.uuid4(), username="alice", email="alice@example.com")
-        repo.create(id=uuid.uuid4(), username="bob", email="bob@example.com")
+        repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            username="alice",
+            email="alice@example.com",
+        )
+        repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            username="bob",
+            email="bob@example.com",
+        )
 
         response = api_client.get("/developers")
 
@@ -133,12 +156,13 @@ class TestListDevelopers:
         assert "created_at" in developer
 
     def test_list_developers_includes_all_fields(
-        self, api_client: TestClient, db_session: Session
+        self, api_client: TestClient, db_session: Session, sample_workspace
     ):
         """Test that all developer fields are included in response."""
         repo = DeveloperRepository(db_session)
         dev = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             username="john_doe",
             email="john@example.com",
         )

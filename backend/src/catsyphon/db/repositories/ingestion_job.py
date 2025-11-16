@@ -263,6 +263,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         status: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        collector_id: Optional[uuid.UUID] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[IngestionJob]:
@@ -274,6 +275,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             status: Filter by status
             start_date: Filter by start date (inclusive)
             end_date: Filter by end date (inclusive)
+            collector_id: Filter by collector
             limit: Maximum number of records
             offset: Number of records to skip
 
@@ -290,6 +292,8 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             filters.append(IngestionJob.started_at >= start_date)
         if end_date:
             filters.append(IngestionJob.started_at <= end_date)
+        if collector_id:
+            filters.append(IngestionJob.collector_id == collector_id)
 
         query = self.session.query(IngestionJob)
 
@@ -301,4 +305,47 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             .offset(offset)
             .limit(limit)
             .all()
+        )
+
+    def get_by_collector(
+        self,
+        collector_id: uuid.UUID,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[IngestionJob]:
+        """
+        Get ingestion jobs for a specific collector.
+
+        Args:
+            collector_id: Collector UUID
+            limit: Maximum number of records
+            offset: Number of records to skip
+
+        Returns:
+            List of ingestion jobs
+        """
+        query = (
+            self.session.query(IngestionJob)
+            .filter(IngestionJob.collector_id == collector_id)
+            .order_by(desc(IngestionJob.started_at))
+            .offset(offset)
+        )
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+    def count_by_collector(self, collector_id: uuid.UUID) -> int:
+        """
+        Count ingestion jobs for a collector.
+
+        Args:
+            collector_id: Collector UUID
+
+        Returns:
+            Number of ingestion jobs
+        """
+        return (
+            self.session.query(IngestionJob)
+            .filter(IngestionJob.collector_id == collector_id)
+            .count()
         )

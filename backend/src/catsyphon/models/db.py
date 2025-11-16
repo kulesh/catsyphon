@@ -29,6 +29,187 @@ class Base(DeclarativeBase):
     pass
 
 
+class Organization(Base):
+    """Organization entity for multi-workspace companies."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )  # URL-friendly identifier
+
+    # Organization settings
+    settings: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    # Status
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", index=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    workspaces: Mapped[list["Workspace"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Organization(id={self.id}, name={self.name!r}, slug={self.slug!r})>"
+
+
+class Workspace(Base):
+    """Workspace for multi-tenancy data isolation."""
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )  # URL-friendly identifier
+
+    # Workspace settings
+    settings: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    # Status
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", index=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    organization: Mapped["Organization"] = relationship(back_populates="workspaces")
+    collectors: Mapped[list["CollectorConfig"]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
+    conversations: Mapped[list["Conversation"]] = relationship(
+        back_populates="workspace"
+    )
+    projects: Mapped[list["Project"]] = relationship(back_populates="workspace")
+    developers: Mapped[list["Developer"]] = relationship(back_populates="workspace")
+    watch_configurations: Mapped[list["WatchConfiguration"]] = relationship(
+        back_populates="workspace"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Workspace(id={self.id}, name={self.name!r}, slug={self.slug!r})>"
+
+
+class CollectorConfig(Base):
+    """Configuration for remote collector agents."""
+
+    __tablename__ = "collector_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Collector identity
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    collector_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # 'agent', 'ci-server', 'developer-laptop', etc.
+
+    # Authentication (single API key per collector)
+    api_key_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )  # bcrypt hash
+    api_key_prefix: Mapped[str] = mapped_column(
+        String(10), nullable=False
+    )  # First 8 chars for display (e.g., "cs_abc123...")
+
+    # Status
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", index=True
+    )
+    last_heartbeat: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    # Collector metadata
+    version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    extra_data: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )  # OS, Python version, location, etc.
+
+    # Denormalized statistics for performance
+    total_uploads: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    total_conversations: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    last_upload_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    workspace: Mapped["Workspace"] = relationship(back_populates="collectors")
+    conversations: Mapped[list["Conversation"]] = relationship(
+        back_populates="collector"
+    )
+    ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(
+        back_populates="collector"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<CollectorConfig(id={self.id}, "
+            f"name={self.name!r}, "
+            f"type={self.collector_type!r})>"
+        )
+
+
 class Project(Base):
     """Project grouping for conversations."""
 
@@ -36,6 +217,12 @@ class Project(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -50,6 +237,7 @@ class Project(Base):
     )
 
     # Relationships
+    workspace: Mapped["Workspace"] = relationship(back_populates="projects")
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
@@ -66,6 +254,12 @@ class Developer(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     extra_data: Mapped[dict] = mapped_column(
@@ -76,6 +270,7 @@ class Developer(Base):
     )
 
     # Relationships
+    workspace: Mapped["Workspace"] = relationship(back_populates="developers")
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="developer"
     )
@@ -91,6 +286,18 @@ class Conversation(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    collector_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collector_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id"), nullable=True
@@ -145,6 +352,10 @@ class Conversation(Base):
     )
 
     # Relationships
+    workspace: Mapped["Workspace"] = relationship(back_populates="conversations")
+    collector: Mapped[Optional["CollectorConfig"]] = relationship(
+        back_populates="conversations"
+    )
     project: Mapped[Optional["Project"]] = relationship(back_populates="conversations")
     developer: Mapped[Optional["Developer"]] = relationship(
         back_populates="conversations"
@@ -472,6 +683,12 @@ class WatchConfiguration(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     directory: Mapped[str] = mapped_column(
         Text, nullable=False, index=True
     )  # Path to watch directory
@@ -519,6 +736,7 @@ class WatchConfiguration(Base):
     )
 
     # Relationships
+    workspace: Mapped["Workspace"] = relationship(back_populates="watch_configurations")
     project: Mapped[Optional["Project"]] = relationship()
     developer: Mapped[Optional["Developer"]] = relationship()
     ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(
@@ -543,12 +761,18 @@ class IngestionJob(Base):
     )
     source_type: Mapped[str] = mapped_column(
         String(50), nullable=False, index=True
-    )  # 'watch', 'upload', 'cli'
+    )  # 'watch', 'upload', 'cli', 'collector'
     source_config_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("watch_configurations.id"),
         nullable=True,
     )  # FK to watch_configurations if source_type='watch'
+    collector_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collector_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )  # FK to collector_configs if source_type='collector'
 
     file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_log_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -588,6 +812,9 @@ class IngestionJob(Base):
 
     # Relationships
     watch_config: Mapped[Optional["WatchConfiguration"]] = relationship(
+        back_populates="ingestion_jobs"
+    )
+    collector: Mapped[Optional["CollectorConfig"]] = relationship(
         back_populates="ingestion_jobs"
     )
     raw_log: Mapped[Optional["RawLog"]] = relationship()

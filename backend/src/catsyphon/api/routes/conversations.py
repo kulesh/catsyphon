@@ -18,10 +18,29 @@ from catsyphon.api.schemas import (
     MessageResponse,
 )
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import ConversationRepository, MessageRepository
+from catsyphon.db.repositories import ConversationRepository, MessageRepository, WorkspaceRepository
 from catsyphon.models.db import Conversation
 
 router = APIRouter()
+
+
+def _get_default_workspace_id(session: Session) -> Optional[UUID]:
+    """
+    Get default workspace ID for API operations.
+
+    This is a temporary helper until proper authentication is implemented.
+    Returns the first workspace in the database, or None if no workspaces exist.
+
+    Returns:
+        UUID of the first workspace, or None if no workspaces exist
+    """
+    workspace_repo = WorkspaceRepository(session)
+    workspaces = workspace_repo.get_all(limit=1)
+
+    if not workspaces:
+        return None
+
+    return workspaces[0].id
 
 
 def _conversation_to_list_item(
@@ -105,22 +124,8 @@ async def list_conversations(
     Returns paginated list of conversations with basic metadata.
     For full conversation details including messages, use GET /conversations/{id}.
     """
-    repo = ConversationRepository(session)
-
-    # Build filters
+    # Parse date filters first (for validation before workspace check)
     filters = {}
-    if project_id:
-        filters["project_id"] = project_id
-    if developer_id:
-        filters["developer_id"] = developer_id
-    if agent_type:
-        filters["agent_type"] = agent_type
-    if status:
-        filters["status"] = status
-    if success is not None:
-        filters["success"] = success
-
-    # Parse date filters if provided
     if start_date:
         try:
             filters["start_date"] = datetime.fromisoformat(
@@ -136,11 +141,37 @@ async def list_conversations(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid end_date format")
 
+    repo = ConversationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    # If no workspace exists, return empty results
+    if workspace_id is None:
+        return ConversationListResponse(
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            pages=0,
+        )
+
+    # Build remaining filters
+    if project_id:
+        filters["project_id"] = project_id
+    if developer_id:
+        filters["developer_id"] = developer_id
+    if agent_type:
+        filters["agent_type"] = agent_type
+    if status:
+        filters["status"] = status
+    if success is not None:
+        filters["success"] = success
+
     # Get total count for pagination
-    total = repo.count_by_filters(**filters)
+    total = repo.count_by_filters(workspace_id=workspace_id, **filters)
 
     # Get conversations WITH counts (efficient SQL aggregation)
     results = repo.get_with_counts(
+        workspace_id=workspace_id,
         **filters,
         limit=page_size,
         offset=(page - 1) * page_size,
@@ -177,9 +208,13 @@ async def get_conversation(
     Returns full conversation with all messages, epochs, files touched, and tags.
     """
     repo = ConversationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Get conversation with all relations loaded
-    conversation = repo.get_with_relations(conversation_id)
+    conversation = repo.get_with_relations(conversation_id, workspace_id)
 
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -202,7 +237,14 @@ async def get_conversation_messages(
     """
     # First verify conversation exists
     conv_repo = ConversationRepository(session)
-    if not conv_repo.get(conversation_id):
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Verify conversation exists and belongs to workspace
+    conversation = conv_repo.get(conversation_id)
+    if not conversation or conversation.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Get messages

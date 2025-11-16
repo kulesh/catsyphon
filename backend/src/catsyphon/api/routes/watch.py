@@ -5,6 +5,7 @@ Endpoints for managing watch directory configurations.
 """
 
 import logging
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,10 +18,29 @@ from catsyphon.api.schemas import (
 )
 from catsyphon.daemon_manager import DaemonManager
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import WatchConfigurationRepository
+from catsyphon.db.repositories import WatchConfigurationRepository, WorkspaceRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _get_default_workspace_id(session: Session) -> Optional[UUID]:
+    """
+    Get default workspace ID for API operations.
+
+    This is a temporary helper until proper authentication is implemented.
+    Returns the first workspace in the database, or None if no workspaces exist.
+
+    Returns:
+        UUID of the first workspace, or None if no workspaces exist
+    """
+    workspace_repo = WorkspaceRepository(session)
+    workspaces = workspace_repo.get_all(limit=1)
+
+    if not workspaces:
+        return None
+
+    return workspaces[0].id
 
 
 @router.get("/watch/configs", response_model=list[WatchConfigurationResponse])
@@ -38,9 +58,13 @@ async def list_watch_configs(
         List of watch configurations
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        return []
 
     if active_only:
-        configs = repo.get_all_active()
+        configs = repo.get_all_active(workspace_id)
     else:
         configs = repo.get_all()
 
@@ -65,9 +89,14 @@ async def get_watch_config(
         HTTPException: 404 if configuration not found
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
+
     config = repo.get(config_id)
 
-    if not config:
+    if not config or config.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     return WatchConfigurationResponse.model_validate(config)
@@ -91,11 +120,19 @@ async def create_watch_config(
 
     Raises:
         HTTPException: 400 if directory already exists
+        HTTPException: 500 if no workspace exists
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
 
-    # Check if directory already exists
-    existing = repo.get_by_directory(config.directory)
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=500,
+            detail="No workspace found. Please create a workspace first."
+        )
+
+    # Check if directory already exists in this workspace
+    existing = repo.get_by_directory(config.directory, workspace_id)
     if existing:
         raise HTTPException(
             status_code=400,
@@ -107,6 +144,7 @@ async def create_watch_config(
 
     # Create new configuration
     new_config = repo.create(
+        workspace_id=workspace_id,
         directory=config.directory,
         project_id=config.project_id,
         developer_id=config.developer_id,
@@ -142,6 +180,15 @@ async def update_watch_config(
         HTTPException: 404 if configuration not found
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
+
+    # Verify config exists and belongs to workspace
+    existing = repo.get(config_id)
+    if not existing or existing.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     # Build update dict (only include non-None values)
     update_data = {k: v for k, v in config.model_dump().items() if v is not None}
@@ -172,9 +219,13 @@ async def delete_watch_config(
         HTTPException: 400 if configuration is active
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     config = repo.get(config_id)
-    if not config:
+    if not config or config.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     if config.is_active:
@@ -211,10 +262,14 @@ async def start_watching(
         HTTPException: 400 if daemon fails to start
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     # Get configuration
     config = repo.get(config_id)
-    if not config:
+    if not config or config.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     # Check if already active
@@ -277,10 +332,14 @@ async def stop_watching(
         HTTPException: 400 if daemon not running
     """
     repo = WatchConfigurationRepository(session)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     # Get configuration
     config = repo.get(config_id)
-    if not config:
+    if not config or config.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Watch configuration not found")
 
     # Check if active

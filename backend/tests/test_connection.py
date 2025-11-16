@@ -197,9 +197,10 @@ class TestTransactionContextManager:
 class TestDatabaseOperations:
     """Tests for common database operations."""
 
-    def test_create_and_retrieve(self, db_session: Session):
+    def test_create_and_retrieve(self, db_session: Session, sample_workspace):
         """Test basic create and retrieve operations."""
         project = Project(
+            workspace_id=sample_workspace.id,
             name="Integration Test Project",
             description="Testing database operations",
         )
@@ -211,9 +212,13 @@ class TestDatabaseOperations:
         retrieved = db_session.query(Project).filter_by(id=project.id).first()
         assert retrieved.name == "Integration Test Project"
 
-    def test_update_record(self, db_session: Session):
+    def test_update_record(self, db_session: Session, sample_workspace):
         """Test updating a record."""
-        developer = Developer(username="original_name", email="test@example.com")
+        developer = Developer(
+            workspace_id=sample_workspace.id,
+            username="original_name",
+            email="test@example.com",
+        )
         db_session.add(developer)
         db_session.commit()
         db_session.refresh(developer)
@@ -226,9 +231,9 @@ class TestDatabaseOperations:
         db_session.refresh(developer)
         assert developer.email == "updated@example.com"
 
-    def test_delete_record(self, db_session: Session):
+    def test_delete_record(self, db_session: Session, sample_workspace):
         """Test deleting a record."""
-        project = Project(name="To Be Deleted")
+        project = Project(workspace_id=sample_workspace.id, name="To Be Deleted")
         db_session.add(project)
         db_session.commit()
         db_session.refresh(project)
@@ -243,11 +248,19 @@ class TestDatabaseOperations:
         deleted = db_session.query(Project).filter_by(id=project_id).first()
         assert deleted is None
 
-    def test_query_filtering(self, db_session: Session):
+    def test_query_filtering(self, db_session: Session, sample_workspace):
         """Test querying with filters."""
         # Create test data
-        dev1 = Developer(username="alice", email="alice@example.com")
-        dev2 = Developer(username="bob", email="bob@example.com")
+        dev1 = Developer(
+            workspace_id=sample_workspace.id,
+            username="alice",
+            email="alice@example.com",
+        )
+        dev2 = Developer(
+            workspace_id=sample_workspace.id,
+            username="bob",
+            email="bob@example.com",
+        )
         db_session.add_all([dev1, dev2])
         db_session.commit()
 
@@ -256,11 +269,11 @@ class TestDatabaseOperations:
         assert alice is not None
         assert alice.email == "alice@example.com"
 
-    def test_query_ordering(self, db_session: Session):
+    def test_query_ordering(self, db_session: Session, sample_workspace):
         """Test querying with ordering."""
         # Create projects
         for i in range(3):
-            project = Project(name=f"Project {i}")
+            project = Project(workspace_id=sample_workspace.id, name=f"Project {i}")
             db_session.add(project)
         db_session.commit()
 

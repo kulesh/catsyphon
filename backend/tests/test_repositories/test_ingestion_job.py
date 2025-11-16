@@ -27,11 +27,12 @@ def job_repo(db_session: Session) -> IngestionJobRepository:
 
 @pytest.fixture
 def sample_watch_config(
-    db_session: Session, sample_project: Project
+    db_session: Session, sample_workspace, sample_project: Project
 ) -> WatchConfiguration:
     """Create a sample watch configuration for testing."""
     config = WatchConfiguration(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         directory="/test/watch/path",
         project_id=sample_project.id,
         enable_tagging=False,
@@ -283,7 +284,9 @@ class TestIngestionJobSpecificMethods:
             started_at=base_time - timedelta(hours=2),
         )
         job3 = job_repo.create(
-            source_type="cli", status="success", started_at=base_time - timedelta(hours=1)
+            source_type="cli",
+            status="success",
+            started_at=base_time - timedelta(hours=1),
         )
 
         recent_jobs = job_repo.get_recent(limit=10)
@@ -326,9 +329,7 @@ class TestIngestionJobSpecificMethods:
         job_ids = [j.id for j in config_jobs]
         assert job1.id in job_ids
         assert job2.id in job_ids
-        assert all(
-            j.source_config_id == sample_watch_config.id for j in config_jobs
-        )
+        assert all(j.source_config_id == sample_watch_config.id for j in config_jobs)
 
     def test_get_by_conversation(
         self, job_repo: IngestionJobRepository, sample_conversation: Conversation
@@ -562,8 +563,12 @@ class TestIngestionJobSpecificMethods:
     def test_search_no_filters(self, job_repo: IngestionJobRepository):
         """Test search with no filters returns recent jobs."""
         started = datetime.now(UTC)
-        job1 = job_repo.create(source_type="watch", status="success", started_at=started)
-        job2 = job_repo.create(source_type="upload", status="failed", started_at=started)
+        job1 = job_repo.create(
+            source_type="watch", status="success", started_at=started
+        )
+        job2 = job_repo.create(
+            source_type="upload", status="failed", started_at=started
+        )
 
         results = job_repo.search()
 

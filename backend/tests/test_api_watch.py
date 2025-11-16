@@ -15,10 +15,13 @@ from catsyphon.models.db import Project, WatchConfiguration
 
 
 @pytest.fixture
-def watch_config(db_session: Session, sample_project: Project) -> WatchConfiguration:
+def watch_config(
+    db_session: Session, sample_workspace, sample_project: Project
+) -> WatchConfiguration:
     """Create a sample watch configuration for testing."""
     repo = WatchConfigurationRepository(db_session)
     config = repo.create(
+        workspace_id=sample_workspace.id,
         directory="/test/watch/path",
         project_id=sample_project.id,
         enable_tagging=True,
@@ -33,11 +36,12 @@ def watch_config(db_session: Session, sample_project: Project) -> WatchConfigura
 
 @pytest.fixture
 def active_watch_config(
-    db_session: Session, sample_project: Project
+    db_session: Session, sample_workspace, sample_project: Project
 ) -> WatchConfiguration:
     """Create an active watch configuration for testing."""
     repo = WatchConfigurationRepository(db_session)
     config = repo.create(
+        workspace_id=sample_workspace.id,
         directory="/active/watch/path",
         project_id=sample_project.id,
         enable_tagging=False,
@@ -153,7 +157,7 @@ class TestGetWatchConfig:
 class TestCreateWatchConfig:
     """Test POST /watch/configs endpoint."""
 
-    def test_create_config_minimal(self, api_client: TestClient):
+    def test_create_config_minimal(self, api_client: TestClient, sample_workspace):
         """Test creating a config with minimal required fields."""
         payload = {
             "directory": "/new/watch/path",
@@ -169,9 +173,7 @@ class TestCreateWatchConfig:
         assert data["stats"] == {}
         assert data["id"] is not None
 
-    def test_create_config_full(
-        self, api_client: TestClient, sample_project: Project
-    ):
+    def test_create_config_full(self, api_client: TestClient, sample_project: Project):
         """Test creating a config with all fields."""
         payload = {
             "directory": "/full/watch/path",
@@ -447,6 +449,7 @@ class TestGetWatchStatus:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
     ):
         """Test status when all configurations are active."""
@@ -455,6 +458,7 @@ class TestGetWatchStatus:
         # Create multiple active configs
         for i in range(3):
             repo.create(
+                workspace_id=sample_workspace.id,
                 directory=f"/active/{i}",
                 project_id=sample_project.id,
                 is_active=True,
@@ -501,7 +505,7 @@ class TestWatchConfigIntegration:
         delete_response = api_client.delete(f"/watch/configs/{config_id}")
         assert delete_response.status_code == 204
 
-    def test_stop_then_delete_workflow(self, api_client: TestClient):
+    def test_stop_then_delete_workflow(self, api_client: TestClient, sample_workspace):
         """Test stopping then deleting a configuration."""
         # Create
         create_payload = {

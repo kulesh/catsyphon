@@ -198,12 +198,12 @@ class TestIngestCommand:
         finally:
             Path(temp_path).unlink(missing_ok=True)
 
-    def test_ingest_creates_database_records(self, db_session):
+    def test_ingest_creates_database_records(self, db_session, sample_workspace):
         """Test that ingest creates database records."""
         from catsyphon.db.repositories import ConversationRepository
 
         @contextmanager
-        def mock_get_db():
+        def mock_db_session():
             yield db_session
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
@@ -218,12 +218,12 @@ class TestIngestCommand:
             temp_path = f.name
 
         try:
-            # Get initial count
+            # Get initial count for this workspace
             repo = ConversationRepository(db_session)
-            initial_count = repo.count()
+            initial_count = repo.count_by_workspace(sample_workspace.id)
 
-            # Run ingestion (without dry-run) - mock get_db to use test session
-            with patch("catsyphon.db.connection.get_db", mock_get_db):
+            # Run ingestion (without dry-run) - mock db_session to use test session
+            with patch("catsyphon.db.connection.db_session", mock_db_session):
                 result = runner.invoke(
                     app,
                     [
@@ -240,13 +240,13 @@ class TestIngestCommand:
             assert "✓ Stored" in result.stdout
 
             # Verify conversation was created
-            final_count = repo.count()
+            final_count = repo.count_by_workspace(sample_workspace.id)
 
             # Should have one more conversation
             assert final_count == initial_count + 1
 
             # Get the conversation
-            recent = repo.get_recent(limit=1)
+            recent = repo.get_recent(sample_workspace.id, limit=1)
             assert len(recent) == 1
 
             conversation = recent[0]
@@ -257,11 +257,11 @@ class TestIngestCommand:
         finally:
             Path(temp_path).unlink(missing_ok=True)
 
-    def test_ingest_shows_conversation_id(self, db_session):
+    def test_ingest_shows_conversation_id(self, db_session, sample_workspace):
         """Test that successful ingestion shows conversation ID."""
 
         @contextmanager
-        def mock_get_db():
+        def mock_db_session():
             yield db_session
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
@@ -273,8 +273,8 @@ class TestIngestCommand:
             temp_path = f.name
 
         try:
-            # Mock get_db to use test session
-            with patch("catsyphon.db.connection.get_db", mock_get_db):
+            # Mock db_session to use test session
+            with patch("catsyphon.db.connection.db_session", mock_db_session):
                 result = runner.invoke(
                     app, ["ingest", temp_path, "--project", "id-test"]
                 )

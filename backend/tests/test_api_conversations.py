@@ -81,6 +81,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -88,12 +89,17 @@ class TestListConversations:
         repo = ConversationRepository(db_session)
 
         # Create conversations for different projects
-        other_project = Project(id=uuid.uuid4(), name="Other Project")
+        other_project = Project(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            name="Other Project",
+        )
         db_session.add(other_project)
         db_session.commit()
 
         conv1 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -101,6 +107,7 @@ class TestListConversations:
         )
         conv2 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=other_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -121,6 +128,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -129,13 +137,17 @@ class TestListConversations:
 
         # Create another developer
         other_dev = Developer(
-            id=uuid.uuid4(), username="other_dev", email="other@example.com"
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            username="other_dev",
+            email="other@example.com",
         )
         db_session.add(other_dev)
         db_session.commit()
 
         conv1 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -143,6 +155,7 @@ class TestListConversations:
         )
         conv2 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=other_dev.id,
             agent_type="claude-code",
@@ -162,6 +175,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -170,6 +184,7 @@ class TestListConversations:
 
         conv1 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -177,6 +192,7 @@ class TestListConversations:
         )
         conv2 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="copilot",
@@ -198,6 +214,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -206,6 +223,7 @@ class TestListConversations:
 
         conv1 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -214,6 +232,7 @@ class TestListConversations:
         )
         conv2 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -234,6 +253,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -242,6 +262,7 @@ class TestListConversations:
 
         conv1 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -250,6 +271,7 @@ class TestListConversations:
         )
         conv2 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -270,6 +292,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -282,6 +305,7 @@ class TestListConversations:
 
         conv1 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -289,6 +313,7 @@ class TestListConversations:
         )
         conv2 = repo.create(
             id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
             project_id=sample_project.id,
             developer_id=sample_developer.id,
             agent_type="claude-code",
@@ -314,6 +339,7 @@ class TestListConversations:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_workspace,
         sample_project: Project,
         sample_developer: Developer,
     ):
@@ -324,6 +350,7 @@ class TestListConversations:
         for i in range(10):
             repo.create(
                 id=uuid.uuid4(),
+                workspace_id=sample_workspace.id,
                 project_id=sample_project.id,
                 developer_id=sample_developer.id,
                 agent_type="claude-code",
