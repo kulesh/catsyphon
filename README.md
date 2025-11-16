@@ -28,6 +28,51 @@ CatSyphon parses, analyzes, and extracts insights from coding agent conversation
 - 📋 Query templates - Pre-built and custom queries
 - 🔔 Insight alerts - Automated pattern detection
 
+## Parser Plugins
+
+CatSyphon supports **extensible parser plugins** to parse logs from different AI coding assistants. While Claude Code is supported out-of-the-box, you can add parsers for:
+
+- 🤖 **Google Gemini Code Assist**
+- 💻 **OpenAI Codex**
+- 🎯 **Cursor IDE**
+- 🐙 **GitHub Copilot**
+- ...and any other AI coding assistant
+
+### Creating a Parser Plugin
+
+**Quick Start (15 minutes):**
+```bash
+# 1. Create parser from template
+# See: docs/parser-quickstart.md
+
+# 2. Install locally
+mkdir -p ~/.catsyphon/plugins/my-parser
+cp my_parser.py ~/.catsyphon/plugins/my-parser/
+cp catsyphon.json ~/.catsyphon/plugins/my-parser/
+
+# 3. Use it!
+catsyphon ingest /path/to/logs --project "Test"
+```
+
+**Distribution:**
+```toml
+# pyproject.toml
+[project.entry-points."catsyphon.parsers"]
+my-parser = "my_parser:get_metadata"
+```
+
+### Documentation
+
+- **📚 [Parser Plugin SDK](./docs/plugin-sdk.md)** - Complete guide to creating parsers
+- **⚡ [Quick Start Guide](./docs/parser-quickstart.md)** - 15-minute tutorial
+- **🔧 [API Reference](./docs/api-reference.md)** - Technical specifications
+
+### Plugin Discovery
+
+Plugins are discovered from:
+1. **Entry points** (pip-installed packages) - *Preferred for distribution*
+2. **Local directories** (`~/.catsyphon/plugins/`, `.catsyphon/parsers/`) - *Preferred for development*
+
 ## Tech Stack
 
 ### Backend
@@ -288,9 +333,15 @@ See [docs/implementation-plan.md](./docs/implementation-plan.md) for detailed co
 
 ## Documentation
 
+### Core Documentation
 - [Implementation Plan](./docs/implementation-plan.md) - Comprehensive technical documentation
 - [Agent Guidelines](./AGENTS.md) - Issue tracking workflow for AI agents
 - [Claude Code Instructions](./CLAUDE.md) - Project-specific guidance
+
+### Parser Plugin Development
+- [Parser Plugin SDK](./docs/plugin-sdk.md) - Complete guide to creating parser plugins
+- [Parser Quick Start](./docs/parser-quickstart.md) - 15-minute tutorial for building parsers
+- [API Reference](./docs/api-reference.md) - Technical API specifications
 
 ## Contributing
 
