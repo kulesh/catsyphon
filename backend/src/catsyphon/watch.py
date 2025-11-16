@@ -34,7 +34,6 @@ from catsyphon.config import settings
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.raw_log import RawLogRepository
 from catsyphon.exceptions import DuplicateFileError
-from catsyphon.parsers.claude_code import ClaudeCodeParser
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import get_default_registry
 from catsyphon.pipeline.ingestion import (
@@ -390,9 +389,15 @@ class FileWatcher(FileSystemEventHandler):
             f"line={existing_raw_log.last_processed_line}"
         )
 
-        # Use ClaudeCodeParser for incremental parsing
-        # TODO: Make this work with parser registry for other formats
-        parser = ClaudeCodeParser()
+        # Find parser that supports incremental parsing for this file
+        parser = self.parser_registry.find_incremental_parser(file_path)
+
+        if parser is None:
+            # No incremental parser available, raise to trigger full reparse
+            logger.warning(
+                f"No incremental parser found for {file_path.name}, falling back to full parse"
+            )
+            raise ValueError("No incremental parser available for this file format")
 
         # Parse only NEW content
         incremental_result = parser.parse_incremental(

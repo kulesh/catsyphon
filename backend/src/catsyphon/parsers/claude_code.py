@@ -24,6 +24,7 @@ from catsyphon.parsers.incremental import (
     IncrementalParseResult,
     calculate_partial_hash,
 )
+from catsyphon.parsers.metadata import ParserCapability, ParserMetadata
 from catsyphon.parsers.utils import (
     extract_text_content,
     match_tool_calls_with_results,
@@ -66,6 +67,22 @@ class ClaudeCodeParser:
     - Objects must contain 'sessionId' and 'version' fields
     - Version must be compatible with Claude Code format
     """
+
+    def __init__(self) -> None:
+        """Initialize Claude Code parser."""
+        self._metadata = ParserMetadata(
+            name="claude-code",
+            version="1.0.0",
+            supported_formats=[".jsonl"],
+            capabilities={ParserCapability.INCREMENTAL, ParserCapability.BATCH},
+            priority=50,
+            description="Parser for Claude Code conversation logs (JSONL format)",
+        )
+
+    @property
+    def metadata(self) -> ParserMetadata:
+        """Get parser metadata."""
+        return self._metadata
 
     def can_parse(self, file_path: Path) -> bool:
         """
@@ -177,6 +194,25 @@ class ClaudeCodeParser:
             files_touched=[change.file_path for change in code_changes],
             code_changes=code_changes,
         )
+
+    def supports_incremental(self, file_path: Path) -> bool:
+        """
+        Check if incremental parsing is supported for this file.
+
+        Args:
+            file_path: Path to the log file
+
+        Returns:
+            True (Claude Code JSONL format always supports incremental parsing)
+
+        Note:
+            Claude Code uses JSONL format which naturally supports incremental
+            parsing by appending new lines. This method always returns True for
+            valid Claude Code files.
+        """
+        # Claude Code JSONL format always supports incremental parsing
+        # We only check if this is a valid Claude Code file
+        return self.can_parse(file_path)
 
     def parse_incremental(
         self,

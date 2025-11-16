@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from catsyphon.models.parsed import ParsedConversation
+from catsyphon.parsers.metadata import ParserMetadata
 
 
 class ParserError(Exception):
@@ -35,7 +36,23 @@ class ConversationParser(Protocol):
 
     All parser implementations must provide these methods to integrate
     with the parser registry and ingestion pipeline.
+
+    BREAKING CHANGE: As of v0.2.0, parsers must provide a `metadata` property.
     """
+
+    @property
+    def metadata(self) -> ParserMetadata:
+        """
+        Get parser metadata.
+
+        Returns:
+            ParserMetadata object with parser name, version, capabilities, etc.
+
+        Note:
+            This property is required as of v0.2.0. It provides information
+            used by the plugin system for parser discovery and selection.
+        """
+        ...
 
     def can_parse(self, file_path: Path) -> bool:
         """

@@ -59,7 +59,31 @@ class IncrementalParser(Protocol):
 
     Parsers implementing this protocol can parse only new content
     appended to files, rather than reparsing the entire file.
+
+    Note:
+        This is a separate protocol from ConversationParser. Parsers can
+        implement both protocols to support both full and incremental modes.
     """
+
+    def supports_incremental(self, file_path: Path) -> bool:
+        """
+        Check if incremental parsing is supported for this specific file.
+
+        Args:
+            file_path: Path to the log file
+
+        Returns:
+            True if incremental parsing is supported for this file, False otherwise
+
+        Note:
+            Some file formats may not support incremental parsing (e.g., binary
+            formats that require full reparse, or corrupted files). This method
+            allows parsers to opt-out on a per-file basis.
+
+            Default implementation should return True if the parser generally
+            supports incremental parsing.
+        """
+        ...
 
     def parse_incremental(
         self,

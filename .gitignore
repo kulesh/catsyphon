@@ -65,6 +65,10 @@ frontend/pnpm-lock.yaml
 *.log
 logs/
 
+# CatSyphon cache files (AI tagging cache)
+.catsyphon_cache/
+backend/.catsyphon_cache/
+
 # Temporary files
 *.tmp
 .tmp/
