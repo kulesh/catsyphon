@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from catsyphon.models.db import (
     Base,
+    CollectorConfig,
     Conversation,
     ConversationTag,
     Developer,
@@ -22,9 +23,11 @@ from catsyphon.models.db import (
     FileTouched,
     IngestionJob,
     Message,
+    Organization,
     Project,
     RawLog,
     WatchConfiguration,
+    Workspace,
 )
 
 
@@ -123,10 +126,71 @@ def api_client(db_session: Session):
 
 
 @pytest.fixture
-def sample_project(db_session: Session) -> Project:
+def sample_organization(db_session: Session) -> Organization:
+    """Create a sample organization for testing."""
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Test Organization",
+        slug="test-org",
+        settings={"billing_plan": "enterprise"},
+        is_active=True,
+    )
+    db_session.add(organization)
+    db_session.commit()
+    db_session.refresh(organization)
+    return organization
+
+
+@pytest.fixture
+def sample_workspace(
+    db_session: Session, sample_organization: Organization
+) -> Workspace:
+    """Create a sample workspace for testing."""
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        organization_id=sample_organization.id,
+        name="Test Workspace",
+        slug="test-workspace",
+        settings={"retention_days": 90},
+        is_active=True,
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    db_session.refresh(workspace)
+    return workspace
+
+
+@pytest.fixture
+def sample_collector(
+    db_session: Session, sample_workspace: Workspace
+) -> CollectorConfig:
+    """Create a sample collector for testing."""
+    collector = CollectorConfig(
+        id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
+        name="Test Collector",
+        collector_type="python-sdk",
+        api_key_hash="$2b$12$hashed_key_here",  # bcrypt hash
+        api_key_prefix="cs_test123",
+        is_active=True,
+        version="1.0.0",
+        hostname="test-machine.local",
+        extra_data={"os": "macOS", "python_version": "3.11"},
+        total_uploads=0,
+        total_conversations=0,
+    )
+    db_session.add(collector)
+    db_session.commit()
+    db_session.refresh(collector)
+    return collector
+
+
+@pytest.fixture
+def sample_project(db_session: Session, sample_workspace: Workspace) -> Project:
     """Create a sample project for testing."""
     project = Project(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         name="Test Project",
         description="A test project for CatSyphon",
     )
@@ -137,10 +201,11 @@ def sample_project(db_session: Session) -> Project:
 
 
 @pytest.fixture
-def sample_developer(db_session: Session) -> Developer:
+def sample_developer(db_session: Session, sample_workspace: Workspace) -> Developer:
     """Create a sample developer for testing."""
     developer = Developer(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         username="test_developer",
         email="test@example.com",
         extra_data={"team": "engineering"},
@@ -153,11 +218,15 @@ def sample_developer(db_session: Session) -> Developer:
 
 @pytest.fixture
 def sample_conversation(
-    db_session: Session, sample_project: Project, sample_developer: Developer
+    db_session: Session,
+    sample_workspace: Workspace,
+    sample_project: Project,
+    sample_developer: Developer,
 ) -> Conversation:
     """Create a sample conversation for testing."""
     conversation = Conversation(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         project_id=sample_project.id,
         developer_id=sample_developer.id,
         agent_type="claude-code",
@@ -302,11 +371,15 @@ def sample_raw_log(db_session: Session, sample_conversation: Conversation) -> Ra
 
 @pytest.fixture
 def watch_config(
-    db_session: Session, sample_project: Project, sample_developer: Developer
+    db_session: Session,
+    sample_workspace: Workspace,
+    sample_project: Project,
+    sample_developer: Developer,
 ) -> WatchConfiguration:
     """Create a sample watch configuration (inactive) for testing."""
     config = WatchConfiguration(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         directory="/Users/test/.claude/projects",
         project_id=sample_project.id,
         developer_id=sample_developer.id,
@@ -324,11 +397,12 @@ def watch_config(
 
 @pytest.fixture
 def active_watch_config(
-    db_session: Session, sample_project: Project
+    db_session: Session, sample_workspace: Workspace, sample_project: Project
 ) -> WatchConfiguration:
     """Create an active watch configuration for testing."""
     config = WatchConfiguration(
         id=uuid.uuid4(),
+        workspace_id=sample_workspace.id,
         directory="/Users/test/.claude/active",
         project_id=sample_project.id,
         developer_id=None,
@@ -376,7 +450,9 @@ def ingestion_job_success(
 
 
 @pytest.fixture
-def ingestion_job_failed(db_session: Session, watch_config: WatchConfiguration) -> IngestionJob:
+def ingestion_job_failed(
+    db_session: Session, watch_config: WatchConfiguration
+) -> IngestionJob:
     """Create a failed ingestion job for testing."""
     job = IngestionJob(
         id=uuid.uuid4(),
@@ -466,7 +542,9 @@ def mock_observer():
     """
     from unittest.mock import Mock
 
-    mock_obs = Mock(spec=["start", "stop", "join", "is_alive", "schedule", "unschedule"])
+    mock_obs = Mock(
+        spec=["start", "stop", "join", "is_alive", "schedule", "unschedule"]
+    )
     mock_obs.is_alive.return_value = True
     mock_obs.start.return_value = None
     mock_obs.stop.return_value = None

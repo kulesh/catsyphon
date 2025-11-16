@@ -226,9 +226,7 @@ class TestWatchConfigurationSpecificMethods:
         assert config.id == sample_watch_config.id
         assert config.directory == "/path/to/watch"
 
-    def test_get_by_directory_not_found(
-        self, watch_repo: WatchConfigurationRepository
-    ):
+    def test_get_by_directory_not_found(self, watch_repo: WatchConfigurationRepository):
         """Test retrieving a watch configuration with non-existent directory."""
         config = watch_repo.get_by_directory("/non/existent/path")
 
