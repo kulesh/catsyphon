@@ -342,4 +342,76 @@ class IngestionStatsResponse(BaseModel):
     by_source_type: dict[str, int]
     avg_processing_time_ms: Optional[float] = None
     incremental_jobs: int
-    incremental_percentage: float
+
+
+# ===== Setup / Onboarding Schemas =====
+
+
+class OrganizationCreate(BaseModel):
+    """Request schema for creating an organization."""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Organization name (e.g., 'ACME Corporation', 'My Company')",
+    )
+    slug: Optional[str] = Field(
+        None,
+        pattern=r"^[a-z0-9-]+$",
+        max_length=255,
+        description="URL-friendly identifier (auto-generated if not provided)",
+    )
+
+
+class OrganizationResponse(BaseModel):
+    """Response schema for Organization."""
+
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    name: str
+    slug: str
+    is_active: bool
+    created_at: datetime
+
+
+class WorkspaceCreate(BaseModel):
+    """Request schema for creating a workspace."""
+
+    organization_id: UUID = Field(..., description="Parent organization ID")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Workspace name (e.g., 'Engineering', 'Personal Projects', 'Default')",
+    )
+    slug: Optional[str] = Field(
+        None,
+        pattern=r"^[a-z0-9-]+$",
+        max_length=255,
+        description="URL-friendly identifier (auto-generated if not provided)",
+    )
+
+
+class WorkspaceResponse(BaseModel):
+    """Response schema for Workspace."""
+
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    organization_id: UUID
+    name: str
+    slug: str
+    is_active: bool
+    created_at: datetime
+
+
+class SetupStatusResponse(BaseModel):
+    """Response schema for setup status check."""
+
+    needs_onboarding: bool = Field(
+        ..., description="Whether the system requires initial setup"
+    )
+    organization_count: int = Field(..., description="Number of organizations")
+    workspace_count: int = Field(..., description="Number of workspaces")

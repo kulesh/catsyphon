@@ -2,9 +2,43 @@
  * Root application component with routing.
  */
 
-import { Link, Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { checkSetupStatus } from '@/lib/api-setup';
 
 export default function App() {
+  const navigate = useNavigate();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    async function checkOnboarding() {
+      try {
+        const status = await checkSetupStatus();
+        if (status.needs_onboarding) {
+          navigate('/setup');
+        }
+      } catch (error) {
+        console.error('Failed to check setup status:', error);
+      } finally {
+        setChecking(false);
+      }
+    }
+
+    checkOnboarding();
+  }, [navigate]);
+
+  // Show loading state while checking
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
