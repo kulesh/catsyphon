@@ -469,22 +469,41 @@ export default function ConversationDetail() {
         </div>
 
         {hasTags ? (
-          <div className="flex flex-wrap gap-2">
-            {conversation.conversation_tags.map((tag) => (
-              <div
-                key={tag.id}
-                className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm"
-              >
-                <span className="font-medium">{tag.tag_type}:</span>
-                <span>{tag.tag_value}</span>
-                {tag.confidence !== null && (
-                  <span className="text-xs opacity-75">
-                    ({Math.round(tag.confidence * 100)}%)
-                  </span>
-                )}
+          <>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {conversation.conversation_tags.map((tag) => (
+                <div
+                  key={tag.id}
+                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm"
+                >
+                  <span className="font-medium">{tag.tag_type}:</span>
+                  <span>{tag.tag_value}</span>
+                  {tag.confidence !== null && (
+                    <span className="text-xs opacity-75">
+                      ({Math.round(tag.confidence * 100)}%)
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* AI Reasoning */}
+            {conversation.tags?.reasoning && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="flex items-start gap-2">
+                  <Sparkles className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-1">
+                      AI Analysis
+                    </h3>
+                    <p className="text-sm text-foreground/80">
+                      {conversation.tags.reasoning}
+                    </p>
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         ) : (
           <p className="text-muted-foreground text-sm">
             No tags yet. Click "Tag Conversation" to analyze this conversation with AI.
