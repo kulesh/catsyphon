@@ -30,6 +30,7 @@ class StartupMetrics:
     environment_check_ms: Optional[float] = None
     database_check_ms: Optional[float] = None
     migrations_check_ms: Optional[float] = None
+    openai_check_ms: Optional[float] = None
     checks_passed: bool = False
     last_check_time: Optional[datetime] = None
 
@@ -179,7 +180,6 @@ def check_required_environment() -> None:
         StartupCheckError: If critical environment variables are missing
     """
     missing = []
-    warnings = []
 
     # Check critical database settings
     if not settings.postgres_host:
@@ -191,13 +191,6 @@ def check_required_environment() -> None:
     if not settings.postgres_password:
         missing.append("POSTGRES_PASSWORD")
 
-    # Check optional but recommended settings
-    if (
-        not settings.openai_api_key
-        or settings.openai_api_key == "your_openai_api_key_here"
-    ):
-        warnings.append("OPENAI_API_KEY not set (tagging features will not work)")
-
     if missing:
         raise StartupCheckError(
             "Missing required environment variables:\n"
@@ -205,12 +198,72 @@ def check_required_environment() -> None:
             "Set these variables in your .env file",
         )
 
-    # Log warnings but don't fail
-    if warnings:
-        print("\n⚠️  Configuration Warnings:")
-        for warning in warnings:
-            print(f"  - {warning}")
-        print()
+
+def check_openai_configuration() -> None:
+    """
+    Validate OpenAI API key and model availability (optional check).
+
+    Only validates if OPENAI_API_KEY is set. Skips silently if not configured.
+
+    Raises:
+        StartupCheckError: If API key is invalid or model is unavailable
+    """
+    # Skip if OpenAI is not configured (tagging is optional)
+    if (
+        not settings.openai_api_key
+        or settings.openai_api_key == "your_openai_api_key_here"
+    ):
+        print("  ⚠️  SKIP (OpenAI not configured - tagging features disabled)")
+        return
+
+    try:
+        from openai import OpenAI
+        from openai import AuthenticationError, APIError
+
+        client = OpenAI(api_key=settings.openai_api_key)
+
+        # Test API key validity with minimal token usage
+        # Use a simple completion request with max_tokens=1
+        response = client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[{"role": "user", "content": "test"}],
+            max_tokens=1,
+        )
+
+        # If we get here, both API key and model are valid
+        if not response.choices:
+            raise StartupCheckError(
+                "OpenAI API returned empty response",
+                "API key may be valid but something is wrong with the API",
+            )
+
+    except AuthenticationError as e:
+        raise StartupCheckError(
+            f"OpenAI API authentication failed: {str(e)}",
+            "Check that OPENAI_API_KEY is set correctly in .env file",
+        ) from e
+    except APIError as e:
+        error_str = str(e).lower()
+        if "model" in error_str and "not found" in error_str:
+            raise StartupCheckError(
+                f"OpenAI model '{settings.openai_model}' not found or not accessible",
+                f"Update OPENAI_MODEL in .env or verify your API key has access to {settings.openai_model}",
+            ) from e
+        else:
+            raise StartupCheckError(
+                f"OpenAI API error: {str(e)}",
+                "Check your OpenAI API status at https://status.openai.com",
+            ) from e
+    except ImportError:
+        raise StartupCheckError(
+            "OpenAI Python package not installed",
+            "Install with: uv add openai",
+        )
+    except Exception as e:
+        raise StartupCheckError(
+            f"Unexpected error validating OpenAI configuration: {str(e)}",
+            "Verify OPENAI_API_KEY and OPENAI_MODEL settings",
+        ) from e
 
 
 def run_all_startup_checks() -> None:
@@ -221,6 +274,7 @@ def run_all_startup_checks() -> None:
     1. Environment variables
     2. Database connection
     3. Database migrations
+    4. OpenAI configuration (optional)
 
     Tracks timing metrics for each check.
 
@@ -235,6 +289,7 @@ def run_all_startup_checks() -> None:
         ("Environment Variables", check_required_environment, "environment_check_ms"),
         ("Database Connection", check_database_connection, "database_check_ms"),
         ("Database Migrations", check_database_migrations, "migrations_check_ms"),
+        ("OpenAI Configuration", check_openai_configuration, "openai_check_ms"),
     ]
 
     print("\n" + "=" * 70)
