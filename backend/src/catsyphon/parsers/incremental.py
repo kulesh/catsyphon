@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, runtime_checkable
 
 from catsyphon.models.parsed import ParsedMessage
 
@@ -53,6 +53,7 @@ class IncrementalParseResult:
     """Timestamp of the last message parsed (for validation)."""
 
 
+@runtime_checkable
 class IncrementalParser(Protocol):
     """
     Protocol for parsers that support incremental parsing.
