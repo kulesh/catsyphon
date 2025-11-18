@@ -356,8 +356,11 @@ class FileWatcher(FileSystemEventHandler):
                             )
                             tags = None  # Continue without tags
 
-                    # Determine update mode based on whether file exists
-                    update_mode = "replace" if existing_raw_log else "skip"
+                    # Determine update mode
+                    # - If raw_log exists: use "replace" to update existing tracking
+                    # - If no raw_log: use "replace" to create raw_log (don't skip!)
+                    # This ensures files are always ingested, even on fresh DB
+                    update_mode = "replace"
 
                     # Ingest into database
                     conversation = ingest_conversation(
