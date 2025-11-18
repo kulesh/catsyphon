@@ -199,8 +199,8 @@ describe('Setup', () => {
     it('should show loading state while creating organization', async () => {
       const user = userEvent.setup();
       // Create a promise we can control
-      let resolvePromise: (value: any) => void;
-      const promise = new Promise((resolve) => {
+      let resolvePromise: ((value: typeof mockOrganization) => void) | undefined;
+      const promise = new Promise<typeof mockOrganization>((resolve) => {
         resolvePromise = resolve;
       });
       vi.mocked(apiSetup.createOrganization).mockReturnValue(promise);
@@ -215,8 +215,13 @@ describe('Setup', () => {
         expect(screen.getByText('Creating...')).toBeInTheDocument();
       });
 
-      // Resolve the promise
-      resolvePromise!(mockOrganization);
+      // Resolve the promise and wait for state updates
+      if (resolvePromise) {
+        resolvePromise(mockOrganization);
+      }
+      await waitFor(() => {
+        expect(screen.queryByText('Creating...')).not.toBeInTheDocument();
+      });
     });
 
     it('should handle API errors', async () => {
@@ -378,8 +383,8 @@ describe('Setup', () => {
 
     it('should show loading state while creating workspace', async () => {
       const user = userEvent.setup();
-      let resolvePromise: (value: any) => void;
-      const promise = new Promise((resolve) => {
+      let resolvePromise: ((value: typeof mockWorkspace) => void) | undefined;
+      const promise = new Promise<typeof mockWorkspace>((resolve) => {
         resolvePromise = resolve;
       });
       vi.mocked(apiSetup.createWorkspace).mockReturnValue(promise);
@@ -394,7 +399,13 @@ describe('Setup', () => {
         expect(screen.getByText('Creating...')).toBeInTheDocument();
       });
 
-      resolvePromise!(mockWorkspace);
+      // Resolve the promise and wait for state updates
+      if (resolvePromise) {
+        resolvePromise(mockWorkspace);
+      }
+      await waitFor(() => {
+        expect(screen.queryByText('Creating...')).not.toBeInTheDocument();
+      });
     });
 
     it('should handle API errors', async () => {
