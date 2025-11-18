@@ -24,8 +24,13 @@ def ingest(
     developer: str = typer.Option(None, help="Developer username"),
     batch: bool = typer.Option(False, help="Process directory in batch mode"),
     dry_run: bool = typer.Option(False, help="Parse without storing to database"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Force re-ingest (skip file deduplication and replace existing conversations)",
+    ),
     skip_duplicates: bool = typer.Option(
-        True, help="Skip files that have already been processed"
+        True, help="[DEPRECATED] Use --force instead. Skip files that have already been processed"
     ),
     enable_tagging: bool = typer.Option(
         False, "--enable-tagging", help="Enable LLM-based tagging (uses OpenAI API)"
@@ -42,11 +47,29 @@ def ingest(
     from catsyphon.config import settings
     from catsyphon.parsers import get_default_registry
 
+    # Handle --force flag and deprecation warning
+    if force:
+        skip_duplicates = False
+        update_mode = "replace"
+    else:
+        update_mode = "skip"
+
+    # Show deprecation warning if --no-skip-duplicates used
+    if not skip_duplicates and not force:
+        console.print(
+            "[yellow]⚠ Warning: --no-skip-duplicates is deprecated. "
+            "Use --force instead.[/yellow]\n"
+        )
+        # Make deprecated flag work by setting update_mode
+        update_mode = "replace"
+
     console.print(f"[bold blue]Ingesting logs from:[/bold blue] {path}")
     console.print(f"  Project: {project or 'N/A'}")
     console.print(f"  Developer: {developer or 'N/A'}")
     console.print(f"  Batch mode: {batch}")
     console.print(f"  Dry run: {dry_run}")
+    console.print(f"  Force: {force}")
+    console.print(f"  Update mode: {update_mode}")
     console.print(f"  Skip duplicates: {skip_duplicates}")
     console.print(f"  LLM tagging: {enable_tagging}")
     console.print()
@@ -144,6 +167,7 @@ def ingest(
                             file_path=log_file,
                             tags=tags,
                             skip_duplicates=skip_duplicates,
+                            update_mode=update_mode,
                         )
                         session.commit()
                         console.print(

@@ -39,6 +39,7 @@ import {
   getWatchStatus,
   getIngestionJobs,
   getIngestionStats,
+  type UpdateMode,
 } from '@/lib/api';
 import type {
   UploadResult,
@@ -133,6 +134,7 @@ function BulkUploadTab() {
   const [fileStates, setFileStates] = useState<FileUploadState[]>([]);
   const [currentFileIndex, setCurrentFileIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updateMode, setUpdateMode] = useState<UpdateMode>('skip');
 
   const isUploading = currentFileIndex !== null;
   const isComplete =
@@ -216,7 +218,7 @@ function BulkUploadTab() {
       );
 
       try {
-        const response = await uploadSingleConversationLog(fileStates[i].file);
+        const response = await uploadSingleConversationLog(fileStates[i].file, updateMode);
 
         // Response contains results array with one item
         const result = response.results[0];
@@ -286,6 +288,67 @@ function BulkUploadTab() {
           Upload Claude Code conversation logs (.jsonl files) to analyze and explore your
           coding sessions.
         </p>
+      </div>
+
+      {/* Update Mode Selection */}
+      <div className="mb-6 p-4 bg-card border rounded-md">
+        <label className="text-sm font-medium mb-2 block">Update Mode</label>
+        <p className="text-xs text-muted-foreground mb-3">
+          How to handle existing conversations (matched by session ID)
+        </p>
+        <div className="space-y-2">
+          <label className="flex items-start space-x-3 cursor-pointer">
+            <input
+              type="radio"
+              name="updateMode"
+              value="skip"
+              checked={updateMode === 'skip'}
+              onChange={(e) => setUpdateMode(e.target.value as UpdateMode)}
+              className="mt-0.5"
+              disabled={isUploading}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium">Skip existing</span>
+              <p className="text-xs text-muted-foreground">
+                Skip updates for existing conversations (default)
+              </p>
+            </div>
+          </label>
+          <label className="flex items-start space-x-3 cursor-pointer">
+            <input
+              type="radio"
+              name="updateMode"
+              value="replace"
+              checked={updateMode === 'replace'}
+              onChange={(e) => setUpdateMode(e.target.value as UpdateMode)}
+              className="mt-0.5"
+              disabled={isUploading}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium">Replace existing</span>
+              <p className="text-xs text-muted-foreground">
+                Delete and recreate existing conversations with new data
+              </p>
+            </div>
+          </label>
+          <label className="flex items-start space-x-3 cursor-pointer">
+            <input
+              type="radio"
+              name="updateMode"
+              value="append"
+              checked={updateMode === 'append'}
+              onChange={(e) => setUpdateMode(e.target.value as UpdateMode)}
+              className="mt-0.5"
+              disabled={isUploading}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium">Append to existing</span>
+              <p className="text-xs text-muted-foreground">
+                Append new messages to existing conversations (incremental update)
+              </p>
+            </div>
+          </label>
+        </div>
       </div>
 
       {/* Drag & Drop Zone */}

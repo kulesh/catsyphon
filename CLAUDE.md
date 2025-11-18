@@ -150,6 +150,8 @@ uv run uvicorn catsyphon.api.app:app --reload   # Dev server with hot reload
 # CLI commands (minimal - use Web UI for most features)
 uv run catsyphon ingest <path> --project "name"              # One-time log import
 uv run catsyphon ingest <path> --enable-tagging              # Import with LLM tagging
+uv run catsyphon ingest <path> --force                       # Force re-ingest (skip dedup & replace existing)
+# Note: --no-skip-duplicates is deprecated, use --force instead
 # Note: For database status/stats, use Web UI Dashboard (http://localhost:8000)
 # Note: For version info, use: pip show catsyphon
 

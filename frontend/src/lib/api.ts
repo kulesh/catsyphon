@@ -152,8 +152,11 @@ export async function getHealth(): Promise<HealthResponse> {
 
 // ===== Upload Endpoint =====
 
+export type UpdateMode = 'skip' | 'replace' | 'append';
+
 export async function uploadConversationLogs(
-  files: File[]
+  files: File[],
+  updateMode: UpdateMode = 'skip'
 ): Promise<UploadResponse> {
   const formData = new FormData();
 
@@ -162,7 +165,11 @@ export async function uploadConversationLogs(
     formData.append('files', file);
   });
 
-  const url = '/api/upload/';
+  // Add update_mode as query parameter
+  const params = new URLSearchParams();
+  params.append('update_mode', updateMode);
+
+  const url = `/api/upload/?${params.toString()}`;
 
   try {
     const response = await fetch(url, {
@@ -189,12 +196,17 @@ export async function uploadConversationLogs(
 }
 
 export async function uploadSingleConversationLog(
-  file: File
+  file: File,
+  updateMode: UpdateMode = 'skip'
 ): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('files', file);
 
-  const url = '/api/upload/';
+  // Add update_mode as query parameter
+  const params = new URLSearchParams();
+  params.append('update_mode', updateMode);
+
+  const url = `/api/upload/?${params.toString()}`;
 
   try {
     const response = await fetch(url, {

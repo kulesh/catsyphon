@@ -323,3 +323,95 @@ class TestFileUpload:
         assert result["results"][1]["filename"] == "conversation2.jsonl"
         assert result["results"][0]["status"] == "success"
         assert result["results"][1]["status"] == "success"
+
+    def test_upload_with_update_mode_skip(
+        self, client: TestClient, sample_jsonl_content: str, db_session
+    ):
+        """Test upload with update_mode=skip (default behavior)."""
+        files = [
+            (
+                "files",
+                (
+                    "conversation.jsonl",
+                    io.BytesIO(sample_jsonl_content.encode()),
+                    "application/json",
+                ),
+            )
+        ]
+
+        response = client.post("/upload?update_mode=skip", files=files)
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success_count"] == 1
+        assert result["results"][0]["status"] == "success"
+
+    def test_upload_with_update_mode_replace(
+        self, client: TestClient, sample_jsonl_content: str, db_session
+    ):
+        """Test upload with update_mode=replace."""
+        files = [
+            (
+                "files",
+                (
+                    "conversation.jsonl",
+                    io.BytesIO(sample_jsonl_content.encode()),
+                    "application/json",
+                ),
+            )
+        ]
+
+        # First upload
+        response1 = client.post("/upload", files=files)
+        assert response1.status_code == 200
+
+        # Second upload with replace mode
+        response2 = client.post("/upload?update_mode=replace", files=files)
+
+        assert response2.status_code == 200
+        result = response2.json()
+        # With replace mode, existing conversations should be replaced
+        assert result["success_count"] == 1
+        assert result["results"][0]["status"] in ["success", "duplicate"]
+
+    def test_upload_with_update_mode_append(
+        self, client: TestClient, sample_jsonl_content: str, db_session
+    ):
+        """Test upload with update_mode=append."""
+        files = [
+            (
+                "files",
+                (
+                    "conversation.jsonl",
+                    io.BytesIO(sample_jsonl_content.encode()),
+                    "application/json",
+                ),
+            )
+        ]
+
+        response = client.post("/upload?update_mode=append", files=files)
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["success_count"] == 1
+        assert result["results"][0]["status"] == "success"
+
+    def test_upload_with_invalid_update_mode(
+        self, client: TestClient, sample_jsonl_content: str
+    ):
+        """Test upload with invalid update_mode value."""
+        files = [
+            (
+                "files",
+                (
+                    "conversation.jsonl",
+                    io.BytesIO(sample_jsonl_content.encode()),
+                    "application/json",
+                ),
+            )
+        ]
+
+        response = client.post("/upload?update_mode=invalid", files=files)
+
+        # Should fail validation (422 Unprocessable Entity)
+        assert response.status_code == 422

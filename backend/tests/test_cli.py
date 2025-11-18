@@ -264,6 +264,91 @@ class TestIngestCommand:
         finally:
             Path(temp_path).unlink(missing_ok=True)
 
+    def test_ingest_force_flag_shows_update_mode_replace(self):
+        """Test that --force flag sets update_mode to replace."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                '{"sessionId":"test-123","version":"2.0.17","type":"user",'
+                '"message":{"role":"user","content":"Test"},"uuid":"msg-1",'
+                '"timestamp":"2025-01-01T00:00:00Z"}\n'
+            )
+            temp_path = f.name
+
+        try:
+            result = runner.invoke(app, ["ingest", temp_path, "--force", "--dry-run"])
+
+            assert result.exit_code == 0
+            assert "Force: True" in result.stdout
+            assert "Update mode: replace" in result.stdout
+            assert "Skip duplicates: False" in result.stdout
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    def test_ingest_no_skip_duplicates_shows_deprecation_warning(self):
+        """Test that --no-skip-duplicates shows deprecation warning."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                '{"sessionId":"test-123","version":"2.0.17","type":"user",'
+                '"message":{"role":"user","content":"Test"},"uuid":"msg-1",'
+                '"timestamp":"2025-01-01T00:00:00Z"}\n'
+            )
+            temp_path = f.name
+
+        try:
+            result = runner.invoke(
+                app, ["ingest", temp_path, "--no-skip-duplicates", "--dry-run"]
+            )
+
+            assert result.exit_code == 0
+            assert "deprecated" in result.stdout.lower()
+            assert "Use --force instead" in result.stdout
+            # Should still set update_mode to replace for backward compatibility
+            assert "Update mode: replace" in result.stdout
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    def test_ingest_force_calls_ingest_conversation_with_replace_mode(
+        self, db_session, sample_workspace
+    ):
+        """Test that --force flag passes update_mode='replace' to ingest_conversation."""
+        from catsyphon.pipeline.ingestion import ingest_conversation
+
+        @contextmanager
+        def mock_db_session():
+            yield db_session
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                '{"sessionId":"test-force-123","version":"2.0.17","type":"user",'
+                '"message":{"role":"user","content":"Test"},"uuid":"msg-1",'
+                '"timestamp":"2025-01-01T00:00:00Z"}\n'
+            )
+            temp_path = f.name
+
+        try:
+            # Mock ingest_conversation to verify it's called with correct parameters
+            with patch("catsyphon.db.connection.db_session", mock_db_session):
+                with patch(
+                    "catsyphon.pipeline.ingestion.ingest_conversation"
+                ) as mock_ingest:
+                    # Setup mock to return a minimal conversation object
+                    mock_conv = Mock()
+                    mock_conv.id = "conv-123"
+                    mock_ingest.return_value = mock_conv
+
+                    result = runner.invoke(app, ["ingest", temp_path, "--force"])
+
+                    assert result.exit_code == 0
+
+                    # Verify ingest_conversation was called with update_mode='replace'
+                    assert mock_ingest.called
+                    call_kwargs = mock_ingest.call_args.kwargs
+                    assert call_kwargs["update_mode"] == "replace"
+                    assert call_kwargs["skip_duplicates"] is False
+
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
 
 class TestServeCommand:
     """Tests for serve command."""

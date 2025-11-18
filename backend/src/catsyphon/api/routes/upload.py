@@ -7,7 +7,7 @@ Endpoints for uploading and ingesting conversation log files.
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from catsyphon.api.schemas import UploadResponse, UploadResult
 from catsyphon.db.connection import db_session
@@ -21,12 +21,24 @@ router = APIRouter()
 @router.post("/", response_model=UploadResponse)
 async def upload_conversation_logs(
     files: list[UploadFile] = File(...),
+    update_mode: str = Query(
+        "skip",
+        description="How to handle existing conversations: 'skip' (default), 'replace', or 'append'",
+        regex="^(skip|replace|append)$",
+    ),
 ) -> UploadResponse:
     """
     Upload and ingest one or more conversation log files.
 
     Accepts .jsonl files, parses them, and stores them in the database.
     Returns summary of successful and failed uploads with conversation IDs.
+
+    Parameters:
+    - files: One or more .jsonl conversation log files
+    - update_mode: How to handle existing conversations (by session_id):
+        - 'skip' (default): Skip updates for existing conversations
+        - 'replace': Delete and recreate existing conversations with new data
+        - 'append': Append new messages to existing conversations
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
@@ -64,7 +76,7 @@ async def upload_conversation_logs(
                 # Parse the file
                 conversation = registry.parse(temp_path)
 
-                # Store to database (always skip duplicates for API uploads)
+                # Store to database with specified update_mode
                 try:
                     with db_session() as session:
                         db_conversation = ingest_conversation(
@@ -73,7 +85,8 @@ async def upload_conversation_logs(
                             project_name=None,  # Auto-extract from log
                             developer_username=None,  # Auto-extract from log
                             file_path=temp_path,  # Pass temp path for hash calculation
-                            skip_duplicates=True,  # Always skip duplicates in API
+                            skip_duplicates=True,  # Always skip file hash duplicates in API
+                            update_mode=update_mode,  # Use provided update mode
                         )
                         session.commit()
 
