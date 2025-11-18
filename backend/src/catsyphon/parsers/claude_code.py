@@ -155,6 +155,8 @@ class ClaudeCodeParser:
         agent_version = None
         git_branch = None
         cwd = None
+        is_sidechain = False
+        agent_id = None
 
         for msg in raw_messages[:10]:  # Check first 10 messages
             if "sessionId" in msg:
@@ -162,6 +164,8 @@ class ClaudeCodeParser:
                 agent_version = msg.get("version")
                 git_branch = msg.get("gitBranch")
                 cwd = msg.get("cwd")
+                is_sidechain = msg.get("isSidechain", False)
+                agent_id = msg.get("agentId")
                 break
 
         if not session_id:
@@ -182,6 +186,28 @@ class ClaudeCodeParser:
 
         code_changes = self._detect_code_changes(all_tool_calls)
 
+        # Determine conversation type and hierarchy (Phase 2: Epic 7u2)
+        conversation_type = "agent" if is_sidechain else "main"
+        parent_session_id = session_id if is_sidechain else None
+
+        # Context semantics for Claude Code agents (isolated context, can use tools)
+        context_semantics = {}
+        agent_metadata = {}
+
+        if is_sidechain:
+            context_semantics = {
+                "shares_parent_context": False,  # Agents have isolated context
+                "can_use_parent_tools": True,  # Can use tools like parent
+                "isolated_context": True,  # Explicitly isolated
+                "max_context_window": None,  # Unknown for Claude Code agents
+            }
+
+            agent_metadata = {
+                "agent_id": agent_id,
+                "agent_type": "subagent",  # Could be Explore, Plan, etc.
+                "parent_session_id": session_id,  # For easy reference
+            }
+
         # Build ParsedConversation
         return ParsedConversation(
             agent_type="claude-code",
@@ -194,6 +220,10 @@ class ClaudeCodeParser:
             messages=parsed_messages,
             files_touched=[change.file_path for change in code_changes],
             code_changes=code_changes,
+            conversation_type=conversation_type,
+            parent_session_id=parent_session_id,
+            context_semantics=context_semantics,
+            agent_metadata=agent_metadata,
         )
 
     def supports_incremental(self, file_path: Path) -> bool:

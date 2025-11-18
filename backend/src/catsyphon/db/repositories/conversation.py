@@ -38,6 +38,8 @@ class ConversationRepository(BaseRepository[Conversation]):
                 joinedload(Conversation.developer),
                 joinedload(Conversation.epochs),
                 joinedload(Conversation.messages),
+                joinedload(Conversation.children),  # Phase 2: Epic 7u2
+                joinedload(Conversation.parent_conversation),  # Phase 2: Epic 7u2
             )
             .filter(Conversation.id == id, Conversation.workspace_id == workspace_id)
             .first()

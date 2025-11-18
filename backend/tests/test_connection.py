@@ -203,6 +203,7 @@ class TestDatabaseOperations:
             workspace_id=sample_workspace.id,
             name="Integration Test Project",
             description="Testing database operations",
+            directory_path="/tmp/integration-test-project",
         )
         db_session.add(project)
         db_session.commit()
@@ -233,7 +234,11 @@ class TestDatabaseOperations:
 
     def test_delete_record(self, db_session: Session, sample_workspace):
         """Test deleting a record."""
-        project = Project(workspace_id=sample_workspace.id, name="To Be Deleted")
+        project = Project(
+            workspace_id=sample_workspace.id,
+            name="To Be Deleted",
+            directory_path="/tmp/to-be-deleted",
+        )
         db_session.add(project)
         db_session.commit()
         db_session.refresh(project)
@@ -273,7 +278,11 @@ class TestDatabaseOperations:
         """Test querying with ordering."""
         # Create projects
         for i in range(3):
-            project = Project(workspace_id=sample_workspace.id, name=f"Project {i}")
+            project = Project(
+                workspace_id=sample_workspace.id,
+                name=f"Project {i}",
+                directory_path=f"/tmp/project-{i}",
+            )
             db_session.add(project)
         db_session.commit()
 

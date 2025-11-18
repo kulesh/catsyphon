@@ -23,7 +23,11 @@ def temp_watch_dir(tmp_path):
 def watch_config(db_session, sample_workspace, temp_watch_dir):
     """Create a test watch configuration in database."""
     # Create project and developer
-    project = Project(workspace_id=sample_workspace.id, name="test-project")
+    project = Project(
+        workspace_id=sample_workspace.id,
+        name="test-project",
+        directory_path=str(temp_watch_dir),
+    )
     developer = Developer(
         workspace_id=sample_workspace.id, username="test-user", email="test@example.com"
     )

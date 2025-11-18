@@ -64,6 +64,12 @@ class ParsedConversation:
     files_touched: list[str] = field(default_factory=list)  # List of file paths
     code_changes: list[CodeChange] = field(default_factory=list)  # Code modifications
 
+    # Hierarchy fields (Phase 2: Epic 7u2)
+    conversation_type: str = "main"  # 'main', 'agent', 'mcp', 'skill', 'command', 'other'
+    parent_session_id: Optional[str] = None  # Parent session ID for agent/tool conversations
+    context_semantics: dict = field(default_factory=dict)  # Context sharing behavior
+    agent_metadata: dict = field(default_factory=dict)  # Agent-specific metadata
+
 
 @dataclass
 class ConversationTags:

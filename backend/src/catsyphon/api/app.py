@@ -14,6 +14,7 @@ from catsyphon.api.routes import (
     conversations,
     ingestion,
     metadata,
+    projects,
     setup,
     stats,
     upload,
@@ -143,6 +144,7 @@ app.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )
 app.include_router(metadata.router, prefix="", tags=["metadata"])
+app.include_router(projects.router, prefix="/projects", tags=["projects"])
 app.include_router(stats.router, prefix="/stats", tags=["stats"])
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(watch.router, prefix="", tags=["watch"])

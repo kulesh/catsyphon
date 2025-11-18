@@ -5,6 +5,7 @@ These models represent the database schema for storing parsed and tagged
 conversation data.
 """
 
+import enum
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -12,8 +13,10 @@ from typing import Optional
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -28,6 +31,17 @@ class Base(DeclarativeBase):
     """Base class for all database models."""
 
     pass
+
+
+class ConversationType(str, enum.Enum):
+    """Type of conversation - main, agent, or other tool/context."""
+
+    MAIN = "main"  # Primary human conversation thread
+    AGENT = "agent"  # Subagent/delegated task conversation
+    MCP = "mcp"  # MCP server conversation
+    SKILL = "skill"  # Skill invocation conversation
+    COMMAND = "command"  # Slash command conversation
+    OTHER = "other"  # Other types of sub-conversations
 
 
 class Organization(Base):
@@ -307,6 +321,36 @@ class Conversation(Base):
     developer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("developers.id"), nullable=True
     )
+
+    # Hierarchy fields for agents, MCP servers, skills, commands, etc.
+    parent_conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    conversation_type: Mapped[str] = mapped_column(
+        Enum(ConversationType, native_enum=False),
+        nullable=False,
+        server_default=ConversationType.MAIN.value,
+        index=True,
+    )
+
+    # Semantic metadata for context sharing behavior
+    # Example: {"shares_parent_context": false, "can_use_parent_tools": true,
+    #           "isolated_context": true, "max_context_window": 100000}
+    context_semantics: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    # Agent-specific metadata (for conversation_type='agent')
+    # Example: {"agent_id": "88b5221b", "agent_type": "Explore",
+    #           "delegation_reason": "Find error handling code",
+    #           "parent_message_id": "msg-123", "specialized_prompt": "..."}
+    agent_metadata: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
     agent_type: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # 'claude-code', 'copilot', etc.
@@ -362,6 +406,21 @@ class Conversation(Base):
     developer: Mapped[Optional["Developer"]] = relationship(
         back_populates="conversations"
     )
+
+    # Hierarchical relationship for agents, MCP, skills, etc.
+    parent_conversation: Mapped[Optional["Conversation"]] = relationship(
+        "Conversation",
+        remote_side="Conversation.id",
+        foreign_keys=[parent_conversation_id],
+        back_populates="children",
+    )
+    children: Mapped[list["Conversation"]] = relationship(
+        "Conversation",
+        back_populates="parent_conversation",
+        foreign_keys="Conversation.parent_conversation_id",
+        cascade="all, delete-orphan",
+    )
+
     epochs: Mapped[list["Epoch"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )

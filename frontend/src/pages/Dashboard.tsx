@@ -87,6 +87,9 @@ export default function Dashboard() {
           </div>
           <p className="text-3xl font-bold">{stats.total_conversations.toLocaleString()}</p>
           <p className="text-sm text-muted-foreground mt-1">
+            {stats.total_main_conversations} main, {stats.total_agent_conversations} agents
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
             {stats.recent_conversations} in last 7 days
           </p>
         </div>

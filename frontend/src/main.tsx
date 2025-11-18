@@ -9,6 +9,8 @@ import App from './App.tsx';
 import Dashboard from './pages/Dashboard.tsx';
 import ConversationList from './pages/ConversationList.tsx';
 import ConversationDetail from './pages/ConversationDetail.tsx';
+import ProjectList from './pages/ProjectList.tsx';
+import ProjectDetail from './pages/ProjectDetail.tsx';
 import Upload from './pages/Upload.tsx';
 import Ingestion from './pages/Ingestion.tsx';
 import Setup from './pages/Setup.tsx';
@@ -35,6 +37,14 @@ const router = createBrowserRouter([
       {
         path: 'conversations/:id',
         element: <ConversationDetail />,
+      },
+      {
+        path: 'projects',
+        element: <ProjectList />,
+      },
+      {
+        path: 'projects/:id',
+        element: <ProjectDetail />,
       },
       {
         path: 'upload',

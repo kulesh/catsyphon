@@ -57,6 +57,12 @@ export default function App() {
                   Conversations
                 </Link>
                 <Link
+                  to="/projects"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Projects
+                </Link>
+                <Link
                   to="/ingestion"
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >

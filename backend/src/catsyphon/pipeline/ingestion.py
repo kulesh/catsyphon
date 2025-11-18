@@ -222,6 +222,17 @@ def ingest_conversation(
         )
 
         if existing_conversation:
+            # Check if this is the SAME file being re-processed
+            if file_path and existing_conversation.raw_logs:
+                existing_file_paths = {
+                    Path(rl.file_path)
+                    for rl in existing_conversation.raw_logs
+                    if rl.file_path is not None
+                }
+                is_same_file = file_path in existing_file_paths
+            else:
+                is_same_file = False
+
             if update_mode == "skip":
                 logger.info(
                     f"Skipping existing conversation: session_id={parsed.session_id}, "
@@ -391,13 +402,34 @@ def ingest_conversation(
         developer_id = developer.id
         logger.debug(f"Developer: {developer.username} ({developer.id})")
 
-    # Step 3: Create or Update Conversation
+    # Step 3: Hierarchical conversation linking (Phase 2: Epic 7u2)
+    # If this is an agent/subagent conversation, find the parent conversation
+    parent_conversation_id = None
+    if parsed.conversation_type == "agent" and parsed.parent_session_id:
+        parent_conversation = conversation_repo.get_by_session_id(
+            parsed.parent_session_id, workspace_id
+        )
+        if parent_conversation:
+            parent_conversation_id = parent_conversation.id
+            logger.info(
+                f"Linking agent conversation (session_id={parsed.session_id}) "
+                f"to parent (session_id={parsed.parent_session_id}, id={parent_conversation_id})"
+            )
+        else:
+            logger.warning(
+                f"Parent conversation not found for agent (parent_session_id={parsed.parent_session_id}). "
+                f"Agent conversation will be created without parent link."
+            )
+
+    # Step 4: Create or Update Conversation
     if not is_update:
         # Create new conversation
         conversation = conversation_repo.create(
             workspace_id=workspace_id,
             project_id=project_id,
             developer_id=developer_id,
+            parent_conversation_id=parent_conversation_id,
+            conversation_type=parsed.conversation_type,
             agent_type=parsed.agent_type,
             agent_version=parsed.agent_version,
             start_time=parsed.start_time,
@@ -405,6 +437,8 @@ def ingest_conversation(
             status="completed" if parsed.end_time else "open",
             iteration_count=1,  # TODO: Detect iterations from parsed data
             tags=tags or {},
+            context_semantics=parsed.context_semantics,
+            agent_metadata=parsed.agent_metadata,
             extra_data={
                 "session_id": parsed.session_id,
                 "git_branch": parsed.git_branch,
@@ -414,10 +448,14 @@ def ingest_conversation(
         )
         logger.info(f"Created conversation: {conversation.id}")
     else:
-        # Update existing conversation with project/developer associations
+        # Update existing conversation with project/developer/hierarchy associations
         assert conversation is not None, "conversation must be set in replace mode"
         conversation.project_id = project_id
         conversation.developer_id = developer_id
+        conversation.parent_conversation_id = parent_conversation_id
+        conversation.conversation_type = parsed.conversation_type
+        conversation.context_semantics = parsed.context_semantics
+        conversation.agent_metadata = parsed.agent_metadata
         logger.info(f"Updated conversation associations: {conversation.id}")
 
     # Step 4: Create Epoch (one epoch per conversation for now)

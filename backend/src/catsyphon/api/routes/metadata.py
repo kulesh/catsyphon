@@ -10,9 +10,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from catsyphon.api.schemas import DeveloperResponse, ProjectResponse
+from catsyphon.api.schemas import DeveloperResponse, ProjectListItem
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import DeveloperRepository, ProjectRepository, WorkspaceRepository
+from catsyphon.models.db import Conversation
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -36,14 +38,15 @@ def _get_default_workspace_id(session: Session) -> Optional[UUID]:
     return workspaces[0].id
 
 
-@router.get("/projects", response_model=list[ProjectResponse])
+@router.get("/projects", response_model=list[ProjectListItem])
 async def list_projects(
     session: Session = Depends(get_db),
-) -> list[ProjectResponse]:
+) -> list[ProjectListItem]:
     """
-    List all projects.
+    List all projects with session counts.
 
-    Returns all projects in the system, useful for filter dropdowns.
+    Returns all projects in the system with metadata about session counts
+    and last activity timestamp.
     """
     repo = ProjectRepository(session)
     workspace_id = _get_default_workspace_id(session)
@@ -53,7 +56,38 @@ async def list_projects(
 
     projects = repo.get_by_workspace(workspace_id)
 
-    return [ProjectResponse.model_validate(p) for p in projects]
+    # Enrich with session counts
+    result = []
+    for project in projects:
+        # Count sessions for this project
+        session_count = (
+            session.query(func.count(Conversation.id))
+            .filter(Conversation.project_id == project.id)
+            .scalar()
+            or 0
+        )
+
+        # Get last session timestamp
+        last_session_at = (
+            session.query(func.max(Conversation.start_time))
+            .filter(Conversation.project_id == project.id)
+            .scalar()
+        )
+
+        result.append(
+            ProjectListItem(
+                id=project.id,
+                name=project.name,
+                directory_path=project.directory_path,
+                description=project.description,
+                created_at=project.created_at,
+                updated_at=project.updated_at,
+                session_count=session_count,
+                last_session_at=last_session_at,
+            )
+        )
+
+    return result
 
 
 @router.get("/developers", response_model=list[DeveloperResponse])

@@ -131,6 +131,23 @@ async def get_overview_stats(
     for agent_type, count in agent_counts:
         conversations_by_agent[agent_type] = count
 
+    # Hierarchical conversation stats (Phase 2: Epic 7u2)
+    conversations_by_type = {}
+    type_counts = (
+        session.query(Conversation.conversation_type, func.count(Conversation.id))
+        .filter(Conversation.workspace_id == workspace_id)
+        .group_by(Conversation.conversation_type)
+        .all()
+    )
+    total_main_conversations = 0
+    total_agent_conversations = 0
+    for conv_type, count in type_counts:
+        conversations_by_type[conv_type] = count
+        if conv_type == "main":
+            total_main_conversations = count
+        elif conv_type == "agent":
+            total_agent_conversations = count
+
     # Recent conversations (last 7 days, workspace scoped)
     seven_days_ago = datetime.utcnow() - timedelta(days=7)
     recent_conversations = conv_repo.count_by_filters(
@@ -166,4 +183,7 @@ async def get_overview_stats(
         conversations_by_agent=conversations_by_agent,
         recent_conversations=recent_conversations,
         success_rate=success_rate,
+        total_main_conversations=total_main_conversations,
+        total_agent_conversations=total_agent_conversations,
+        conversations_by_type=conversations_by_type,
     )

@@ -192,6 +192,7 @@ def sample_project(db_session: Session, sample_workspace: Workspace) -> Project:
         id=uuid.uuid4(),
         workspace_id=sample_workspace.id,
         name="Test Project",
+        directory_path="/Users/test/catsyphon",
         description="A test project for CatSyphon",
     )
     db_session.add(project)

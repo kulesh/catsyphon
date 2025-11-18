@@ -93,10 +93,17 @@ export interface ConversationListItem {
   created_at: string;
   updated_at: string;
 
+  // Hierarchy fields (Phase 2: Epic 7u2)
+  parent_conversation_id: string | null;
+  conversation_type: string;
+  context_semantics: Record<string, any>;
+  agent_metadata: Record<string, any>;
+
   // Related counts
   message_count: number;
   epoch_count: number;
   files_count: number;
+  children_count: number;
 
   // Related objects (optional)
   project?: ProjectResponse;
@@ -108,6 +115,10 @@ export interface ConversationDetail extends ConversationListItem {
   epochs: EpochResponse[];
   files_touched: FileTouchedResponse[];
   conversation_tags: ConversationTagResponse[];
+
+  // Hierarchical relationships (Phase 2: Epic 7u2)
+  children: ConversationListItem[];
+  parent: ConversationListItem | null;
 }
 
 export interface ConversationListResponse {
@@ -129,6 +140,11 @@ export interface OverviewStats {
   conversations_by_agent: Record<string, number>;
   recent_conversations: number;
   success_rate: number | null;
+
+  // Hierarchical conversation stats (Phase 2: Epic 7u2)
+  total_main_conversations: number;
+  total_agent_conversations: number;
+  conversations_by_type: Record<string, number>;
 }
 
 export interface AgentPerformanceStats {
@@ -287,4 +303,44 @@ export interface GroupedFile {
   total_lines_deleted: number;
   total_lines_modified: number;
   operations: Record<string, GroupedFileOperation>;
+}
+
+// ===== Project Analytics Types =====
+
+export interface ProjectStats {
+  project_id: string;
+  session_count: number;
+  total_messages: number;
+  total_files_changed: number;
+  success_rate: number | null;
+  avg_session_duration_seconds: number | null;
+  first_session_at: string | null;
+  last_session_at: string | null;
+  top_features: string[];
+  top_problems: string[];
+  tool_usage: Record<string, number>;
+  developer_count: number;
+  developers: string[];
+}
+
+export interface ProjectSession {
+  id: string;
+  start_time: string;
+  end_time: string | null;
+  duration_seconds: number | null;
+  status: string;
+  success: boolean | null;
+  message_count: number;
+  files_count: number;
+  developer: string | null;
+  agent_type: string;
+}
+
+export interface ProjectFileAggregation {
+  file_path: string;
+  modification_count: number;
+  total_lines_added: number;
+  total_lines_deleted: number;
+  last_modified_at: string;
+  session_ids: string[];
 }

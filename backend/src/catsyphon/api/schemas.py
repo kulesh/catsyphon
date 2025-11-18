@@ -32,6 +32,61 @@ class ProjectResponse(ProjectBase):
         from_attributes = True
 
 
+class ProjectListItem(ProjectResponse):
+    """Extended project info for list view with session counts."""
+
+    session_count: int = 0
+    last_session_at: Optional[datetime] = None
+
+
+class ProjectStats(BaseModel):
+    """Statistics for a single project."""
+
+    project_id: UUID
+    session_count: int
+    total_messages: int
+    total_files_changed: int
+    success_rate: Optional[float] = None
+    avg_session_duration_seconds: Optional[float] = None
+    first_session_at: Optional[datetime] = None
+    last_session_at: Optional[datetime] = None
+
+    # Aggregated tags
+    top_features: list[str] = Field(default_factory=list)
+    top_problems: list[str] = Field(default_factory=list)
+    tool_usage: dict[str, int] = Field(default_factory=dict)
+
+    # Developer participation
+    developer_count: int = 0
+    developers: list[str] = Field(default_factory=list)
+
+
+class ProjectSession(BaseModel):
+    """Lightweight session info for project session list."""
+
+    id: UUID
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    duration_seconds: Optional[int] = None
+    status: str
+    success: Optional[bool] = None
+    message_count: int = 0
+    files_count: int = 0
+    developer: Optional[str] = None  # Developer username
+    agent_type: str
+
+
+class ProjectFileAggregation(BaseModel):
+    """Aggregated file modification data across project sessions."""
+
+    file_path: str
+    modification_count: int
+    total_lines_added: int
+    total_lines_deleted: int
+    last_modified_at: datetime
+    session_ids: list[UUID] = Field(default_factory=list)
+
+
 class DeveloperBase(BaseModel):
     """Base schema for Developer."""
 
@@ -138,10 +193,17 @@ class ConversationListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Hierarchy fields (Phase 2: Epic 7u2)
+    parent_conversation_id: Optional[UUID] = None
+    conversation_type: str = "main"
+    context_semantics: dict[str, Any] = Field(default_factory=dict)
+    agent_metadata: dict[str, Any] = Field(default_factory=dict)
+
     # Related counts
     message_count: int = 0
     epoch_count: int = 0
     files_count: int = 0
+    children_count: int = 0  # Number of child conversations (agents, etc.)
 
     # Related objects (optional, for joins)
     project: Optional[ProjectResponse] = None
@@ -158,6 +220,10 @@ class ConversationDetail(ConversationListItem):
     epochs: list[EpochResponse] = Field(default_factory=list)
     files_touched: list[FileTouchedResponse] = Field(default_factory=list)
     conversation_tags: list[ConversationTagResponse] = Field(default_factory=list)
+
+    # Hierarchical relationships (Phase 2: Epic 7u2)
+    children: list["ConversationListItem"] = Field(default_factory=list)
+    parent: Optional["ConversationListItem"] = None
 
     class Config:
         from_attributes = True
@@ -187,6 +253,11 @@ class OverviewStats(BaseModel):
     conversations_by_agent: dict[str, int] = Field(default_factory=dict)
     recent_conversations: int  # Last 7 days
     success_rate: Optional[float] = None  # Percentage of successful conversations
+
+    # Hierarchical conversation stats (Phase 2: Epic 7u2)
+    total_main_conversations: int = 0  # Main human conversations
+    total_agent_conversations: int = 0  # Agent/subagent conversations
+    conversations_by_type: dict[str, int] = Field(default_factory=dict)  # main, agent, mcp, etc.
 
 
 class AgentPerformanceStats(BaseModel):

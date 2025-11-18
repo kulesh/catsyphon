@@ -88,7 +88,9 @@ class TestBasicIngestion:
         # Create project first
         project_repo = ProjectRepository(db_session)
         existing_project = project_repo.create(
-            workspace_id=sample_workspace.id, name="existing-project"
+            workspace_id=sample_workspace.id,
+            name="existing-project",
+            directory_path="/tmp/existing-project",
         )
         db_session.flush()
 
@@ -865,9 +867,9 @@ class TestConversationUpdates:
         raw_logs1 = raw_log_repo.get_by_conversation(conv1.id)
         assert len(raw_logs1) == 1
 
-        # Update with modified log file (different hash)
-        log_file2 = tmp_path / "log2.jsonl"
-        log_file2.write_text('{"test": "data2", "more": "content"}')
+        # Update THE SAME log file with modified content (different hash)
+        # Use same file path to test replacement of existing file
+        log_file1.write_text('{"test": "data2", "more": "content"}')
 
         parsed2 = ParsedConversation(
             agent_type="claude-code",
@@ -890,7 +892,7 @@ class TestConversationUpdates:
         )
 
         conv2 = ingest_conversation(
-            db_session, parsed2, file_path=log_file2, update_mode="replace"
+            db_session, parsed2, file_path=log_file1, update_mode="replace"
         )
         db_session.commit()
 

@@ -82,6 +82,7 @@ class TestProject:
             workspace_id=sample_workspace.id,
             name="My Project",
             description="Test project description",
+            directory_path="/tmp/my-project",
         )
         db_session.add(project)
         db_session.commit()

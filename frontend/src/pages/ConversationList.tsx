@@ -384,8 +384,20 @@ export default function ConversationList() {
                       <td className="px-4 py-3 text-sm">
                         {conversation.developer?.username || '-'}
                       </td>
-                      <td className="px-4 py-3 text-sm font-mono text-xs">
-                        {conversation.agent_type}
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          {conversation.conversation_type === 'agent' && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" title="Agent conversation">
+                              Agent
+                            </span>
+                          )}
+                          <span className="font-mono text-xs">{conversation.agent_type}</span>
+                          {conversation.children_count > 0 && (
+                            <span className="text-xs text-muted-foreground" title={`${conversation.children_count} child conversation${conversation.children_count !== 1 ? 's' : ''}`}>
+                              +{conversation.children_count}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <span

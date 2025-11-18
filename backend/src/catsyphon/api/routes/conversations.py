@@ -52,6 +52,7 @@ def _conversation_to_list_item(
     message_count: Optional[int] = None,
     epoch_count: Optional[int] = None,
     files_count: Optional[int] = None,
+    children_count: Optional[int] = None,
 ) -> ConversationListItem:
     """
     Convert Conversation model to ConversationListItem schema.
@@ -61,6 +62,7 @@ def _conversation_to_list_item(
         message_count: Pre-computed message count (from SQL aggregation)
         epoch_count: Pre-computed epoch count (from SQL aggregation)
         files_count: Pre-computed files count (from SQL aggregation)
+        children_count: Pre-computed children count (from SQL aggregation)
 
     Returns:
         ConversationListItem schema
@@ -87,6 +89,12 @@ def _conversation_to_list_item(
     else:
         item.files_count = len(conv.files_touched) if conv.files_touched else 0
 
+    # Children count (Phase 2: Epic 7u2)
+    if children_count is not None:
+        item.children_count = children_count
+    else:
+        item.children_count = len(conv.children) if hasattr(conv, 'children') and conv.children else 0
+
     return item
 
 
@@ -95,6 +103,15 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
     # Convert to list item first
     base = _conversation_to_list_item(conv)
 
+    # Hierarchical relationships (Phase 2: Epic 7u2)
+    children = []
+    if hasattr(conv, 'children') and conv.children:
+        children = [_conversation_to_list_item(child) for child in conv.children]
+
+    parent = None
+    if hasattr(conv, 'parent_conversation') and conv.parent_conversation:
+        parent = _conversation_to_list_item(conv.parent_conversation)
+
     # Add related data
     return ConversationDetail(
         **base.model_dump(),
@@ -102,6 +119,8 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
         epochs=conv.epochs or [],
         files_touched=conv.files_touched or [],
         conversation_tags=conv.conversation_tags or [],
+        children=children,
+        parent=parent,
     )
 
 

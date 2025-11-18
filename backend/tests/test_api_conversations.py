@@ -93,6 +93,7 @@ class TestListConversations:
             id=uuid.uuid4(),
             workspace_id=sample_workspace.id,
             name="Other Project",
+            directory_path="/other/path",
         )
         db_session.add(other_project)
         db_session.commit()
