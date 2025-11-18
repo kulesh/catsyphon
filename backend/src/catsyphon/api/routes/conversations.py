@@ -5,6 +5,7 @@ Endpoints for querying and retrieving conversation data.
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
@@ -348,7 +349,7 @@ async def tag_conversation(
     pipeline = TaggingPipeline(
         openai_api_key=settings.openai_api_key,
         openai_model=settings.openai_model,
-        cache_dir=settings.tagging_cache_dir,
+        cache_dir=Path(settings.tagging_cache_dir),
         cache_ttl_days=settings.tagging_cache_ttl_days,
         enable_cache=settings.tagging_enable_cache and not force,  # Disable cache when forcing
     )
