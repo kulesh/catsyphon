@@ -188,6 +188,7 @@ class FileWatcher(FileSystemEventHandler):
 
         # Track files being processed to avoid duplicate events
         self.processing: Set[str] = set()
+        self._processing_lock = threading.Lock()  # Protects processing set
 
         # In-memory cache of processed file hashes (for performance)
         self.processed_hashes: Set[str] = set()
@@ -252,12 +253,13 @@ class FileWatcher(FileSystemEventHandler):
         """Process a single file (called in background thread)."""
         path_str = str(file_path)
 
-        # Check if already processing this file
-        if path_str in self.processing:
-            logger.debug(f"Already processing {file_path.name}, skipping")
-            return
-
-        self.processing.add(path_str)
+        # Atomically check if already processing this file and mark as processing
+        # This prevents race condition where multiple threads try to process same file
+        with self._processing_lock:
+            if path_str in self.processing:
+                logger.debug(f"Already processing {file_path.name}, skipping")
+                return
+            self.processing.add(path_str)
 
         try:
             # Wait for file to finish writing (debounce at file level)
