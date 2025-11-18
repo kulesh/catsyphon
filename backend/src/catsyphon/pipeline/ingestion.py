@@ -352,11 +352,35 @@ def ingest_conversation(
     raw_log_repo = RawLogRepository(session)
 
     # Step 1: Get or create Project
+    # Auto-detect from working_directory or use manual project_name
     project_id = None
     if project_name:
-        project = project_repo.get_or_create_by_name(project_name, workspace_id)
+        # Manual override: use project_name as display name
+        # If working_directory is available, use it as directory_path
+        if parsed.working_directory:
+            project = project_repo.get_or_create_by_directory(
+                directory_path=parsed.working_directory,
+                workspace_id=workspace_id,
+                name=project_name,  # Override auto-generated name
+            )
+        else:
+            # Fallback to old behavior if no working_directory
+            project = project_repo.get_or_create_by_name(project_name, workspace_id)
         project_id = project.id
         logger.debug(f"Project: {project.name} ({project.id})")
+    elif parsed.working_directory:
+        # Auto-detect project from working_directory
+        project = project_repo.get_or_create_by_directory(
+            directory_path=parsed.working_directory, workspace_id=workspace_id
+        )
+        project_id = project.id
+        logger.debug(
+            f"Auto-detected project: {project.name} from {parsed.working_directory}"
+        )
+    else:
+        logger.warning(
+            "No project association: working_directory not found and --project not provided"
+        )
 
     # Step 2: Get or create Developer
     developer_id = None

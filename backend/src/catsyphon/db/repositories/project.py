@@ -3,6 +3,7 @@ Project repository.
 """
 
 import uuid
+from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -61,16 +62,23 @@ class ProjectRepository(BaseRepository[Project]):
         """
         Get existing project or create new one within a workspace.
 
+        Note: This method is deprecated in favor of get_or_create_by_directory.
+        For backward compatibility, if directory_path is not provided,
+        it uses the name as a fallback directory_path.
+
         Args:
             name: Project name
             workspace_id: Workspace UUID
-            **kwargs: Additional project fields (e.g., description)
+            **kwargs: Additional project fields (e.g., description, directory_path)
 
         Returns:
             Project instance
         """
         project = self.get_by_name(name, workspace_id)
         if not project:
+            # Use name as fallback directory_path if not provided
+            if "directory_path" not in kwargs:
+                kwargs["directory_path"] = name
             project = self.create(name=name, workspace_id=workspace_id, **kwargs)
         return project
 
@@ -112,3 +120,74 @@ class ProjectRepository(BaseRepository[Project]):
             .filter(Project.workspace_id == workspace_id)
             .count()
         )
+
+    def get_by_directory(
+        self, directory_path: str, workspace_id: uuid.UUID
+    ) -> Optional[Project]:
+        """
+        Get project by directory path within a workspace.
+
+        Args:
+            directory_path: Full directory path (e.g., "/Users/kulesh/dev/catsyphon")
+            workspace_id: Workspace UUID
+
+        Returns:
+            Project instance or None
+        """
+        return (
+            self.session.query(Project)
+            .filter(
+                Project.directory_path == directory_path,
+                Project.workspace_id == workspace_id,
+            )
+            .first()
+        )
+
+    def get_or_create_by_directory(
+        self, directory_path: str, workspace_id: uuid.UUID, name: Optional[str] = None
+    ) -> Project:
+        """
+        Get existing project or create new one by directory path.
+
+        Args:
+            directory_path: Full directory path
+            workspace_id: Workspace UUID
+            name: Optional custom name (defaults to auto-generated)
+
+        Returns:
+            Project instance
+        """
+        project = self.get_by_directory(directory_path, workspace_id)
+        if project:
+            return project
+
+        # Generate name if not provided
+        if name is None:
+            name = self._generate_project_name(directory_path)
+
+        return self.create(
+            workspace_id=workspace_id, name=name, directory_path=directory_path
+        )
+
+    def _generate_project_name(self, directory_path: str) -> str:
+        """
+        Generate a human-readable project name from directory path.
+
+        Uses the directory basename if meaningful, otherwise generates
+        a name with short UUID suffix for uniqueness.
+
+        Args:
+            directory_path: Full directory path
+
+        Returns:
+            Generated project name
+        """
+        basename = Path(directory_path).name
+
+        # If basename is meaningful (not empty, not '.', not '/'), use it
+        if basename and basename not in {".", "/", ".."}:
+            return basename
+
+        # Otherwise use short UUID suffix
+        short_uuid = str(uuid.uuid4())[:6]
+        return f"Project {short_uuid}"

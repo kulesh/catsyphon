@@ -17,6 +17,7 @@ class ProjectBase(BaseModel):
     """Base schema for Project."""
 
     name: str
+    directory_path: str
     description: Optional[str] = None
 
 

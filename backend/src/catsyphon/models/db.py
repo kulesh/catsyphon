@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -221,6 +222,7 @@ class Project(Base):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    directory_path: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -230,6 +232,10 @@ class Project(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint('workspace_id', 'directory_path', name='uq_workspace_directory'),
     )
 
     # Relationships
