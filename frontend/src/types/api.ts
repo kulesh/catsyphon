@@ -17,6 +17,12 @@ export interface ProjectResponse extends ProjectBase {
   updated_at: string;
 }
 
+export interface ProjectListItem extends ProjectResponse {
+  directory_path: string;
+  session_count: number;
+  last_session_at: string | null;
+}
+
 export interface DeveloperBase {
   username: string;
   email: string | null;

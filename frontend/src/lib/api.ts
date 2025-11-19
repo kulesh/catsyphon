@@ -16,6 +16,7 @@ import type {
   MessageResponse,
   OverviewStats,
   ProjectFileAggregation,
+  ProjectListItem,
   ProjectResponse,
   ProjectSession,
   ProjectStats,
@@ -125,8 +126,8 @@ export async function tagConversation(
 
 // ===== Metadata Endpoints =====
 
-export async function getProjects(): Promise<ProjectResponse[]> {
-  return apiFetch<ProjectResponse[]>('/projects');
+export async function getProjects(): Promise<ProjectListItem[]> {
+  return apiFetch<ProjectListItem[]>('/projects');
 }
 
 export async function getDevelopers(): Promise<DeveloperResponse[]> {
