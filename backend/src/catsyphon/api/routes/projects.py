@@ -5,17 +5,21 @@ Endpoints for project-level statistics, sessions, and file aggregations.
 """
 
 from collections import defaultdict
-from datetime import date
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, case
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from catsyphon.api.schemas import ProjectStats, ProjectSession, ProjectFileAggregation, SentimentTimelinePoint
+from catsyphon.api.schemas import (
+    ProjectFileAggregation,
+    ProjectSession,
+    ProjectStats,
+    SentimentTimelinePoint,
+)
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import ProjectRepository, ConversationRepository
+from catsyphon.db.repositories import ProjectRepository
 from catsyphon.models.db import Conversation, Developer, Epoch, FileTouched, Message
 
 router = APIRouter()
@@ -25,7 +29,9 @@ router = APIRouter()
 async def get_project_stats(
     project_id: UUID,
     session: Session = Depends(get_db),
-    date_range: Optional[str] = Query(None, description="Date range filter: 7d, 30d, 90d, or all (default: all)"),
+    date_range: Optional[str] = Query(
+        None, description="Date range filter: 7d, 30d, 90d, or all (default: all)"
+    ),
 ) -> ProjectStats:
     """
     Get aggregated statistics for a project.
@@ -96,7 +102,6 @@ async def get_project_stats(
     )
 
     # Files changed aggregation (use subquery for SQLite compatibility)
-    from sqlalchemy import distinct
 
     total_files = (
         session.query(FileTouched.file_path)
@@ -112,7 +117,9 @@ async def get_project_stats(
     total_with_outcome = len(success_conversations) + len(failed_conversations)
 
     success_rate = (
-        len(success_conversations) / total_with_outcome if total_with_outcome > 0 else None
+        len(success_conversations) / total_with_outcome
+        if total_with_outcome > 0
+        else None
     )
 
     # Average duration
@@ -159,9 +166,7 @@ async def get_project_stats(
     # Developer participation
     developer_ids = {c.developer_id for c in conversations if c.developer_id}
     developers = (
-        session.query(Developer.username)
-        .filter(Developer.id.in_(developer_ids))
-        .all()
+        session.query(Developer.username).filter(Developer.id.in_(developer_ids)).all()
         if developer_ids
         else []
     )
@@ -226,10 +231,18 @@ async def list_project_sessions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     developer: Optional[str] = Query(None, description="Filter by developer username"),
-    outcome: Optional[str] = Query(None, description="Filter by outcome: success, failed, all (default: all)"),
-    date_from: Optional[str] = Query(None, description="Filter sessions from this date (ISO format: YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="Filter sessions to this date (ISO format: YYYY-MM-DD)"),
-    sort_by: Optional[str] = Query("start_time", description="Sort by: start_time, duration, status, developer"),
+    outcome: Optional[str] = Query(
+        None, description="Filter by outcome: success, failed, all (default: all)"
+    ),
+    date_from: Optional[str] = Query(
+        None, description="Filter sessions from this date (ISO format: YYYY-MM-DD)"
+    ),
+    date_to: Optional[str] = Query(
+        None, description="Filter sessions to this date (ISO format: YYYY-MM-DD)"
+    ),
+    sort_by: Optional[str] = Query(
+        "start_time", description="Sort by: start_time, duration, status, developer"
+    ),
     order: str = Query("desc", description="Sort order: asc or desc"),
     session: Session = Depends(get_db),
 ) -> list[ProjectSession]:
@@ -269,9 +282,9 @@ async def list_project_sessions(
 
     if outcome:
         if outcome == "success":
-            query = query.filter(Conversation.success == True)
+            query = query.filter(Conversation.success.is_(True))
         elif outcome == "failed":
-            query = query.filter(Conversation.success == False)
+            query = query.filter(Conversation.success.is_(False))
         # "all" or invalid values: no filter
 
     if date_from:
@@ -291,14 +304,33 @@ async def list_project_sessions(
     # Apply sorting
     if sort_by == "duration":
         # Sort by calculated duration (end_time - start_time)
-        duration_expr = Conversation.end_time - Conversation.start_time
-        query = query.order_by(duration_expr.desc() if order == "desc" else duration_expr.asc())
+        # Use database-agnostic approach with epoch timestamps
+        from sqlalchemy import Integer, cast, func
+
+        # Calculate duration as difference between Unix timestamps (in seconds)
+        # This works with both PostgreSQL and SQLite
+        end_epoch = func.extract("epoch", Conversation.end_time)
+        start_epoch = func.extract("epoch", Conversation.start_time)
+        duration_seconds = cast(end_epoch - start_epoch, Integer)
+
+        if order == "desc":
+            query = query.order_by(duration_seconds.desc().nulls_last())
+        else:
+            query = query.order_by(duration_seconds.asc().nulls_last())
     elif sort_by == "status":
-        query = query.order_by(Conversation.status.desc() if order == "desc" else Conversation.status.asc())
+        query = query.order_by(
+            Conversation.status.desc() if order == "desc" else Conversation.status.asc()
+        )
     elif sort_by == "developer":
-        query = query.order_by(Developer.username.desc() if order == "desc" else Developer.username.asc())
+        query = query.order_by(
+            Developer.username.desc() if order == "desc" else Developer.username.asc()
+        )
     else:  # default: start_time
-        query = query.order_by(Conversation.start_time.desc() if order == "desc" else Conversation.start_time.asc())
+        query = query.order_by(
+            Conversation.start_time.desc()
+            if order == "desc"
+            else Conversation.start_time.asc()
+        )
 
     # Apply pagination
     offset = (page - 1) * page_size

@@ -12,7 +12,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories import ConversationRepository, MessageRepository
-from catsyphon.models.db import Conversation, Developer, Epoch, FileTouched, Message, Project
+from catsyphon.models.db import (
+    Conversation,
+    Developer,
+    Epoch,
+    FileTouched,
+    Project,
+)
 
 
 def create_file_touched(
@@ -285,8 +291,12 @@ class TestGetProjectStats:
         assert data["session_count"] == 3
         assert data["total_messages"] == 5
         assert data["total_files_changed"] == 2
-        assert data["success_rate"] == pytest.approx(0.6667, rel=0.01)  # 2/3 success (as fraction)
-        assert data["avg_session_duration_seconds"] == pytest.approx(3600.0, rel=0.1)  # 1 hour
+        assert data["success_rate"] == pytest.approx(
+            0.6667, rel=0.01
+        )  # 2/3 success (as fraction)
+        assert data["avg_session_duration_seconds"] == pytest.approx(
+            3600.0, rel=0.1
+        )  # 1 hour
         assert data["first_session_at"] is not None
         assert data["last_session_at"] is not None
 
@@ -302,7 +312,7 @@ class TestGetProjectStats:
         conv_repo = ConversationRepository(db_session)
 
         # Create conversations with tags
-        conv1 = conv_repo.create(
+        conv_repo.create(
             id=uuid.uuid4(),
             workspace_id=sample_workspace.id,
             project_id=sample_project.id,
@@ -316,7 +326,7 @@ class TestGetProjectStats:
             },
         )
 
-        conv2 = conv_repo.create(
+        conv_repo.create(
             id=uuid.uuid4(),
             workspace_id=sample_workspace.id,
             project_id=sample_project.id,
@@ -426,10 +436,261 @@ class TestGetProjectStats:
             "tool_usage",
             "developer_count",
             "developers",
+            "sentiment_timeline",  # New in Epic 7
         ]
 
         for field in required_fields:
             assert field in data
+
+    # ===== Epic 7: Date Range Filtering Tests =====
+
+    def test_get_project_stats_date_range_7d(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test stats filtered to last 7 days."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversation from 5 days ago (should be included)
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(days=5),
+        )
+
+        # Create conversation from 10 days ago (should be excluded)
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(days=10),
+        )
+
+        response = api_client.get(f"/projects/{sample_project.id}/stats?date_range=7d")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only count the recent conversation
+        assert data["session_count"] == 1
+
+    def test_get_project_stats_date_range_30d(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test stats filtered to last 30 days."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations at different times
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(days=20),
+        )
+
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(days=40),
+        )
+
+        response = api_client.get(f"/projects/{sample_project.id}/stats?date_range=30d")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only count conversation within 30 days
+        assert data["session_count"] == 1
+
+    def test_get_project_stats_date_range_all(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test stats with no date filtering (all time)."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations at various times
+        for days_ago in [5, 50, 200]:
+            conv_repo.create(
+                id=uuid.uuid4(),
+                workspace_id=sample_workspace.id,
+                project_id=sample_project.id,
+                developer_id=sample_developer.id,
+                agent_type="claude-code",
+                start_time=now - timedelta(days=days_ago),
+            )
+
+        response = api_client.get(f"/projects/{sample_project.id}/stats?date_range=all")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should count all conversations
+        assert data["session_count"] == 3
+
+    # ===== Epic 7: Sentiment Timeline Tests =====
+
+    def test_get_project_stats_sentiment_timeline_structure(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+    ):
+        """Test sentiment_timeline has correct structure."""
+        response = api_client.get(f"/projects/{sample_project.id}/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "sentiment_timeline" in data
+        assert isinstance(data["sentiment_timeline"], list)
+
+    def test_get_project_stats_sentiment_timeline_empty(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+    ):
+        """Test sentiment_timeline is empty for project with no sessions."""
+        response = api_client.get(f"/projects/{sample_project.id}/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["sentiment_timeline"] == []
+
+    def test_get_project_stats_sentiment_timeline_with_data(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test sentiment_timeline aggregates sentiment scores by date."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversation with epoch that has sentiment
+        conv1 = conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(days=2),
+        )
+
+        # Create epochs with sentiment scores
+        epoch1 = Epoch(
+            id=uuid.uuid4(),
+            conversation_id=conv1.id,
+            sequence=0,
+            start_time=now - timedelta(days=2),
+            sentiment_score=0.8,
+        )
+        db_session.add(epoch1)
+
+        epoch2 = Epoch(
+            id=uuid.uuid4(),
+            conversation_id=conv1.id,
+            sequence=1,
+            start_time=now - timedelta(days=2),
+            sentiment_score=0.6,
+        )
+        db_session.add(epoch2)
+        db_session.commit()
+
+        response = api_client.get(f"/projects/{sample_project.id}/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["sentiment_timeline"]) > 0
+
+        # Check structure of timeline points
+        point = data["sentiment_timeline"][0]
+        assert "date" in point
+        assert "avg_sentiment" in point
+        assert "session_count" in point
+
+        # Should average the two sentiment scores
+        assert point["avg_sentiment"] == pytest.approx(0.7, rel=0.01)
+        assert point["session_count"] == 1
+
+    def test_get_project_stats_sentiment_timeline_multiple_days(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test sentiment_timeline aggregates across multiple days."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations on different days
+        for days_ago in [1, 2, 3]:
+            conv = conv_repo.create(
+                id=uuid.uuid4(),
+                workspace_id=sample_workspace.id,
+                project_id=sample_project.id,
+                developer_id=sample_developer.id,
+                agent_type="claude-code",
+                start_time=now - timedelta(days=days_ago),
+            )
+
+            epoch = Epoch(
+                id=uuid.uuid4(),
+                conversation_id=conv.id,
+                sequence=0,
+                start_time=now - timedelta(days=days_ago),
+                sentiment_score=0.5 + (days_ago * 0.1),  # Different sentiments
+            )
+            db_session.add(epoch)
+
+        db_session.commit()
+
+        response = api_client.get(f"/projects/{sample_project.id}/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have 3 separate date points
+        assert len(data["sentiment_timeline"]) == 3
+
+        # Timeline should be sorted by date
+        dates = [point["date"] for point in data["sentiment_timeline"]]
+        assert dates == sorted(dates)
 
 
 class TestListProjectSessions:
@@ -526,14 +787,18 @@ class TestListProjectSessions:
             )
 
         # Get first page (default page_size=20)
-        response1 = api_client.get(f"/projects/{sample_project.id}/sessions?page=1&page_size=10")
+        response1 = api_client.get(
+            f"/projects/{sample_project.id}/sessions?page=1&page_size=10"
+        )
 
         assert response1.status_code == 200
         data1 = response1.json()
         assert len(data1) == 10
 
         # Get second page
-        response2 = api_client.get(f"/projects/{sample_project.id}/sessions?page=2&page_size=10")
+        response2 = api_client.get(
+            f"/projects/{sample_project.id}/sessions?page=2&page_size=10"
+        )
 
         assert response2.status_code == 200
         data2 = response2.json()
@@ -628,6 +893,283 @@ class TestListProjectSessions:
         assert str(conv1.id) in session_ids
         assert str(conv2.id) not in session_ids
 
+    # ===== Epic 7: Session Filtering Tests =====
+
+    def test_list_project_sessions_filter_by_developer(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test filtering sessions by developer."""
+        # Create another developer
+        other_dev = Developer(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            username="other_dev",
+            email="other@example.com",
+        )
+        db_session.add(other_dev)
+        db_session.commit()
+
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations for both developers
+        conv1 = conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now,
+        )
+
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=other_dev.id,
+            agent_type="claude-code",
+            start_time=now,
+        )
+
+        # Filter by sample_developer
+        response = api_client.get(
+            f"/projects/{sample_project.id}/sessions?developer={sample_developer.username}"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only return conv1
+        assert len(data) == 1
+        assert data[0]["id"] == str(conv1.id)
+        assert data[0]["developer"] == sample_developer.username
+
+    def test_list_project_sessions_filter_by_outcome(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test filtering sessions by outcome (success)."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations with different outcomes
+        conv_success = conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now,
+            success=True,
+        )
+
+        conv_failed = conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now,
+            success=False,
+        )
+
+        # Filter by success
+        response = api_client.get(
+            f"/projects/{sample_project.id}/sessions?outcome=success"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only return successful conversation
+        assert len(data) == 1
+        assert data[0]["id"] == str(conv_success.id)
+        assert data[0]["success"] is True
+
+        # Filter by failed
+        response = api_client.get(
+            f"/projects/{sample_project.id}/sessions?outcome=failed"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data) == 1
+        assert data[0]["id"] == str(conv_failed.id)
+        assert data[0]["success"] is False
+
+    def test_list_project_sessions_filter_combined(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test combining multiple filters."""
+        # Create another developer
+        other_dev = Developer(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            username="other_dev",
+            email="other@example.com",
+        )
+        db_session.add(other_dev)
+        db_session.commit()
+
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create various conversations
+        # Match: sample_developer + success
+        match = conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now,
+            success=True,
+        )
+
+        # No match: other_dev + success
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=other_dev.id,
+            agent_type="claude-code",
+            start_time=now,
+            success=True,
+        )
+
+        # No match: sample_developer + failed
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now,
+            success=False,
+        )
+
+        # Filter by both developer and outcome
+        response = api_client.get(
+            f"/projects/{sample_project.id}/sessions?developer={sample_developer.username}&outcome=success"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only return the matching conversation
+        assert len(data) == 1
+        assert data[0]["id"] == str(match.id)
+
+    # ===== Epic 7: Session Sorting Tests =====
+
+    def test_list_project_sessions_sort_by_start_time_asc(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test sorting sessions by start_time ascending (oldest first)."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations in random order
+        times = []
+        for hours_ago in [5, 1, 3]:
+            start_time = now - timedelta(hours=hours_ago)
+            times.append(start_time)
+            conv_repo.create(
+                id=uuid.uuid4(),
+                workspace_id=sample_workspace.id,
+                project_id=sample_project.id,
+                developer_id=sample_developer.id,
+                agent_type="claude-code",
+                start_time=start_time,
+            )
+
+        response = api_client.get(
+            f"/projects/{sample_project.id}/sessions?sort_by=start_time&order=asc"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should be sorted oldest to newest
+        start_times = [s["start_time"] for s in data]
+        assert start_times == sorted(start_times)
+
+    def test_list_project_sessions_sort_by_duration_desc(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_workspace,
+        sample_project: Project,
+        sample_developer: Developer,
+    ):
+        """Test sorting sessions by duration descending (longest first)."""
+        conv_repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create conversations with different durations
+        # Use different start times to ensure no ties
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(hours=2),
+            end_time=now,  # 2 hour duration
+        )
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(hours=5),
+            end_time=now,  # 5 hour duration
+        )
+        conv_repo.create(
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            project_id=sample_project.id,
+            developer_id=sample_developer.id,
+            agent_type="claude-code",
+            start_time=now - timedelta(hours=1),
+            end_time=now,  # 1 hour duration
+        )
+
+        response = api_client.get(
+            f"/projects/{sample_project.id}/sessions?sort_by=duration&order=desc"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should be sorted longest to shortest
+        durations = [s["duration_seconds"] for s in data]
+        assert durations == sorted(durations, reverse=True)
+        assert durations[0] == 5 * 3600  # 5 hours
+        assert durations[1] == 2 * 3600  # 2 hours
+        assert durations[2] == 1 * 3600  # 1 hour
+
 
 class TestGetProjectFiles:
     """Tests for GET /projects/{id}/files endpoint."""
@@ -679,8 +1221,22 @@ class TestGetProjectFiles:
         )
 
         # Add files
-        create_file_touched(db_session, conv, "/path/to/file1.py", lines_added=100, lines_deleted=20, timestamp=now)
-        create_file_touched(db_session, conv, "/path/to/file2.py", lines_added=50, lines_deleted=10, timestamp=now)
+        create_file_touched(
+            db_session,
+            conv,
+            "/path/to/file1.py",
+            lines_added=100,
+            lines_deleted=20,
+            timestamp=now,
+        )
+        create_file_touched(
+            db_session,
+            conv,
+            "/path/to/file2.py",
+            lines_added=50,
+            lines_deleted=10,
+            timestamp=now,
+        )
 
         response = api_client.get(f"/projects/{sample_project.id}/files")
 
@@ -731,8 +1287,22 @@ class TestGetProjectFiles:
         )
 
         # Same file modified in both conversations
-        create_file_touched(db_session, conv1, "/path/to/common.py", lines_added=50, lines_deleted=10, timestamp=now)
-        create_file_touched(db_session, conv2, "/path/to/common.py", lines_added=30, lines_deleted=5, timestamp=now + timedelta(hours=1))
+        create_file_touched(
+            db_session,
+            conv1,
+            "/path/to/common.py",
+            lines_added=50,
+            lines_deleted=10,
+            timestamp=now,
+        )
+        create_file_touched(
+            db_session,
+            conv2,
+            "/path/to/common.py",
+            lines_added=30,
+            lines_deleted=5,
+            timestamp=now + timedelta(hours=1),
+        )
 
         response = api_client.get(f"/projects/{sample_project.id}/files")
 
@@ -782,12 +1352,33 @@ class TestGetProjectFiles:
         # file3: modified in 1 conversation
 
         for conv in convs:
-            create_file_touched(db_session, conv, "/path/to/file1.py", lines_added=10, lines_deleted=5, timestamp=now)
+            create_file_touched(
+                db_session,
+                conv,
+                "/path/to/file1.py",
+                lines_added=10,
+                lines_deleted=5,
+                timestamp=now,
+            )
 
         for conv in convs[:2]:
-            create_file_touched(db_session, conv, "/path/to/file2.py", lines_added=10, lines_deleted=5, timestamp=now)
+            create_file_touched(
+                db_session,
+                conv,
+                "/path/to/file2.py",
+                lines_added=10,
+                lines_deleted=5,
+                timestamp=now,
+            )
 
-        create_file_touched(db_session, convs[0], "/path/to/file3.py", lines_added=10, lines_deleted=5, timestamp=now)
+        create_file_touched(
+            db_session,
+            convs[0],
+            "/path/to/file3.py",
+            lines_added=10,
+            lines_deleted=5,
+            timestamp=now,
+        )
 
         response = api_client.get(f"/projects/{sample_project.id}/files")
 
@@ -847,8 +1438,22 @@ class TestGetProjectFiles:
         )
 
         # Add files to both
-        create_file_touched(db_session, conv1, "/path/to/project1_file.py", lines_added=10, lines_deleted=5, timestamp=now)
-        create_file_touched(db_session, conv2, "/path/to/project2_file.py", lines_added=10, lines_deleted=5, timestamp=now)
+        create_file_touched(
+            db_session,
+            conv1,
+            "/path/to/project1_file.py",
+            lines_added=10,
+            lines_deleted=5,
+            timestamp=now,
+        )
+        create_file_touched(
+            db_session,
+            conv2,
+            "/path/to/project2_file.py",
+            lines_added=10,
+            lines_deleted=5,
+            timestamp=now,
+        )
 
         response = api_client.get(f"/projects/{sample_project.id}/files")
 
