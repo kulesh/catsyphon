@@ -103,13 +103,13 @@ class ClaudeCodeParser:
         if not file_path.exists() or not file_path.is_file():
             return False
 
-        # Read first several lines to detect format
+        # Scan entire file to detect format
+        # Each JSONL message is independent - sessionId could appear anywhere
         try:
             with file_path.open("r", encoding="utf-8") as f:
-                for _ in range(10):  # Check first 10 lines (summary may be first)
-                    line = f.readline()
-                    if not line:
-                        break
+                for line in f:
+                    if not line.strip():
+                        continue
 
                     try:
                         data = json.loads(line)
