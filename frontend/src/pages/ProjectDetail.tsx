@@ -137,9 +137,11 @@ export default function ProjectDetail() {
 // ===== Stats Tab =====
 
 function StatsTab({ projectId }: { projectId: string }) {
+  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'all'>('all');
+
   const { data: stats, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
-    queryKey: ['projects', projectId, 'stats'],
-    queryFn: () => getProjectStats(projectId),
+    queryKey: ['projects', projectId, 'stats', dateRange],
+    queryFn: () => getProjectStats(projectId, dateRange),
     refetchInterval: 15000, // Auto-refresh every 15 seconds
     staleTime: 0, // Always fetch fresh data
   });
@@ -177,19 +179,50 @@ function StatsTab({ projectId }: { projectId: string }) {
     ? Math.round(stats.avg_session_duration_seconds / 60)
     : null;
 
+  const dateRangeLabels = {
+    '7d': 'Last 7 days',
+    '30d': 'Last 30 days',
+    '90d': 'Last 90 days',
+    'all': 'All time'
+  };
+
   return (
     <div className="space-y-8">
-      {/* Auto-refresh indicator */}
-      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
-        {isFetching && (
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span>Refreshing...</span>
-          </div>
-        )}
-        {dataUpdatedAt && !isFetching && (
-          <span>Updated {formatDistanceToNow(dataUpdatedAt, { addSuffix: true })}</span>
-        )}
+      {/* Date Range Selector & Auto-refresh indicator */}
+      <div className="flex items-center justify-between gap-4">
+        {/* Date Range Buttons */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground mr-2">Time Range:</span>
+          {(['7d', '30d', '90d', 'all'] as const).map((range) => (
+            <button
+              key={range}
+              onClick={() => setDateRange(range)}
+              className={`
+                px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200
+                ${
+                  dateRange === range
+                    ? 'bg-primary text-primary-foreground shadow-md'
+                    : 'bg-card border border-border hover:bg-accent hover:border-accent-foreground/20'
+                }
+              `}
+            >
+              {dateRangeLabels[range]}
+            </button>
+          ))}
+        </div>
+
+        {/* Auto-refresh indicator */}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {isFetching && (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span>Refreshing...</span>
+            </div>
+          )}
+          {dataUpdatedAt && !isFetching && (
+            <span>Updated {formatDistanceToNow(dataUpdatedAt, { addSuffix: true })}</span>
+          )}
+        </div>
       </div>
 
       {/* Metrics Grid */}

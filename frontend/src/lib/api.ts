@@ -351,8 +351,12 @@ export async function getWatchConfigIngestionJobs(
 
 // ===== Project Analytics Endpoints =====
 
-export async function getProjectStats(projectId: string): Promise<ProjectStats> {
-  return apiFetch<ProjectStats>(`/projects/${projectId}/stats`);
+export async function getProjectStats(
+  projectId: string,
+  dateRange?: '7d' | '30d' | '90d' | 'all'
+): Promise<ProjectStats> {
+  const params = dateRange ? `?date_range=${dateRange}` : '';
+  return apiFetch<ProjectStats>(`/projects/${projectId}/stats${params}`);
 }
 
 export async function getProjectSessions(
