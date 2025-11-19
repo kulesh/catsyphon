@@ -6,10 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { getConversations, getDevelopers, getProjects } from '@/lib/api';
-import { format, formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { Database, Filter, RefreshCw, AlertTriangle } from 'lucide-react';
 import type { ConversationFilters } from '@/types/api';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
+import { SessionTable, renderHelpers, type ColumnConfig } from '@/components/SessionTable';
+import { SessionPagination } from '@/components/SessionPagination';
 
 export default function ConversationList() {
   const navigate = useNavigate();
@@ -109,6 +111,52 @@ export default function ConversationList() {
   const clearFilters = () => {
     setSearchParams(new URLSearchParams({ page: '1', page_size: '20' }));
   };
+
+  // Define columns for SessionTable
+  const columns: ColumnConfig[] = [
+    {
+      id: 'start_time',
+      label: 'Start Time',
+      render: (session) => renderHelpers.startTime(session, 'observatory'),
+    },
+    {
+      id: 'last_activity',
+      label: 'Last Activity',
+      render: renderHelpers.lastActivity,
+    },
+    {
+      id: 'project',
+      label: 'Project',
+      render: renderHelpers.project,
+    },
+    {
+      id: 'developer',
+      label: 'Developer',
+      render: renderHelpers.developerObservatory,
+    },
+    {
+      id: 'agent_type',
+      label: 'Agent Type',
+      render: renderHelpers.agentType,
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      render: (session) => renderHelpers.status(session, 'observatory'),
+    },
+    {
+      id: 'messages',
+      label: 'Messages',
+      align: 'right' as const,
+      render: (session) => renderHelpers.messageCount(session, 'observatory'),
+    },
+    {
+      id: 'success',
+      label: 'Success',
+      align: 'center' as const,
+      render: renderHelpers.successIndicator,
+    },
+  ];
 
   return (
     <div className="container mx-auto p-6">
@@ -345,164 +393,24 @@ export default function ConversationList() {
       {/* Observatory Data Table */}
       {data && (
         <>
-          <div className="observatory-card overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-900/50 border-b border-border/50">
-                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Start Time
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Last Activity
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Project
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Developer
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Agent Type
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Messages
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
-                    Success
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/30">
-                {data.items.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center">
-                      <p className="font-mono text-sm text-muted-foreground">NO ARCHIVE ENTRIES FOUND</p>
-                      <p className="font-mono text-xs text-muted-foreground/60 mt-1">Adjust filter parameters</p>
-                    </td>
-                  </tr>
-                ) : (
-                  data.items.map((conversation) => (
-                    <tr
-                      key={conversation.id}
-                      onClick={() => navigate(`/conversations/${conversation.id}`)}
-                      className={`group cursor-pointer transition-all duration-300 hover:bg-cyan-400/5 ${
-                        newItemIds.has(conversation.id)
-                          ? 'bg-emerald-400/10 animate-pulse border-l-2 border-l-emerald-400'
-                          : ''
-                      }`}
-                    >
-                      <td className="px-4 py-3.5 font-mono text-xs text-foreground/90">
-                        {format(new Date(conversation.start_time), 'MMM dd, yyyy HH:mm')}
-                      </td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
-                        {conversation.end_time
-                          ? format(new Date(conversation.end_time), 'MMM dd, yyyy HH:mm')
-                          : '---'}
-                      </td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-foreground/80">
-                        {conversation.project?.name || '---'}
-                      </td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-cyan-400/90">
-                        {conversation.developer?.username || '---'}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-                          {conversation.conversation_type === 'agent' && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-400/10 border border-purple-400/30 text-[10px] font-mono text-purple-400 uppercase tracking-wide" title="Agent conversation">
-                              Sub
-                            </span>
-                          )}
-                          <span className="font-mono text-xs text-foreground/80">{conversation.agent_type}</span>
-                          {conversation.children_count > 0 && (
-                            <span className="font-mono text-[10px] text-amber-400" title={`${conversation.children_count} spawned agent${conversation.children_count !== 1 ? 's' : ''}`}>
-                              +{conversation.children_count}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wide ${
-                            conversation.status === 'completed'
-                              ? 'bg-emerald-400/10 border border-emerald-400/30 text-emerald-400'
-                              : conversation.status === 'failed'
-                                ? 'bg-rose-400/10 border border-rose-400/30 text-rose-400'
-                                : 'bg-cyan-400/10 border border-cyan-400/30 text-cyan-400'
-                          }`}
-                        >
-                          {conversation.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-right text-foreground/90">
-                        {conversation.message_count.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3.5 text-center">
-                        {conversation.success === null ? (
-                          <span className="font-mono text-xs text-muted-foreground">---</span>
-                        ) : conversation.success ? (
-                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-400/20 text-emerald-400 text-sm">
-                            ✓
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-400/20 text-rose-400 text-sm">
-                            ✗
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <SessionTable
+            sessions={data.items}
+            columns={columns}
+            onRowClick={(id) => navigate(`/conversations/${id}`)}
+            highlightNewIds={newItemIds}
+            variant="observatory"
+            emptyMessage="No archive entries found"
+            emptyHint="Adjust filter parameters"
+          />
 
-          {/* Observatory Pagination Controls */}
-          <div className="flex items-center justify-between mt-6">
-            <div className="font-mono text-xs text-muted-foreground">
-              <span className="text-foreground/90">
-                {data.items.length === 0 ? 0 : ((data.page - 1) * data.page_size + 1).toLocaleString()}
-              </span>
-              {' - '}
-              <span className="text-foreground/90">
-                {Math.min(data.page * data.page_size, data.total).toLocaleString()}
-              </span>
-              {' of '}
-              <span className="text-cyan-400">
-                {data.total.toLocaleString()}
-              </span>
-              {' entries'}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => updateFilters({ page: filters.page! - 1 })}
-                disabled={data.page === 1}
-                className="px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-cyan-400 border border-border/50 rounded-md hover:border-cyan-400/50 hover:bg-cyan-400/5 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:border-border/50 disabled:hover:bg-transparent transition-all"
-              >
-                Prev
-              </button>
-
-              <div className="px-4 py-2 bg-slate-900/50 border border-border/50 rounded-md">
-                <span className="font-mono text-xs text-foreground/90">
-                  Page{' '}
-                  <span className="text-cyan-400 font-semibold">{data.page}</span>
-                  {' / '}
-                  <span className="text-muted-foreground">{data.pages}</span>
-                </span>
-              </div>
-
-              <button
-                onClick={() => updateFilters({ page: filters.page! + 1 })}
-                disabled={data.page === data.pages}
-                className="px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-cyan-400 border border-border/50 rounded-md hover:border-cyan-400/50 hover:bg-cyan-400/5 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:border-border/50 disabled:hover:bg-transparent transition-all"
-              >
-                Next
-              </button>
-            </div>
-          </div>
+          <SessionPagination
+            currentPage={data.page}
+            totalPages={data.pages}
+            totalItems={data.total}
+            pageSize={data.page_size}
+            onPageChange={(page) => updateFilters({ page })}
+            variant="full"
+          />
         </>
       )}
     </div>

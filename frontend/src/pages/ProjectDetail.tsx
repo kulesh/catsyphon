@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import {
   getProjectStats,
   getProjectSessions,
@@ -25,15 +25,13 @@ import {
   Clock,
   TrendingUp,
   Activity,
-  ChevronLeft,
-  ChevronRight,
   Folder,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
+  RefreshCw,
 } from 'lucide-react';
 import { SentimentTimelineChart } from '@/components/SentimentTimelineChart';
 import { ToolUsageChart } from '@/components/ToolUsageChart';
+import { SessionTable, renderHelpers, type ColumnConfig } from '@/components/SessionTable';
+import { SessionPagination } from '@/components/SessionPagination';
 import type { ProjectSessionFilters } from '@/lib/api';
 
 type Tab = 'stats' | 'sessions' | 'files';
@@ -453,6 +451,43 @@ function SessionsTab({ projectId }: { projectId: string }) {
     setOrder('desc');
   };
 
+  // Define columns for SessionTable
+  const columns: ColumnConfig[] = [
+    {
+      id: 'start_time',
+      label: 'Start Time',
+      sortable: true,
+      render: (session) => renderHelpers.startTime(session, 'default'),
+    },
+    {
+      id: 'duration',
+      label: 'Duration',
+      sortable: true,
+      render: renderHelpers.duration,
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      render: (session) => renderHelpers.status(session, 'default'),
+    },
+    {
+      id: 'developer',
+      label: 'Developer',
+      render: renderHelpers.developer,
+    },
+    {
+      id: 'messages',
+      label: 'Messages',
+      sortable: true,
+      render: (session) => renderHelpers.messageCount(session, 'default'),
+    },
+    {
+      id: 'files',
+      label: 'Files',
+      render: renderHelpers.filesCount,
+    },
+  ];
+
   if (error) {
     return (
       <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-6">
@@ -523,9 +558,9 @@ function SessionsTab({ projectId }: { projectId: string }) {
         {/* Auto-refresh indicator */}
         <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground mt-4">
           {isFetching && (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span>Refreshing...</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-400/10 border border-emerald-400/30">
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+              <span className="text-emerald-400">Refreshing...</span>
             </div>
           )}
           {dataUpdatedAt && !isFetching && (
@@ -545,124 +580,27 @@ function SessionsTab({ projectId }: { projectId: string }) {
         </div>
       ) : sessions && sessions.length > 0 ? (
         <>
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-border">
-              <thead className="bg-muted/50">
-                <tr>
-                  {/* Sortable: Start Time */}
-                  <th
-                    onClick={() => handleSort('start_time')}
-                    className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-muted transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      Start Time
-                      {sortBy === 'start_time' ? (
-                        order === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
-                      ) : (
-                        <ArrowUpDown className="w-4 h-4 opacity-30" />
-                      )}
-                    </div>
-                  </th>
-                  {/* Sortable: Duration */}
-                  <th
-                    onClick={() => handleSort('duration')}
-                    className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-muted transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      Duration
-                      {sortBy === 'duration' ? (
-                        order === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
-                      ) : (
-                        <ArrowUpDown className="w-4 h-4 opacity-30" />
-                      )}
-                    </div>
-                  </th>
-                  {/* Non-sortable: Status */}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Status
-                  </th>
-                  {/* Non-sortable: Developer */}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Developer
-                  </th>
-                  {/* Sortable: Messages */}
-                  <th
-                    onClick={() => handleSort('messages')}
-                    className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-muted transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      Messages
-                      {sortBy === 'messages' ? (
-                        order === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
-                      ) : (
-                        <ArrowUpDown className="w-4 h-4 opacity-30" />
-                      )}
-                    </div>
-                  </th>
-                  {/* Non-sortable: Files */}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Files
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-card divide-y divide-border">
-                {sessions.map((session) => (
-                  <tr
-                    key={session.id}
-                    onClick={() => navigate(`/conversations/${session.id}`)}
-                    className="hover:bg-accent cursor-pointer transition-colors"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {format(new Date(session.start_time), 'PPp')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                      {session.duration_seconds
-                        ? `${Math.round(session.duration_seconds / 60)}m`
-                        : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge
-                        status={session.status}
-                        success={session.success}
-                      />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {session.developer || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                      {session.message_count}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
-                      {session.files_count}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SessionTable
+            sessions={sessions}
+            columns={columns}
+            onRowClick={(id) => navigate(`/conversations/${id}`)}
+            variant="default"
+            sorting={{
+              sortBy,
+              order,
+              onSort: handleSort,
+            }}
+            emptyMessage="No sessions yet"
+            emptyHint="Sessions will appear here once you ingest conversation logs"
+          />
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Page {page}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handlePageChange(page - 1)}
-                disabled={page === 1}
-                className="px-4 py-2 bg-card border border-border rounded-lg text-sm hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handlePageChange(page + 1)}
-                disabled={!sessions || sessions.length < pageSize}
-                className="px-4 py-2 bg-card border border-border rounded-lg text-sm hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+          <SessionPagination
+            currentPage={page}
+            pageSize={pageSize}
+            currentPageItemCount={sessions.length}
+            onPageChange={handlePageChange}
+            variant="simple"
+          />
         </>
       ) : (
         <div className="bg-card border border-border rounded-lg p-12 text-center">
@@ -766,21 +704,4 @@ function FilesTab({ projectId }: { projectId: string }) {
 }
 
 // ===== Helper Components =====
-
-function StatusBadge({ status, success }: { status: string; success: boolean | null }) {
-  let colorClass = 'bg-muted/50 text-muted-foreground';
-
-  if (success === true) {
-    colorClass = 'bg-green-500/10 text-green-600 border-green-500/20';
-  } else if (success === false) {
-    colorClass = 'bg-destructive/10 text-destructive border-destructive/20';
-  }
-
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colorClass}`}
-    >
-      {status}
-    </span>
-  );
-}
+// (StatusBadge moved to shared components)
