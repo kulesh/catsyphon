@@ -195,3 +195,28 @@ body {
   transition-duration: 200ms;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Observatory Date Picker Styling */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(0.8);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 200ms;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  filter: invert(1) brightness(1) drop-shadow(0 0 4px rgba(34, 211, 238, 0.4));
+}
+
+/* Native date picker calendar styling (Webkit/Blink) */
+input[type="date"]::-webkit-datetime-edit {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  color: hsl(var(--foreground));
+}
