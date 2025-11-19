@@ -1,5 +1,5 @@
 /**
- * Conversation List page - Paginated table with filters.
+ * Conversation List page - Observatory Session Archive.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { getConversations, getDevelopers, getProjects } from '@/lib/api';
 import { format, formatDistanceToNow } from 'date-fns';
+import { Database, Filter, RefreshCw, AlertTriangle } from 'lucide-react';
 import type { ConversationFilters } from '@/types/api';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
 
@@ -111,58 +112,58 @@ export default function ConversationList() {
 
   return (
     <div className="container mx-auto p-6">
-      {/* Header with freshness indicators */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Conversations</h1>
-        <div className="flex items-center gap-3">
-          {isFetching && (
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <svg
-                className="w-4 h-4 animate-spin"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
-              Refreshing...
-            </span>
-          )}
-          {!isFetching && dataUpdatedAt && (
-            <span className="text-sm text-muted-foreground">
-              Last updated {formatDistanceToNow(dataUpdatedAt, { addSuffix: true })}
-            </span>
-          )}
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-            Auto-refresh: {secondsUntilRefresh}s
-          </span>
+      {/* Observatory Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <Database className="w-7 h-7 text-cyan-400" />
+            <h1 className="text-3xl font-display tracking-wide text-foreground">
+              SESSION ARCHIVE
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            {isFetching && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-400/10 border border-cyan-400/30">
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                <span className="text-xs font-mono text-cyan-400">SYNCING</span>
+              </div>
+            )}
+            {!isFetching && dataUpdatedAt && (
+              <span className="text-xs font-mono text-muted-foreground">
+                LAST SYNC {formatDistanceToNow(dataUpdatedAt, { addSuffix: true }).toUpperCase()}
+              </span>
+            )}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-400/10 border border-emerald-400/30">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" />
+              <span className="text-xs font-mono text-emerald-400">
+                AUTO {secondsUntilRefresh}s
+              </span>
+            </div>
+          </div>
         </div>
+        <p className="text-sm font-mono text-muted-foreground">
+          Archived conversation logs • Real-time monitoring • {data?.total.toLocaleString() || '---'} total entries
+        </p>
       </div>
 
-      {/* Filters */}
-      <div className="bg-card border border-border rounded-lg p-4 mb-6">
+      {/* Observatory Filter Panel */}
+      <div className="observatory-card p-5 mb-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Filter className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-sm font-mono text-foreground tracking-wider">FILTER PARAMETERS</h3>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {/* Project Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">Project</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              Project
+            </label>
             <select
               value={filters.project_id || ''}
               onChange={(e) =>
                 updateFilters({ project_id: e.target.value || undefined })
               }
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             >
               <option value="">All Projects</option>
               {projects?.map((p) => (
@@ -175,13 +176,15 @@ export default function ConversationList() {
 
           {/* Developer Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">Developer</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              Developer
+            </label>
             <select
               value={filters.developer_id || ''}
               onChange={(e) =>
                 updateFilters({ developer_id: e.target.value || undefined })
               }
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             >
               <option value="">All Developers</option>
               {developers?.map((d) => (
@@ -194,27 +197,31 @@ export default function ConversationList() {
 
           {/* Agent Type Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">Agent Type</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              Agent Type
+            </label>
             <input
               type="text"
               value={filters.agent_type || ''}
               onChange={(e) =>
                 updateFilters({ agent_type: e.target.value || undefined })
               }
-              placeholder="e.g., claude-code"
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              placeholder="claude-code"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm placeholder:text-muted-foreground/40 focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             />
           </div>
 
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">Status</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              Status
+            </label>
             <select
               value={filters.status || ''}
               onChange={(e) =>
                 updateFilters({ status: e.target.value || undefined })
               }
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             >
               <option value="">All Statuses</option>
               <option value="open">Open</option>
@@ -226,7 +233,9 @@ export default function ConversationList() {
 
           {/* Start Date Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">Start Date</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              Start Date
+            </label>
             <input
               type="date"
               value={
@@ -241,13 +250,15 @@ export default function ConversationList() {
                     : undefined,
                 })
               }
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             />
           </div>
 
           {/* End Date Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">End Date</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              End Date
+            </label>
             <input
               type="date"
               value={
@@ -260,13 +271,15 @@ export default function ConversationList() {
                     : undefined,
                 })
               }
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             />
           </div>
 
           {/* Success Filter */}
           <div>
-            <label className="block text-sm font-medium mb-1">Success</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
+              Success
+            </label>
             <select
               value={
                 filters.success === undefined
@@ -283,7 +296,7 @@ export default function ConversationList() {
                       : e.target.value === 'true',
                 })
               }
-              className="w-full px-3 py-2 border border-input rounded-md bg-background"
+              className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
             >
               <option value="">All</option>
               <option value="true">Success</option>
@@ -295,9 +308,9 @@ export default function ConversationList() {
           <div className="flex items-end">
             <button
               onClick={clearFilters}
-              className="w-full px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground border border-input rounded-md hover:bg-accent transition-colors"
+              className="w-full px-4 py-2 text-xs font-mono font-semibold text-muted-foreground hover:text-cyan-400 border border-border/50 rounded-md hover:border-cyan-400/50 hover:bg-cyan-400/5 transition-all uppercase tracking-wider"
             >
-              Clear Filters
+              Reset
             </button>
           </div>
         </div>
@@ -305,58 +318,69 @@ export default function ConversationList() {
 
       {/* Loading State */}
       {isLoading && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">Loading conversations...</p>
+        <div className="min-h-[400px] flex items-center justify-center grid-pattern">
+          <div className="text-center">
+            <div className="relative">
+              <div className="animate-spin rounded-full h-16 w-16 border-2 border-transparent border-t-cyan-400 border-r-cyan-400 mx-auto mb-6 glow-cyan"></div>
+              <div className="absolute inset-0 animate-ping rounded-full h-16 w-16 border border-cyan-400/20 mx-auto"></div>
+            </div>
+            <p className="text-sm font-mono text-muted-foreground tracking-wider">LOADING ARCHIVE DATA...</p>
+          </div>
         </div>
       )}
 
       {/* Error State */}
       {error && (
-        <div className="bg-destructive/10 border border-destructive rounded-lg p-4 mb-6">
-          <p className="text-destructive">
-            Error loading conversations: {error.message}
+        <div className="observatory-card border-destructive/50 p-6 mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <AlertTriangle className="w-5 h-5 text-destructive" />
+            <h3 className="font-heading text-lg text-destructive">Archive Error</h3>
+          </div>
+          <p className="font-mono text-sm text-destructive/80">
+            {error.message}
           </p>
         </div>
       )}
 
-      {/* Table */}
+      {/* Observatory Data Table */}
       {data && (
         <>
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="observatory-card overflow-hidden">
             <table className="w-full">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+              <thead>
+                <tr className="bg-slate-900/50 border-b border-border/50">
+                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Start Time
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Last Activity
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Project
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Developer
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Agent Type
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-left text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-right text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Messages
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
+                  <th className="px-4 py-3 text-center text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wider">
                     Success
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border/30">
                 {data.items.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
-                      No conversations found
+                    <td colSpan={8} className="px-4 py-12 text-center">
+                      <p className="font-mono text-sm text-muted-foreground">NO ARCHIVE ENTRIES FOUND</p>
+                      <p className="font-mono text-xs text-muted-foreground/60 mt-1">Adjust filter parameters</p>
                     </td>
                   </tr>
                 ) : (
@@ -364,66 +388,66 @@ export default function ConversationList() {
                     <tr
                       key={conversation.id}
                       onClick={() => navigate(`/conversations/${conversation.id}`)}
-                      className={`border-t border-border hover:bg-accent cursor-pointer transition-all duration-500 ${
+                      className={`group cursor-pointer transition-all duration-300 hover:bg-cyan-400/5 ${
                         newItemIds.has(conversation.id)
-                          ? 'bg-green-50 dark:bg-green-950/20 animate-pulse'
+                          ? 'bg-emerald-400/10 animate-pulse border-l-2 border-l-emerald-400'
                           : ''
                       }`}
                     >
-                      <td className="px-4 py-3 text-sm">
-                        {format(new Date(conversation.start_time), 'PPp')}
+                      <td className="px-4 py-3.5 font-mono text-xs text-foreground/90">
+                        {format(new Date(conversation.start_time), 'MMM dd, yyyy HH:mm')}
                       </td>
-                      <td className="px-4 py-3 text-sm">
+                      <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
                         {conversation.end_time
-                          ? format(new Date(conversation.end_time), 'PPp')
-                          : '-'}
+                          ? format(new Date(conversation.end_time), 'MMM dd, yyyy HH:mm')
+                          : '---'}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        {conversation.project?.name || '-'}
+                      <td className="px-4 py-3.5 font-mono text-xs text-foreground/80">
+                        {conversation.project?.name || '---'}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        {conversation.developer?.username || '-'}
+                      <td className="px-4 py-3.5 font-mono text-xs text-cyan-400/90">
+                        {conversation.developer?.username || '---'}
                       </td>
-                      <td className="px-4 py-3 text-sm">
+                      <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
                           {conversation.conversation_type === 'agent' && (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" title="Agent conversation">
-                              Agent
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-400/10 border border-purple-400/30 text-[10px] font-mono text-purple-400 uppercase tracking-wide" title="Agent conversation">
+                              Sub
                             </span>
                           )}
-                          <span className="font-mono text-xs">{conversation.agent_type}</span>
+                          <span className="font-mono text-xs text-foreground/80">{conversation.agent_type}</span>
                           {conversation.children_count > 0 && (
-                            <span className="text-xs text-muted-foreground" title={`${conversation.children_count} child conversation${conversation.children_count !== 1 ? 's' : ''}`}>
+                            <span className="font-mono text-[10px] text-amber-400" title={`${conversation.children_count} spawned agent${conversation.children_count !== 1 ? 's' : ''}`}>
                               +{conversation.children_count}
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm">
+                      <td className="px-4 py-3.5">
                         <span
-                          className={`inline-block px-2 py-1 rounded-full text-xs ${
+                          className={`inline-flex items-center px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wide ${
                             conversation.status === 'completed'
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              ? 'bg-emerald-400/10 border border-emerald-400/30 text-emerald-400'
                               : conversation.status === 'failed'
-                                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                ? 'bg-rose-400/10 border border-rose-400/30 text-rose-400'
+                                : 'bg-cyan-400/10 border border-cyan-400/30 text-cyan-400'
                           }`}
                         >
-                          {conversation.status}
+                          {conversation.status.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        {conversation.message_count}
+                      <td className="px-4 py-3.5 font-mono text-xs text-right text-foreground/90">
+                        {conversation.message_count.toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-sm">
+                      <td className="px-4 py-3.5 text-center">
                         {conversation.success === null ? (
-                          '-'
+                          <span className="font-mono text-xs text-muted-foreground">---</span>
                         ) : conversation.success ? (
-                          <span className="text-green-600 dark:text-green-400">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-400/20 text-emerald-400 text-sm">
                             ✓
                           </span>
                         ) : (
-                          <span className="text-red-600 dark:text-red-400">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-400/20 text-rose-400 text-sm">
                             ✗
                           </span>
                         )}
@@ -435,33 +459,45 @@ export default function ConversationList() {
             </table>
           </div>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-muted-foreground">
-              Showing {data.items.length === 0 ? 0 : (data.page - 1) * data.page_size + 1} to{' '}
-              {Math.min(data.page * data.page_size, data.total)} of {data.total}{' '}
-              conversations
-            </p>
+          {/* Observatory Pagination Controls */}
+          <div className="flex items-center justify-between mt-6">
+            <div className="font-mono text-xs text-muted-foreground">
+              <span className="text-foreground/90">
+                {data.items.length === 0 ? 0 : ((data.page - 1) * data.page_size + 1).toLocaleString()}
+              </span>
+              {' - '}
+              <span className="text-foreground/90">
+                {Math.min(data.page * data.page_size, data.total).toLocaleString()}
+              </span>
+              {' of '}
+              <span className="text-cyan-400">
+                {data.total.toLocaleString()}
+              </span>
+              {' entries'}
+            </div>
 
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => updateFilters({ page: filters.page! - 1 })}
                 disabled={data.page === 1}
-                className="px-3 py-1 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-cyan-400 border border-border/50 rounded-md hover:border-cyan-400/50 hover:bg-cyan-400/5 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:border-border/50 disabled:hover:bg-transparent transition-all"
               >
-                Previous
+                Prev
               </button>
 
-              <div className="flex items-center gap-2 px-3">
-                <span className="text-sm">
-                  Page {data.page} of {data.pages}
+              <div className="px-4 py-2 bg-slate-900/50 border border-border/50 rounded-md">
+                <span className="font-mono text-xs text-foreground/90">
+                  Page{' '}
+                  <span className="text-cyan-400 font-semibold">{data.page}</span>
+                  {' / '}
+                  <span className="text-muted-foreground">{data.pages}</span>
                 </span>
               </div>
 
               <button
                 onClick={() => updateFilters({ page: filters.page! + 1 })}
                 disabled={data.page === data.pages}
-                className="px-3 py-1 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-cyan-400 border border-border/50 rounded-md hover:border-cyan-400/50 hover:bg-cyan-400/5 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:border-border/50 disabled:hover:bg-transparent transition-all"
               >
                 Next
               </button>
