@@ -451,40 +451,47 @@ function SessionsTab({ projectId }: { projectId: string }) {
     setOrder('desc');
   };
 
-  // Define columns for SessionTable
+  // Define columns for SessionTable (Observatory theme to match ConversationList)
   const columns: ColumnConfig[] = [
     {
       id: 'start_time',
       label: 'Start Time',
       sortable: true,
-      render: (session) => renderHelpers.startTime(session, 'default'),
+      render: (session) => renderHelpers.startTime(session, 'observatory'),
     },
     {
-      id: 'duration',
-      label: 'Duration',
-      sortable: true,
-      render: renderHelpers.duration,
-    },
-    {
-      id: 'status',
-      label: 'Status',
-      render: (session) => renderHelpers.status(session, 'default'),
+      id: 'last_activity',
+      label: 'Last Activity',
+      render: renderHelpers.lastActivity,
     },
     {
       id: 'developer',
       label: 'Developer',
-      render: renderHelpers.developer,
+      sortable: true,
+      render: renderHelpers.developerObservatory,
+    },
+    {
+      id: 'agent_type',
+      label: 'Agent Type',
+      render: renderHelpers.agentType,
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      render: (session) => renderHelpers.status(session, 'observatory'),
     },
     {
       id: 'messages',
       label: 'Messages',
+      align: 'right' as const,
       sortable: true,
-      render: (session) => renderHelpers.messageCount(session, 'default'),
+      render: (session) => renderHelpers.messageCount(session, 'observatory'),
     },
     {
-      id: 'files',
-      label: 'Files',
-      render: renderHelpers.filesCount,
+      id: 'success',
+      label: 'Success',
+      align: 'center' as const,
+      render: renderHelpers.successIndicator,
     },
   ];
 
@@ -500,21 +507,21 @@ function SessionsTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Filters and Sorting */}
-      <div className="bg-card border border-border rounded-lg p-6">
+      {/* Filters and Sorting - Observatory Style */}
+      <div className="observatory-card p-5">
         <div className="flex items-start justify-between gap-6">
           {/* Filter Controls */}
           <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Developer Filter */}
             <div>
-              <label htmlFor="developer-filter" className="block text-sm font-medium text-muted-foreground mb-2">
+              <label htmlFor="developer-filter" className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
                 Developer
               </label>
               <select
                 id="developer-filter"
                 value={developer}
                 onChange={(e) => setDeveloper(e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
               >
                 <option value="">All Developers</option>
                 {stats?.developers.map((dev) => (
@@ -527,14 +534,14 @@ function SessionsTab({ projectId }: { projectId: string }) {
 
             {/* Outcome Filter */}
             <div>
-              <label htmlFor="outcome-filter" className="block text-sm font-medium text-muted-foreground mb-2">
+              <label htmlFor="outcome-filter" className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wide">
                 Outcome
               </label>
               <select
                 id="outcome-filter"
                 value={outcome}
                 onChange={(e) => setOutcome(e.target.value as typeof outcome)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-3 py-2 border border-border/50 rounded-md bg-slate-900/50 font-mono text-sm focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all"
               >
                 <option value="">All Outcomes</option>
                 <option value="success">Success</option>
@@ -548,23 +555,25 @@ function SessionsTab({ projectId }: { projectId: string }) {
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
-              className="px-4 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-mono font-semibold text-muted-foreground hover:text-cyan-400 border border-border/50 rounded-md hover:border-cyan-400/50 hover:bg-cyan-400/5 transition-all uppercase tracking-wider"
             >
-              Clear Filters
+              Reset
             </button>
           )}
         </div>
 
-        {/* Auto-refresh indicator */}
-        <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground mt-4">
+        {/* Auto-refresh indicator - Observatory style */}
+        <div className="flex items-center justify-end gap-3 mt-4">
           {isFetching && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-400/10 border border-emerald-400/30">
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
-              <span className="text-emerald-400">Refreshing...</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-400/10 border border-cyan-400/30">
+              <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+              <span className="text-xs font-mono text-cyan-400">SYNCING</span>
             </div>
           )}
           {dataUpdatedAt && !isFetching && (
-            <span>Updated {formatDistanceToNow(dataUpdatedAt, { addSuffix: true })}</span>
+            <span className="text-xs font-mono text-muted-foreground">
+              UPDATED {formatDistanceToNow(dataUpdatedAt, { addSuffix: true }).toUpperCase()}
+            </span>
           )}
         </div>
       </div>
@@ -584,13 +593,13 @@ function SessionsTab({ projectId }: { projectId: string }) {
             sessions={sessions}
             columns={columns}
             onRowClick={(id) => navigate(`/conversations/${id}`)}
-            variant="default"
+            variant="observatory"
             sorting={{
               sortBy,
               order,
               onSort: handleSort,
             }}
-            emptyMessage="No sessions yet"
+            emptyMessage="No archive entries found"
             emptyHint="Sessions will appear here once you ingest conversation logs"
           />
 
@@ -599,7 +608,9 @@ function SessionsTab({ projectId }: { projectId: string }) {
             pageSize={pageSize}
             currentPageItemCount={sessions.length}
             onPageChange={handlePageChange}
-            variant="simple"
+            variant="full"
+            totalItems={sessions.length}
+            totalPages={Math.ceil(sessions.length / pageSize)}
           />
         </>
       ) : (
