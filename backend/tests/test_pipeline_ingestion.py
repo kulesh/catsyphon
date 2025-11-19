@@ -20,7 +20,7 @@ from catsyphon.models.parsed import (
     ParsedMessage,
     ToolCall,
 )
-from catsyphon.pipeline.ingestion import ingest_conversation
+from catsyphon.pipeline.ingestion import ingest_conversation, link_orphaned_agents
 
 
 class TestBasicIngestion:
@@ -1005,3 +1005,479 @@ class TestConversationUpdates:
         conv_repo = ConversationRepository(db_session)
         all_convs = conv_repo.get_all()
         assert len(all_convs) >= 2
+
+
+class TestHierarchicalConversationIngestion:
+    """Tests for hierarchical conversation ingestion (agents and parent-child linking)."""
+
+    def test_ingest_agent_links_to_existing_parent(self, db_session: Session, sample_workspace):
+        """Test that agent conversation links to existing parent during ingestion."""
+        parent_session_id = "parent-session-123"
+        agent_id = "agent-456"
+        now = datetime.now(UTC)
+
+        # First, ingest parent conversation
+        parent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=5),
+            session_id=parent_session_id,
+            conversation_type="main",
+            parent_session_id=None,
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Main conversation",
+                    timestamp=now,
+                )
+            ],
+        )
+
+        parent_conv = ingest_conversation(db_session, parent_parsed)
+        db_session.commit()
+
+        # Now ingest agent conversation
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now + timedelta(minutes=1),
+            end_time=now + timedelta(minutes=3),
+            session_id=agent_id,
+            conversation_type="agent",
+            parent_session_id=parent_session_id,
+            agent_metadata={
+                "agent_id": agent_id,
+                "parent_session_id": parent_session_id,
+            },
+            context_semantics={
+                "shares_parent_context": False,
+                "can_use_parent_tools": True,
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent task",
+                    timestamp=now + timedelta(minutes=1),
+                )
+            ],
+        )
+
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+
+        # Verify linking
+        assert agent_conv.conversation_type == "agent"
+        assert agent_conv.parent_conversation_id == parent_conv.id
+        assert agent_conv.agent_metadata["agent_id"] == agent_id
+
+        # Verify parent has child
+        db_session.refresh(parent_conv)
+        assert len(parent_conv.children) == 1
+        assert parent_conv.children[0].id == agent_conv.id
+
+    def test_ingest_agent_before_parent_creates_orphan(self, db_session: Session, sample_workspace):
+        """Test that agent ingested before parent becomes orphaned."""
+        parent_session_id = "parent-session-789"
+        agent_id = "agent-orphan"
+        now = datetime.now(UTC)
+
+        # Ingest agent first (parent doesn't exist yet)
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=2),
+            session_id=agent_id,
+            conversation_type="agent",
+            parent_session_id=parent_session_id,
+            agent_metadata={
+                "agent_id": agent_id,
+                "parent_session_id": parent_session_id,
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent task",
+                    timestamp=now,
+                )
+            ],
+        )
+
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+
+        # Verify agent is orphaned (parent_conversation_id is NULL)
+        assert agent_conv.conversation_type == "agent"
+        assert agent_conv.parent_conversation_id is None
+        assert agent_conv.agent_metadata["parent_session_id"] == parent_session_id
+
+    def test_ingest_parent_after_agent_links_orphans(self, db_session: Session, sample_workspace):
+        """Test that ingesting parent after agent links orphaned agents."""
+        parent_session_id = "parent-session-link"
+        agent_id = "agent-link"
+        now = datetime.now(UTC)
+
+        # Ingest agent first (orphaned)
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=2),
+            session_id=agent_id,
+            conversation_type="agent",
+            parent_session_id=parent_session_id,
+            agent_metadata={
+                "agent_id": agent_id,
+                "parent_session_id": parent_session_id,
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent task",
+                    timestamp=now,
+                )
+            ],
+        )
+
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+        assert agent_conv.parent_conversation_id is None  # Orphaned
+
+        # Now ingest parent
+        parent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=5),
+            session_id=parent_session_id,
+            conversation_type="main",
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Main conversation",
+                    timestamp=now,
+                )
+            ],
+        )
+
+        parent_conv = ingest_conversation(db_session, parent_parsed)
+        db_session.commit()
+
+        # Run link_orphaned_agents
+        linked_count = link_orphaned_agents(db_session, sample_workspace.id)
+        db_session.commit()
+
+        # Verify linking
+        assert linked_count == 1
+        db_session.refresh(agent_conv)
+        assert agent_conv.parent_conversation_id == parent_conv.id
+
+    def test_link_orphaned_agents_finds_and_links(self, db_session: Session, sample_workspace):
+        """Test link_orphaned_agents function finds and links orphaned agents."""
+        now = datetime.now(UTC)
+
+        # Create multiple orphaned agents
+        for i in range(3):
+            agent_parsed = ParsedConversation(
+                agent_type="claude-code",
+                agent_version="2.0.28",
+                start_time=now,
+                end_time=now + timedelta(minutes=1),
+                session_id=f"agent-{i}",
+                conversation_type="agent",
+                parent_session_id="shared-parent",
+                agent_metadata={
+                    "agent_id": f"agent-{i}",
+                    "parent_session_id": "shared-parent",
+                },
+                messages=[
+                    ParsedMessage(
+                        role="user",
+                        content=f"Agent {i} task",
+                        timestamp=now,
+                    )
+                ],
+            )
+            ingest_conversation(db_session, agent_parsed)
+
+        db_session.commit()
+
+        # Verify all are orphaned
+        conv_repo = ConversationRepository(db_session)
+        orphans = conv_repo.get_all()
+        assert len([c for c in orphans if c.parent_conversation_id is None]) == 3
+
+        # Ingest parent
+        parent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=10),
+            session_id="shared-parent",
+            conversation_type="main",
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Parent conversation",
+                    timestamp=now,
+                )
+            ],
+        )
+        ingest_conversation(db_session, parent_parsed)
+        db_session.commit()
+
+        # Link orphans
+        linked_count = link_orphaned_agents(db_session, sample_workspace.id)
+        db_session.commit()
+
+        # Verify all were linked
+        assert linked_count == 3
+        all_convs = conv_repo.get_all()
+        agents = [c for c in all_convs if c.conversation_type == "agent"]
+        assert all(a.parent_conversation_id is not None for a in agents)
+
+    def test_link_orphaned_agents_skips_already_linked(self, db_session: Session, sample_workspace):
+        """Test that link_orphaned_agents skips already linked agents."""
+        parent_session_id = "parent-existing"
+        now = datetime.now(UTC)
+
+        # Ingest parent first
+        parent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=5),
+            session_id=parent_session_id,
+            conversation_type="main",
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Parent",
+                    timestamp=now,
+                )
+            ],
+        )
+        parent_conv = ingest_conversation(db_session, parent_parsed)
+        db_session.commit()
+
+        # Ingest agent that gets linked immediately
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now + timedelta(minutes=1),
+            end_time=now + timedelta(minutes=2),
+            session_id="agent-linked",
+            conversation_type="agent",
+            parent_session_id=parent_session_id,
+            agent_metadata={
+                "agent_id": "agent-linked",
+                "parent_session_id": parent_session_id,
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent",
+                    timestamp=now + timedelta(minutes=1),
+                )
+            ],
+        )
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+
+        # Verify already linked
+        assert agent_conv.parent_conversation_id == parent_conv.id
+
+        # Run link_orphaned_agents (should skip already linked)
+        linked_count = link_orphaned_agents(db_session, sample_workspace.id)
+        db_session.commit()
+
+        # Should not link anything
+        assert linked_count == 0
+
+    def test_link_orphaned_agents_handles_missing_parent(self, db_session: Session, sample_workspace):
+        """Test that link_orphaned_agents handles agents with non-existent parents."""
+        now = datetime.now(UTC)
+
+        # Create orphaned agent with parent that will never exist
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=1),
+            session_id="agent-orphan-forever",
+            conversation_type="agent",
+            parent_session_id="non-existent-parent",
+            agent_metadata={
+                "agent_id": "agent-orphan-forever",
+                "parent_session_id": "non-existent-parent",
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent",
+                    timestamp=now,
+                )
+            ],
+        )
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+
+        # Run link_orphaned_agents
+        linked_count = link_orphaned_agents(db_session, sample_workspace.id)
+        db_session.commit()
+
+        # Should not link anything
+        assert linked_count == 0
+
+        # Agent should remain orphaned
+        db_session.refresh(agent_conv)
+        assert agent_conv.parent_conversation_id is None
+
+    def test_ingest_duplicate_main_and_agent_different_types(self, db_session: Session, sample_workspace):
+        """Test that same session_id with different conversation_type creates separate records."""
+        session_id = "ambiguous-session"
+        now = datetime.now(UTC)
+
+        # Ingest main conversation
+        main_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=5),
+            session_id=session_id,
+            conversation_type="main",
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Main",
+                    timestamp=now,
+                )
+            ],
+        )
+        main_conv = ingest_conversation(db_session, main_parsed)
+        db_session.commit()
+
+        # Ingest agent conversation with same session_id (should create separate record)
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=2),
+            session_id=session_id,
+            conversation_type="agent",
+            parent_session_id="some-parent",
+            agent_metadata={
+                "agent_id": session_id,
+                "parent_session_id": "some-parent",
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent",
+                    timestamp=now,
+                )
+            ],
+        )
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+
+        # Should be different records
+        assert main_conv.id != agent_conv.id
+        assert main_conv.conversation_type == "main"
+        assert agent_conv.conversation_type == "agent"
+
+        # Verify both exist in database
+        conv_repo = ConversationRepository(db_session)
+        all_convs = conv_repo.get_all()
+        session_convs = [c for c in all_convs if c.extra_data.get("session_id") == session_id]
+        assert len(session_convs) == 2
+
+    def test_update_mode_replace_preserves_children(self, db_session: Session, sample_workspace):
+        """Test that replace mode on parent preserves child relationships."""
+        parent_session_id = "parent-replace"
+        agent_id = "agent-child"
+        now = datetime.now(UTC)
+
+        # Ingest parent
+        parent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=5),
+            session_id=parent_session_id,
+            conversation_type="main",
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Parent v1",
+                    timestamp=now,
+                )
+            ],
+        )
+        parent_conv = ingest_conversation(db_session, parent_parsed)
+        db_session.commit()
+        original_parent_id = parent_conv.id
+
+        # Ingest child agent
+        agent_parsed = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now + timedelta(minutes=1),
+            end_time=now + timedelta(minutes=2),
+            session_id=agent_id,
+            conversation_type="agent",
+            parent_session_id=parent_session_id,
+            agent_metadata={
+                "agent_id": agent_id,
+                "parent_session_id": parent_session_id,
+            },
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Agent",
+                    timestamp=now + timedelta(minutes=1),
+                )
+            ],
+        )
+        agent_conv = ingest_conversation(db_session, agent_parsed)
+        db_session.commit()
+
+        # Verify child is linked
+        assert agent_conv.parent_conversation_id == original_parent_id
+
+        # Replace parent conversation
+        parent_parsed_v2 = ParsedConversation(
+            agent_type="claude-code",
+            agent_version="2.0.28",
+            start_time=now,
+            end_time=now + timedelta(minutes=10),
+            session_id=parent_session_id,
+            conversation_type="main",
+            messages=[
+                ParsedMessage(
+                    role="user",
+                    content="Parent v2",
+                    timestamp=now,
+                ),
+                ParsedMessage(
+                    role="assistant",
+                    content="Updated response",
+                    timestamp=now + timedelta(seconds=1),
+                ),
+            ],
+        )
+        parent_conv_v2 = ingest_conversation(db_session, parent_parsed_v2, update_mode="replace")
+        db_session.commit()
+
+        # Parent ID should be same
+        assert parent_conv_v2.id == original_parent_id
+
+        # Child should still be linked to same parent
+        db_session.refresh(agent_conv)
+        assert agent_conv.parent_conversation_id == original_parent_id
+
+        # Parent should still have child
+        db_session.refresh(parent_conv_v2)
+        assert len(parent_conv_v2.children) == 1
+        assert parent_conv_v2.children[0].id == agent_conv.id

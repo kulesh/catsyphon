@@ -285,6 +285,149 @@ class TestUtilityMethods:
         assert len(messages) == 2
 
 
+class TestHierarchicalConversations:
+    """Tests for hierarchical conversation detection and parsing (agents/sub-contexts)."""
+
+    def test_parse_agent_conversation_with_agent_id(self):
+        """Test parsing agent conversation with modern format (agentId field)."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        assert isinstance(result, ParsedConversation)
+        assert result.agent_type == "claude-code"
+        # Agent conversation should use agentId as session_id
+        assert result.session_id == "test-agent-001"
+        assert result.conversation_type == "agent"
+        # Tool-result messages are merged into tool calls, so 6 raw lines = 5 messages
+        assert len(result.messages) == 5
+
+    def test_parse_agent_extracts_parent_session_id(self):
+        """Test that agent conversations extract parent_session_id from sessionId field."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        # Parent session ID should be extracted from the sessionId field
+        assert result.parent_session_id == "parent-session-id-123"
+
+    def test_parse_agent_sets_agent_metadata(self):
+        """Test that agent conversations populate agent_metadata."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        # Agent metadata should include agentId
+        assert "agent_id" in result.agent_metadata
+        assert result.agent_metadata["agent_id"] == "test-agent-001"
+        assert "parent_session_id" in result.agent_metadata
+        assert result.agent_metadata["parent_session_id"] == "parent-session-id-123"
+
+    def test_parse_agent_sets_context_semantics(self):
+        """Test that agent conversations populate context_semantics."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        # Context semantics should describe isolated context with tool access
+        assert "shares_parent_context" in result.context_semantics
+        assert result.context_semantics["shares_parent_context"] is False
+        assert "can_use_parent_tools" in result.context_semantics
+        assert result.context_semantics["can_use_parent_tools"] is True
+        assert "isolated_context" in result.context_semantics
+        assert result.context_semantics["isolated_context"] is True
+
+    def test_parse_legacy_format_with_is_sidechain_flag(self):
+        """Test parsing legacy format (isSidechain=true but no agentId field)."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "legacy_agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        assert isinstance(result, ParsedConversation)
+        # Legacy format is still detected as agent (isSidechain=true)
+        assert result.conversation_type == "agent"
+        # Session ID should be the sessionId from messages (no agentId available)
+        assert result.session_id == "legacy-session-789"
+        # Should still parse all messages
+        assert len(result.messages) == 4
+
+    def test_parse_legacy_format_no_parent_linking(self):
+        """Test that legacy format doesn't attempt parent linking."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "legacy_agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        # No parent_session_id should be set for legacy format (no agentId present)
+        assert result.parent_session_id is None
+        # Agent metadata is still populated but parent_session_id is None
+        assert result.agent_metadata.get("parent_session_id") is None
+        # Context semantics should still be populated (isSidechain=true)
+        assert result.context_semantics != {}
+
+    def test_parse_main_conversation_type_default(self):
+        """Test that main conversations have conversation_type='main'."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "main_conversation_for_agent.jsonl"
+
+        result = parser.parse(log_file)
+
+        assert result.conversation_type == "main"
+        assert result.session_id == "parent-session-id-123"
+        # Main conversations should not have parent_session_id
+        assert result.parent_session_id is None
+
+    def test_parse_main_conversation_no_agent_metadata(self):
+        """Test that main conversations don't populate agent_metadata."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "main_conversation_for_agent.jsonl"
+
+        result = parser.parse(log_file)
+
+        # Main conversations should have empty agent_metadata
+        assert result.agent_metadata == {}
+
+    def test_agent_conversation_has_tool_calls(self):
+        """Test that agent conversation tool calls are properly extracted."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "agent_conversation.jsonl"
+
+        result = parser.parse(log_file)
+
+        # Find messages with tool calls
+        tool_messages = [msg for msg in result.messages if msg.tool_calls]
+
+        assert len(tool_messages) > 0
+        # Check the Grep tool call
+        tool_call = tool_messages[0].tool_calls[0]
+        assert tool_call.tool_name == "Grep"
+        assert tool_call.parameters["pattern"] == "authenticate"
+        # Tool result should be populated from tool-result message
+        assert tool_call.result is not None
+
+    def test_main_conversation_spawns_agent(self):
+        """Test that main conversation with Task tool is properly parsed."""
+        parser = ClaudeCodeParser()
+        log_file = FIXTURES_DIR / "main_conversation_for_agent.jsonl"
+
+        result = parser.parse(log_file)
+
+        # Find Task tool call
+        tool_messages = [msg for msg in result.messages if msg.tool_calls]
+        assert len(tool_messages) > 0
+
+        task_tools = [
+            tc for msg in tool_messages for tc in msg.tool_calls if tc.tool_name == "Task"
+        ]
+        assert len(task_tools) == 1
+        assert task_tools[0].parameters["subagent_type"] == "Explore"
+
+
 class TestEdgeCases:
     """Tests for edge cases and error conditions."""
 
