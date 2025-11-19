@@ -67,6 +67,22 @@ class ClaudeCodeParser:
     - Each line must be valid JSON
     - Objects must contain 'sessionId' and 'version' fields
     - Version must be compatible with Claude Code format
+
+    Supported formats:
+    - Modern format (v2.0+): Separate files for agents with 'agentId' field
+      * Main conversations: {session_id}.jsonl
+      * Agent conversations: agent-{agent_id}.jsonl
+      * Messages contain 'agentId' field to identify agent conversations
+      * Parent linking supported via agentId as unique session identifier
+
+    Known limitations:
+    - Legacy format (pre-v2.0): Single file with mixed agent/main messages
+      * Files named: {session_id}.jsonl (no separate agent files)
+      * No 'agentId' field in messages
+      * Uses 'isSidechain' flag per-message instead of per-file
+      * Agent conversations cannot be separated from main thread
+      * Parent-child relationships not supported for these files
+      * These files are parsed as main conversations with agent messages mixed in
     """
 
     def __init__(self) -> None:
