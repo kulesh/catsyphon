@@ -34,6 +34,86 @@ from catsyphon.utils.hashing import calculate_file_hash
 logger = logging.getLogger(__name__)
 
 
+def _extract_username_from_path(path: Optional[str]) -> Optional[str]:
+    """
+    Extract username from a file path.
+
+    Attempts to extract the username from common path patterns like:
+    - /Users/username/... (macOS)
+    - /home/username/... (Linux)
+    - C:\\Users\\username\\... (Windows)
+
+    Args:
+        path: File system path (e.g., working_directory)
+
+    Returns:
+        Extracted username or None if not found
+
+    Examples:
+        >>> _extract_username_from_path("/Users/kulesh/dev/project")
+        'kulesh'
+        >>> _extract_username_from_path("/home/sarah/code")
+        'sarah'
+        >>> _extract_username_from_path("C:\\Users\\john\\projects")
+        'john'
+        >>> _extract_username_from_path(None)
+        None
+    """
+    if not path:
+        return None
+
+    # Normalize path separators
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+
+    # Check for /Users/username (macOS)
+    if len(parts) > 2 and parts[1].lower() == "users":
+        return parts[2]
+
+    # Check for /home/username (Linux)
+    if len(parts) > 2 and parts[1].lower() == "home":
+        return parts[2]
+
+    # Check for C:/Users/username (Windows, already normalized)
+    if len(parts) > 2 and parts[-3].lower() == "users":
+        return parts[-2]
+
+    return None
+
+
+def _outcome_to_success(outcome: Optional[str]) -> Optional[bool]:
+    """
+    Convert outcome tag value to success boolean.
+
+    Args:
+        outcome: Outcome tag value (success, failed, partial, unknown, abandoned)
+
+    Returns:
+        True for success, False for failed/partial, None for unknown/abandoned/None
+
+    Examples:
+        >>> _outcome_to_success("success")
+        True
+        >>> _outcome_to_success("failed")
+        False
+        >>> _outcome_to_success("partial")
+        False
+        >>> _outcome_to_success("unknown")
+        None
+        >>> _outcome_to_success(None)
+        None
+    """
+    if not outcome:
+        return None
+
+    if outcome == "success":
+        return True
+    elif outcome in ("failed", "partial"):
+        return False
+    else:  # unknown, abandoned, or other
+        return None
+
+
 def _get_or_create_default_workspace(session: Session) -> UUID:
     """
     Get or create a default workspace for ingestion.
@@ -411,12 +491,17 @@ def ingest_conversation(
 
     # Step 2: Get or create Developer
     developer_id = None
-    if developer_username:
+    # Auto-extract username from working_directory if not explicitly provided
+    effective_username = developer_username or _extract_username_from_path(
+        parsed.working_directory
+    )
+    if effective_username:
         developer = developer_repo.get_or_create_by_username(
-            developer_username, workspace_id
+            effective_username, workspace_id
         )
         developer_id = developer.id
-        logger.debug(f"Developer: {developer.username} ({developer.id})")
+        source = "explicit" if developer_username else "auto-extracted from path"
+        logger.debug(f"Developer: {developer.username} ({developer.id}) [{source}]")
 
     # Step 3: Hierarchical conversation linking (Phase 2: Epic 7u2)
     # If this is an agent/subagent conversation, find the parent conversation
@@ -443,6 +528,11 @@ def ingest_conversation(
             )
 
     # Step 4: Create or Update Conversation
+    # Convert outcome tag to success boolean
+    success_value = None
+    if tags and "outcome" in tags:
+        success_value = _outcome_to_success(tags["outcome"])
+
     if not is_update:
         # Create new conversation
         conversation = conversation_repo.create(
@@ -456,6 +546,7 @@ def ingest_conversation(
             start_time=parsed.start_time,
             end_time=parsed.end_time,
             status="completed" if parsed.end_time else "open",
+            success=success_value,
             iteration_count=1,  # TODO: Detect iterations from parsed data
             tags=tags or {},
             context_semantics=parsed.context_semantics,
@@ -467,7 +558,7 @@ def ingest_conversation(
                 **parsed.metadata,
             },
         )
-        logger.info(f"Created conversation: {conversation.id}")
+        logger.info(f"Created conversation: {conversation.id} (success={success_value})")
     else:
         # Update existing conversation with project/developer/hierarchy associations
         assert conversation is not None, "conversation must be set in replace mode"
@@ -477,7 +568,8 @@ def ingest_conversation(
         conversation.conversation_type = parsed.conversation_type
         conversation.context_semantics = parsed.context_semantics
         conversation.agent_metadata = parsed.agent_metadata
-        logger.info(f"Updated conversation associations: {conversation.id}")
+        conversation.success = success_value  # Update success from tags
+        logger.info(f"Updated conversation associations: {conversation.id} (success={success_value})")
 
     # Step 4: Create Epoch (one epoch per conversation for now)
     # TODO: Implement multi-epoch detection based on conversation restarts
