@@ -15,7 +15,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from catsyphon.canonicalization import CanonicalType, Canonicalizer
 from catsyphon.db.repositories import (
+    CanonicalRepository,
     ConversationRepository,
     DeveloperRepository,
     EpochRepository,
@@ -729,6 +731,10 @@ def ingest_conversation(
         f"Ingestion complete: conversation={conversation.id}, "
         f"messages={len(messages)}, files={total_files}"
     )
+
+    # Note: Canonical representation generation happens on-demand via API endpoints
+    # or tagging pipeline. The CanonicalRepository.get_or_generate() implements
+    # window-based regeneration logic, so it will only regenerate when needed.
 
     return conversation
 
