@@ -74,6 +74,25 @@ class CanonicalConfig:
         else:
             return cls()  # Default
 
+    def to_dict(self) -> dict:
+        """Convert to dictionary for storage."""
+        return {
+            "token_budget": self.token_budget,
+            "include_thinking": self.include_thinking,
+            "include_tool_details": self.include_tool_details,
+            "include_code_changes": self.include_code_changes,
+            "include_children": self.include_children,
+            "max_child_depth": self.max_child_depth,
+            "child_token_budget": self.child_token_budget,
+            "always_include_first_n": self.always_include_first_n,
+            "always_include_last_n": self.always_include_last_n,
+            "error_context_messages": self.error_context_messages,
+            "tool_call_context_messages": self.tool_call_context_messages,
+            "max_message_chars": self.max_message_chars,
+            "max_thinking_chars": self.max_thinking_chars,
+            "max_tool_param_chars": self.max_tool_param_chars,
+        }
+
 
 @dataclass
 class CanonicalConversation:

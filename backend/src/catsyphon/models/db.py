@@ -893,3 +893,78 @@ class IngestionJob(Base):
             f"source_type={self.source_type!r}, "
             f"status={self.status!r})>"
         )
+
+
+class ConversationCanonical(Base):
+    """Canonical representation of conversations for analysis.
+
+    Stores pre-computed narrative forms optimized for different analysis types.
+    Supports multiple versions per conversation and window-based regeneration.
+    """
+
+    __tablename__ = "conversation_canonical"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Canonical type and version
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True
+    )  # Canonicalization algorithm version
+    canonical_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True
+    )  # 'tagging', 'insights', 'export'
+
+    # Narrative content
+    narrative: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # Actual tokens in narrative
+
+    # Structured metadata (JSONB for flexible storage)
+    canonical_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )  # Tools used, files touched, etc.
+    config: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )  # CanonicalConfig settings used
+
+    # Source tracking (for window-based regeneration)
+    source_message_count: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # Messages at generation time
+    source_token_estimate: Mapped[int] = mapped_column(
+        Integer, nullable=False
+    )  # Estimated tokens in source conversation
+
+    # Timestamps
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "version", "canonical_type", name="uq_conversation_version_type"
+        ),
+    )
+
+    # Relationships
+    conversation: Mapped["Conversation"] = relationship()
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConversationCanonical(id={self.id}, "
+            f"conversation_id={self.conversation_id}, "
+            f"type={self.canonical_type!r}, "
+            f"version={self.version})>"
+        )
