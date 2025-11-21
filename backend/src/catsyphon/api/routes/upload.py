@@ -131,28 +131,13 @@ async def upload_conversation_logs(
 
         except Exception as e:
             # Track parser/upload failures in ingestion_jobs table
-            try:
-                from datetime import datetime
-                import time
-                from catsyphon.db.repositories import IngestionJobRepository
+            from catsyphon.pipeline.failure_tracking import track_failure
 
-                with db_session() as session:
-                    ingestion_repo = IngestionJobRepository(session)
-                    ingestion_job = ingestion_repo.create(
-                        source_type="upload",
-                        file_path=str(temp_path) if 'temp_path' in locals() else None,
-                        status="failed",
-                        error_message=f"{type(e).__name__}: {str(e)}",
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow(),
-                        processing_time_ms=0,  # Failed immediately
-                        incremental=False,
-                        messages_added=0,
-                    )
-                    session.commit()
-            except Exception:
-                # Silently ignore if we can't track the failure
-                pass
+            track_failure(
+                error=e,
+                file_path=temp_path if 'temp_path' in locals() else None,
+                source_type="upload",
+            )
 
             results.append(
                 UploadResult(

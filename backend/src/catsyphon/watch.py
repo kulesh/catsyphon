@@ -408,6 +408,16 @@ class FileWatcher(FileSystemEventHandler):
                         self.stats.files_failed += 1
                         self.stats.last_activity = datetime.now()
 
+                    # Track parser/watch failures in ingestion_jobs table
+                    from catsyphon.pipeline.failure_tracking import track_failure
+
+                    track_failure(
+                        error=e,
+                        file_path=file_path,
+                        source_type="watch",
+                        source_config_id=self.config_id,
+                    )
+
                     # Add to retry queue
                     if self.retry_queue:
                         self.retry_queue.add(file_path, error_msg)
