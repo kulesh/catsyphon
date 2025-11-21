@@ -291,458 +291,475 @@ def ingest_conversation(
                 session.flush()
                 raise DuplicateFileError(file_hash, str(file_path))
 
-    # Initialize repositories
-    conversation_repo = ConversationRepository(session)
+    # Wrap main ingestion logic in try-catch to handle failures
+    try:
+        # Initialize repositories
+        conversation_repo = ConversationRepository(session)
 
-    # Track whether this is an update or new conversation
-    is_update = False
-    conversation = None
+        # Track whether this is an update or new conversation
+        is_update = False
+        conversation = None
 
-    # Check for existing conversation by session_id AND conversation_type (if provided)
-    # CRITICAL: Agent conversations share the parent's session_id, so we need to check
-    # BOTH session_id and conversation_type to avoid false duplicates
-    if parsed.session_id:
-        existing_conversation = conversation_repo.get_by_session_id(
-            parsed.session_id, workspace_id
-        )
-
-        # Filter to only matching conversation_type (allow main and agent to coexist)
-        # NOTE: Normalize to uppercase for comparison (db has uppercase, parser has lowercase)
-        if (
-            existing_conversation
-            and existing_conversation.conversation_type.upper()
-            != parsed.conversation_type.upper()
-        ):
-            logger.info(
-                f"Found conversation with same session_id but different type: "
-                f"existing={existing_conversation.conversation_type}, new={parsed.conversation_type}. "
-                f"Treating as separate conversations."
+        # Check for existing conversation by session_id AND conversation_type (if provided)
+        # CRITICAL: Agent conversations share the parent's session_id, so we need to check
+        # BOTH session_id and conversation_type to avoid false duplicates
+        if parsed.session_id:
+            existing_conversation = conversation_repo.get_by_session_id(
+                parsed.session_id, workspace_id
             )
-            existing_conversation = None  # Treat as new conversation
 
-        if existing_conversation:
-            # Check if this is the SAME file being re-processed
-            if file_path and existing_conversation.raw_logs:
-                existing_file_paths = {
-                    Path(rl.file_path)
-                    for rl in existing_conversation.raw_logs
-                    if rl.file_path is not None
-                }
-                is_same_file = file_path in existing_file_paths
+            # Filter to only matching conversation_type (allow main and agent to coexist)
+            # NOTE: Normalize to uppercase for comparison (db has uppercase, parser has lowercase)
+            if (
+                existing_conversation
+                and existing_conversation.conversation_type.upper()
+                != parsed.conversation_type.upper()
+            ):
+                logger.info(
+                    f"Found conversation with same session_id but different type: "
+                    f"existing={existing_conversation.conversation_type}, new={parsed.conversation_type}. "
+                    f"Treating as separate conversations."
+                )
+                existing_conversation = None  # Treat as new conversation
+
+            if existing_conversation:
+                # Check if this is the SAME file being re-processed
+                if file_path and existing_conversation.raw_logs:
+                    existing_file_paths = {
+                        Path(rl.file_path)
+                        for rl in existing_conversation.raw_logs
+                        if rl.file_path is not None
+                    }
+                    is_same_file = file_path in existing_file_paths
+                else:
+                    is_same_file = False
+
+                if update_mode == "skip":
+                    logger.info(
+                        f"Skipping existing conversation: session_id={parsed.session_id}, "
+                        f"conversation_id={existing_conversation.id}"
+                    )
+                    # Update ingestion job as skipped
+                    elapsed_ms = int((time.time() * 1000) - start_ms)
+                    ingestion_job.status = "skipped"
+                    ingestion_job.conversation_id = existing_conversation.id
+                    ingestion_job.processing_time_ms = elapsed_ms
+                    ingestion_job.completed_at = datetime.utcnow()
+                    session.flush()
+                    logger.debug(f"Updated ingestion job to skipped: {ingestion_job.id}")
+
+                    session.refresh(existing_conversation)
+                    return existing_conversation
+
+                elif update_mode == "replace":
+                    logger.info(
+                        f"Replacing existing conversation: session_id={parsed.session_id}, "
+                        f"conversation_id={existing_conversation.id}"
+                    )
+                    # Delete children (CASCADE will handle epochs, messages, files_touched)
+                    # and raw_logs if they exist
+
+                    # Delete children explicitly to ensure CASCADE works
+                    # NOTE: We do NOT delete RawLog - it will be updated in place
+                    # to avoid FK constraint violations
+                    session.query(Message).filter(
+                        Message.conversation_id == existing_conversation.id
+                    ).delete()
+                    session.query(Epoch).filter(
+                        Epoch.conversation_id == existing_conversation.id
+                    ).delete()
+                    session.query(FileTouched).filter(
+                        FileTouched.conversation_id == existing_conversation.id
+                    ).delete()
+
+                    session.flush()
+
+                    # Update conversation fields with new data
+                    existing_conversation.project_id = None  # Will be set below
+                    existing_conversation.developer_id = None  # Will be set below
+                    existing_conversation.agent_type = parsed.agent_type
+                    existing_conversation.agent_version = parsed.agent_version
+                    existing_conversation.start_time = parsed.start_time
+                    existing_conversation.end_time = parsed.end_time
+                    existing_conversation.status = (
+                        "completed" if parsed.end_time else "open"
+                    )
+                    existing_conversation.iteration_count = 1
+                    existing_conversation.tags = tags or {}
+                    existing_conversation.extra_data = {
+                        "session_id": parsed.session_id,
+                        "git_branch": parsed.git_branch,
+                        "working_directory": parsed.working_directory,
+                        **parsed.metadata,
+                    }
+
+                    # Use existing conversation for the rest of the ingestion
+                    conversation = existing_conversation
+                    logger.debug(f"Updated conversation: {conversation.id}")
+
+                    # Continue with ingestion flow but skip conversation creation
+                    # Jump to project/developer handling
+                    is_update = True
+
+                elif update_mode == "append":
+                    # Incremental update: append only NEW messages (Phase 2)
+                    logger.info(
+                        f"Appending to existing conversation: "
+                        f"session_id={parsed.session_id}, "
+                        f"conversation_id={existing_conversation.id}"
+                    )
+
+                    # Get existing raw_log for state tracking (if file_path provided)
+                    if not file_path:
+                        raise ValueError(
+                            "append mode requires file_path to track incremental state"
+                        )
+
+                    # Get raw_log by file path
+                    existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                    if not existing_raw_log:
+                        logger.warning(
+                            f"No existing raw_log found for {file_path}, "
+                            "falling back to full ingest"
+                        )
+                        # Fall through to regular ingestion (will create raw_log)
+                        is_update = False
+                    else:
+                        # Perform incremental append
+                        updated_conversation = _append_messages_incremental(
+                            session=session,
+                            existing_conversation=existing_conversation,
+                            existing_raw_log=existing_raw_log,
+                            parsed=parsed,
+                            tags=tags,
+                        )
+
+                        # Update ingestion job as successful incremental
+                        elapsed_ms = int((time.time() * 1000) - start_ms)
+                        messages_added = (
+                            len(parsed.messages) - existing_conversation.message_count
+                        )
+                        ingestion_job.status = "success"
+                        ingestion_job.conversation_id = updated_conversation.id
+                        ingestion_job.raw_log_id = existing_raw_log.id
+                        ingestion_job.processing_time_ms = elapsed_ms
+                        ingestion_job.messages_added = messages_added
+                        ingestion_job.incremental = True  # Incremental append
+                        ingestion_job.completed_at = datetime.utcnow()
+                        session.flush()
+                        logger.debug(
+                            f"Updated ingestion job to success (incremental): "
+                            f"{ingestion_job.id}, messages_added={messages_added}, "
+                            f"processing_time={elapsed_ms}ms"
+                        )
+
+                        return updated_conversation
+
+        # Initialize remaining repositories
+        project_repo = ProjectRepository(session)
+        developer_repo = DeveloperRepository(session)
+        conversation_repo = ConversationRepository(session)
+        epoch_repo = EpochRepository(session)
+        message_repo = MessageRepository(session)
+        raw_log_repo = RawLogRepository(session)
+
+        # Step 1: Get or create Project
+        # Auto-detect from working_directory or use manual project_name
+        project_id = None
+        if project_name:
+            # Manual override: use project_name as display name
+            # If working_directory is available, use it as directory_path
+            if parsed.working_directory:
+                project = project_repo.get_or_create_by_directory(
+                    directory_path=parsed.working_directory,
+                    workspace_id=workspace_id,
+                    name=project_name,  # Override auto-generated name
+                )
             else:
-                is_same_file = False
+                # Fallback to old behavior if no working_directory
+                project = project_repo.get_or_create_by_name(project_name, workspace_id)
+            project_id = project.id
+            logger.debug(f"Project: {project.name} ({project.id})")
+        elif parsed.working_directory:
+            # Auto-detect project from working_directory
+            project = project_repo.get_or_create_by_directory(
+                directory_path=parsed.working_directory, workspace_id=workspace_id
+            )
+            project_id = project.id
+            logger.debug(
+                f"Auto-detected project: {project.name} from {parsed.working_directory}"
+            )
+        else:
+            logger.warning(
+                "No project association: working_directory not found and --project not provided"
+            )
 
-            if update_mode == "skip":
+        # Step 2: Get or create Developer
+        developer_id = None
+        # Auto-extract username from working_directory if not explicitly provided
+        effective_username = developer_username or _extract_username_from_path(
+            parsed.working_directory
+        )
+        if effective_username:
+            developer = developer_repo.get_or_create_by_username(
+                effective_username, workspace_id
+            )
+            developer_id = developer.id
+            source = "explicit" if developer_username else "auto-extracted from path"
+            logger.debug(f"Developer: {developer.username} ({developer.id}) [{source}]")
+
+        # Step 3: Hierarchical conversation linking (Phase 2: Epic 7u2)
+        # If this is an agent/subagent conversation, find the parent conversation
+        parent_conversation_id = None
+        # NOTE: Parser returns lowercase "agent" but database stores uppercase "AGENT"
+        # (due to migration using enum key names instead of values)
+        if parsed.conversation_type.lower() == "agent" and parsed.parent_session_id:
+            # Look up parent - use conversation_type='main' for deterministic, safe lookup
+            parent_conversation = conversation_repo.get_by_session_id(
+                parsed.parent_session_id, workspace_id, conversation_type="main"
+            )
+
+            if parent_conversation:
+                parent_conversation_id = parent_conversation.id
                 logger.info(
-                    f"Skipping existing conversation: session_id={parsed.session_id}, "
-                    f"conversation_id={existing_conversation.id}"
+                    f"Linking agent conversation (session_id={parsed.session_id}) "
+                    f"to parent (session_id={parsed.parent_session_id}, id={parent_conversation_id})"
                 )
-                # Update ingestion job as skipped
-                elapsed_ms = int((time.time() * 1000) - start_ms)
-                ingestion_job.status = "skipped"
-                ingestion_job.conversation_id = existing_conversation.id
-                ingestion_job.processing_time_ms = elapsed_ms
-                ingestion_job.completed_at = datetime.utcnow()
-                session.flush()
-                logger.debug(f"Updated ingestion job to skipped: {ingestion_job.id}")
-
-                session.refresh(existing_conversation)
-                return existing_conversation
-
-            elif update_mode == "replace":
-                logger.info(
-                    f"Replacing existing conversation: session_id={parsed.session_id}, "
-                    f"conversation_id={existing_conversation.id}"
+            else:
+                logger.warning(
+                    f"Parent MAIN conversation not found for agent (parent_session_id={parsed.parent_session_id}). "
+                    f"Agent conversation will be created without parent link."
                 )
-                # Delete children (CASCADE will handle epochs, messages, files_touched)
-                # and raw_logs if they exist
 
-                # Delete children explicitly to ensure CASCADE works
-                # NOTE: We do NOT delete RawLog - it will be updated in place
-                # to avoid FK constraint violations
-                session.query(Message).filter(
-                    Message.conversation_id == existing_conversation.id
-                ).delete()
-                session.query(Epoch).filter(
-                    Epoch.conversation_id == existing_conversation.id
-                ).delete()
-                session.query(FileTouched).filter(
-                    FileTouched.conversation_id == existing_conversation.id
-                ).delete()
+        # Step 4: Create or Update Conversation
+        # Convert outcome tag to success boolean
+        success_value = None
+        if tags and "outcome" in tags:
+            success_value = _outcome_to_success(tags["outcome"])
 
-                session.flush()
-
-                # Update conversation fields with new data
-                existing_conversation.project_id = None  # Will be set below
-                existing_conversation.developer_id = None  # Will be set below
-                existing_conversation.agent_type = parsed.agent_type
-                existing_conversation.agent_version = parsed.agent_version
-                existing_conversation.start_time = parsed.start_time
-                existing_conversation.end_time = parsed.end_time
-                existing_conversation.status = (
-                    "completed" if parsed.end_time else "open"
-                )
-                existing_conversation.iteration_count = 1
-                existing_conversation.tags = tags or {}
-                existing_conversation.extra_data = {
+        if not is_update:
+            # Create new conversation
+            conversation = conversation_repo.create(
+                workspace_id=workspace_id,
+                project_id=project_id,
+                developer_id=developer_id,
+                parent_conversation_id=parent_conversation_id,
+                conversation_type=parsed.conversation_type,
+                agent_type=parsed.agent_type,
+                agent_version=parsed.agent_version,
+                start_time=parsed.start_time,
+                end_time=parsed.end_time,
+                status="completed" if parsed.end_time else "open",
+                success=success_value,
+                iteration_count=1,  # TODO: Detect iterations from parsed data
+                tags=tags or {},
+                context_semantics=parsed.context_semantics,
+                agent_metadata=parsed.agent_metadata,
+                extra_data={
                     "session_id": parsed.session_id,
                     "git_branch": parsed.git_branch,
                     "working_directory": parsed.working_directory,
                     **parsed.metadata,
-                }
+                },
+            )
+            logger.info(f"Created conversation: {conversation.id} (success={success_value})")
 
-                # Use existing conversation for the rest of the ingestion
-                conversation = existing_conversation
-                logger.debug(f"Updated conversation: {conversation.id}")
-
-                # Continue with ingestion flow but skip conversation creation
-                # Jump to project/developer handling
-                is_update = True
-
-            elif update_mode == "append":
-                # Incremental update: append only NEW messages (Phase 2)
-                logger.info(
-                    f"Appending to existing conversation: "
-                    f"session_id={parsed.session_id}, "
-                    f"conversation_id={existing_conversation.id}"
+            # Increment parent's children_count if this conversation has a parent
+            if parent_conversation_id:
+                session.execute(
+                    text("UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"),
+                    {"parent_id": parent_conversation_id}
                 )
-
-                # Get existing raw_log for state tracking (if file_path provided)
-                if not file_path:
-                    raise ValueError(
-                        "append mode requires file_path to track incremental state"
-                    )
-
-                # Get raw_log by file path
-                existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
-                if not existing_raw_log:
-                    logger.warning(
-                        f"No existing raw_log found for {file_path}, "
-                        "falling back to full ingest"
-                    )
-                    # Fall through to regular ingestion (will create raw_log)
-                    is_update = False
-                else:
-                    # Perform incremental append
-                    updated_conversation = _append_messages_incremental(
-                        session=session,
-                        existing_conversation=existing_conversation,
-                        existing_raw_log=existing_raw_log,
-                        parsed=parsed,
-                        tags=tags,
-                    )
-
-                    # Update ingestion job as successful incremental
-                    elapsed_ms = int((time.time() * 1000) - start_ms)
-                    messages_added = (
-                        len(parsed.messages) - existing_conversation.message_count
-                    )
-                    ingestion_job.status = "success"
-                    ingestion_job.conversation_id = updated_conversation.id
-                    ingestion_job.raw_log_id = existing_raw_log.id
-                    ingestion_job.processing_time_ms = elapsed_ms
-                    ingestion_job.messages_added = messages_added
-                    ingestion_job.incremental = True  # Incremental append
-                    ingestion_job.completed_at = datetime.utcnow()
-                    session.flush()
-                    logger.debug(
-                        f"Updated ingestion job to success (incremental): "
-                        f"{ingestion_job.id}, messages_added={messages_added}, "
-                        f"processing_time={elapsed_ms}ms"
-                    )
-
-                    return updated_conversation
-
-    # Initialize remaining repositories
-    project_repo = ProjectRepository(session)
-    developer_repo = DeveloperRepository(session)
-    conversation_repo = ConversationRepository(session)
-    epoch_repo = EpochRepository(session)
-    message_repo = MessageRepository(session)
-    raw_log_repo = RawLogRepository(session)
-
-    # Step 1: Get or create Project
-    # Auto-detect from working_directory or use manual project_name
-    project_id = None
-    if project_name:
-        # Manual override: use project_name as display name
-        # If working_directory is available, use it as directory_path
-        if parsed.working_directory:
-            project = project_repo.get_or_create_by_directory(
-                directory_path=parsed.working_directory,
-                workspace_id=workspace_id,
-                name=project_name,  # Override auto-generated name
-            )
+                logger.debug(f"Incremented children_count for parent {parent_conversation_id}")
         else:
-            # Fallback to old behavior if no working_directory
-            project = project_repo.get_or_create_by_name(project_name, workspace_id)
-        project_id = project.id
-        logger.debug(f"Project: {project.name} ({project.id})")
-    elif parsed.working_directory:
-        # Auto-detect project from working_directory
-        project = project_repo.get_or_create_by_directory(
-            directory_path=parsed.working_directory, workspace_id=workspace_id
-        )
-        project_id = project.id
-        logger.debug(
-            f"Auto-detected project: {project.name} from {parsed.working_directory}"
-        )
-    else:
-        logger.warning(
-            "No project association: working_directory not found and --project not provided"
-        )
+            # Update existing conversation with project/developer/hierarchy associations
+            assert conversation is not None, "conversation must be set in replace mode"
+            conversation.project_id = project_id
+            conversation.developer_id = developer_id
+            conversation.parent_conversation_id = parent_conversation_id
+            conversation.conversation_type = parsed.conversation_type
+            conversation.context_semantics = parsed.context_semantics
+            conversation.agent_metadata = parsed.agent_metadata
+            conversation.success = success_value  # Update success from tags
+            logger.info(f"Updated conversation associations: {conversation.id} (success={success_value})")
 
-    # Step 2: Get or create Developer
-    developer_id = None
-    # Auto-extract username from working_directory if not explicitly provided
-    effective_username = developer_username or _extract_username_from_path(
-        parsed.working_directory
-    )
-    if effective_username:
-        developer = developer_repo.get_or_create_by_username(
-            effective_username, workspace_id
-        )
-        developer_id = developer.id
-        source = "explicit" if developer_username else "auto-extracted from path"
-        logger.debug(f"Developer: {developer.username} ({developer.id}) [{source}]")
-
-    # Step 3: Hierarchical conversation linking (Phase 2: Epic 7u2)
-    # If this is an agent/subagent conversation, find the parent conversation
-    parent_conversation_id = None
-    # NOTE: Parser returns lowercase "agent" but database stores uppercase "AGENT"
-    # (due to migration using enum key names instead of values)
-    if parsed.conversation_type.lower() == "agent" and parsed.parent_session_id:
-        # Look up parent - use conversation_type='main' for deterministic, safe lookup
-        parent_conversation = conversation_repo.get_by_session_id(
-            parsed.parent_session_id, workspace_id, conversation_type="main"
-        )
-
-        if parent_conversation:
-            parent_conversation_id = parent_conversation.id
-            logger.info(
-                f"Linking agent conversation (session_id={parsed.session_id}) "
-                f"to parent (session_id={parsed.parent_session_id}, id={parent_conversation_id})"
-            )
-        else:
-            logger.warning(
-                f"Parent MAIN conversation not found for agent (parent_session_id={parsed.parent_session_id}). "
-                f"Agent conversation will be created without parent link."
-            )
-
-    # Step 4: Create or Update Conversation
-    # Convert outcome tag to success boolean
-    success_value = None
-    if tags and "outcome" in tags:
-        success_value = _outcome_to_success(tags["outcome"])
-
-    if not is_update:
-        # Create new conversation
-        conversation = conversation_repo.create(
-            workspace_id=workspace_id,
-            project_id=project_id,
-            developer_id=developer_id,
-            parent_conversation_id=parent_conversation_id,
-            conversation_type=parsed.conversation_type,
-            agent_type=parsed.agent_type,
-            agent_version=parsed.agent_version,
+        # Step 4: Create Epoch (one epoch per conversation for now)
+        # TODO: Implement multi-epoch detection based on conversation restarts
+        epoch = epoch_repo.create_epoch(
+            conversation_id=conversation.id,
+            sequence=0,
             start_time=parsed.start_time,
             end_time=parsed.end_time,
-            status="completed" if parsed.end_time else "open",
-            success=success_value,
-            iteration_count=1,  # TODO: Detect iterations from parsed data
-            tags=tags or {},
-            context_semantics=parsed.context_semantics,
-            agent_metadata=parsed.agent_metadata,
-            extra_data={
-                "session_id": parsed.session_id,
-                "git_branch": parsed.git_branch,
-                "working_directory": parsed.working_directory,
-                **parsed.metadata,
-            },
+            # Tags can provide intent/outcome/sentiment if available
+            intent=tags.get("intent") if tags else None,
+            outcome=tags.get("outcome") if tags else None,
+            sentiment=tags.get("sentiment") if tags else None,
+            sentiment_score=tags.get("sentiment_score") if tags else None,
         )
-        logger.info(f"Created conversation: {conversation.id} (success={success_value})")
+        logger.debug(f"Created epoch: {epoch.id}")
 
-        # Increment parent's children_count if this conversation has a parent
-        if parent_conversation_id:
-            session.execute(
-                text("UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"),
-                {"parent_id": parent_conversation_id}
+        # Step 5: Create Messages (bulk insert for efficiency)
+        message_data = []
+        for idx, msg in enumerate(parsed.messages):
+            # Serialize tool calls and code changes to JSON
+            tool_calls_json = [
+                {
+                    "tool_name": tc.tool_name,
+                    "parameters": tc.parameters,
+                    "result": tc.result,
+                    "success": tc.success,
+                    "timestamp": tc.timestamp.isoformat() if tc.timestamp else None,
+                }
+                for tc in msg.tool_calls
+            ]
+
+            code_changes_json = [
+                {
+                    "file_path": cc.file_path,
+                    "change_type": cc.change_type,
+                    "old_content": cc.old_content,
+                    "new_content": cc.new_content,
+                    "lines_added": cc.lines_added,
+                    "lines_deleted": cc.lines_deleted,
+                }
+                for cc in msg.code_changes
+            ]
+
+            # Add model and token_usage to extra_data
+            extra_data: dict[str, Any] = {}
+            if msg.model:
+                extra_data["model"] = msg.model
+            if msg.token_usage:
+                extra_data["token_usage"] = msg.token_usage
+
+            message_data.append(
+                {
+                    "epoch_id": epoch.id,
+                    "conversation_id": conversation.id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "thinking_content": msg.thinking_content,
+                    "timestamp": msg.timestamp,
+                    "sequence": idx,
+                    "tool_calls": tool_calls_json,
+                    "code_changes": code_changes_json,
+                    "entities": msg.entities,
+                    "extra_data": extra_data,
+                }
             )
-            logger.debug(f"Incremented children_count for parent {parent_conversation_id}")
-    else:
-        # Update existing conversation with project/developer/hierarchy associations
-        assert conversation is not None, "conversation must be set in replace mode"
-        conversation.project_id = project_id
-        conversation.developer_id = developer_id
-        conversation.parent_conversation_id = parent_conversation_id
-        conversation.conversation_type = parsed.conversation_type
-        conversation.context_semantics = parsed.context_semantics
-        conversation.agent_metadata = parsed.agent_metadata
-        conversation.success = success_value  # Update success from tags
-        logger.info(f"Updated conversation associations: {conversation.id} (success={success_value})")
 
-    # Step 4: Create Epoch (one epoch per conversation for now)
-    # TODO: Implement multi-epoch detection based on conversation restarts
-    epoch = epoch_repo.create_epoch(
-        conversation_id=conversation.id,
-        sequence=0,
-        start_time=parsed.start_time,
-        end_time=parsed.end_time,
-        # Tags can provide intent/outcome/sentiment if available
-        intent=tags.get("intent") if tags else None,
-        outcome=tags.get("outcome") if tags else None,
-        sentiment=tags.get("sentiment") if tags else None,
-        sentiment_score=tags.get("sentiment_score") if tags else None,
-    )
-    logger.debug(f"Created epoch: {epoch.id}")
+        # Bulk create messages
+        messages = message_repo.bulk_create(message_data)
+        logger.info(f"Created {len(messages)} messages")
 
-    # Step 5: Create Messages (bulk insert for efficiency)
-    message_data = []
-    for idx, msg in enumerate(parsed.messages):
-        # Serialize tool calls and code changes to JSON
-        tool_calls_json = [
-            {
-                "tool_name": tc.tool_name,
-                "parameters": tc.parameters,
-                "result": tc.result,
-                "success": tc.success,
-                "timestamp": tc.timestamp.isoformat() if tc.timestamp else None,
-            }
-            for tc in msg.tool_calls
-        ]
+        # Step 6: Create FileTouched records
+        if parsed.files_touched:
+            for file_path_str in parsed.files_touched:
+                file_touched = FileTouched(
+                    conversation_id=conversation.id,
+                    epoch_id=epoch.id,
+                    file_path=file_path_str,
+                    change_type="read",  # Default to 'read', could be enhanced
+                    timestamp=parsed.start_time,
+                )
+                session.add(file_touched)
+            logger.debug(f"Created {len(parsed.files_touched)} file touched records")
 
-        code_changes_json = [
-            {
-                "file_path": cc.file_path,
-                "change_type": cc.change_type,
-                "old_content": cc.old_content,
-                "new_content": cc.new_content,
-                "lines_added": cc.lines_added,
-                "lines_deleted": cc.lines_deleted,
-            }
-            for cc in msg.code_changes
-        ]
-
-        # Add model and token_usage to extra_data
-        extra_data: dict[str, Any] = {}
-        if msg.model:
-            extra_data["model"] = msg.model
-        if msg.token_usage:
-            extra_data["token_usage"] = msg.token_usage
-
-        message_data.append(
-            {
-                "epoch_id": epoch.id,
-                "conversation_id": conversation.id,
-                "role": msg.role,
-                "content": msg.content,
-                "thinking_content": msg.thinking_content,
-                "timestamp": msg.timestamp,
-                "sequence": idx,
-                "tool_calls": tool_calls_json,
-                "code_changes": code_changes_json,
-                "entities": msg.entities,
-                "extra_data": extra_data,
-            }
-        )
-
-    # Bulk create messages
-    messages = message_repo.bulk_create(message_data)
-    logger.info(f"Created {len(messages)} messages")
-
-    # Step 6: Create FileTouched records
-    if parsed.files_touched:
-        for file_path_str in parsed.files_touched:
+        # Step 7: Create FileTouched records from code changes
+        for code_change in parsed.code_changes:
             file_touched = FileTouched(
                 conversation_id=conversation.id,
                 epoch_id=epoch.id,
-                file_path=file_path_str,
-                change_type="read",  # Default to 'read', could be enhanced
-                timestamp=parsed.start_time,
+                file_path=code_change.file_path,
+                change_type=code_change.change_type,
+                lines_added=code_change.lines_added,
+                lines_deleted=code_change.lines_deleted,
+                timestamp=parsed.start_time,  # Use conversation start time
             )
             session.add(file_touched)
-        logger.debug(f"Created {len(parsed.files_touched)} file touched records")
+        if parsed.code_changes:
+            logger.debug(f"Created {len(parsed.code_changes)} code change file records")
 
-    # Step 7: Create FileTouched records from code changes
-    for code_change in parsed.code_changes:
-        file_touched = FileTouched(
-            conversation_id=conversation.id,
-            epoch_id=epoch.id,
-            file_path=code_change.file_path,
-            change_type=code_change.change_type,
-            lines_added=code_change.lines_added,
-            lines_deleted=code_change.lines_deleted,
-            timestamp=parsed.start_time,  # Use conversation start time
+        # Step 8: Store or update raw log (if file path provided)
+        raw_log = None
+        if file_path:
+            # Check if raw_log already exists for this conversation
+            # (happens when update_mode="replace" and we're doing a full reparse)
+            existing_raw_logs = raw_log_repo.get_by_conversation(conversation.id)
+
+            if existing_raw_logs:
+                # Update existing raw_log instead of creating new one
+                # This avoids FK constraint violations
+                raw_log = raw_log_repo.update_from_file(
+                    raw_log=existing_raw_logs[0],
+                    file_path=file_path,
+                )
+                logger.debug(f"Updated existing raw log: {raw_log.id} (file_path updated to {file_path.name})")
+            else:
+                # Create new raw_log
+                raw_log = raw_log_repo.create_from_file(
+                    conversation_id=conversation.id,
+                    agent_type=parsed.agent_type,
+                    log_format="jsonl",  # Assume JSONL for now
+                    file_path=file_path,
+                )
+                logger.debug(f"Stored raw log: {raw_log.id}")
+
+        # Step 9: Update denormalized counts for performance
+        total_files = len(parsed.files_touched) + len(parsed.code_changes)
+        conversation.message_count = len(messages)
+        conversation.epoch_count = 1  # Currently 1 epoch per conversation
+        conversation.files_count = total_files
+        logger.debug(
+            f"Updated counts: messages={conversation.message_count}, "
+            f"epochs={conversation.epoch_count}, files={conversation.files_count}"
         )
-        session.add(file_touched)
-    if parsed.code_changes:
-        logger.debug(f"Created {len(parsed.code_changes)} code change file records")
 
-    # Step 8: Store or update raw log (if file path provided)
-    raw_log = None
-    if file_path:
-        # Check if raw_log already exists for this conversation
-        # (happens when update_mode="replace" and we're doing a full reparse)
-        existing_raw_logs = raw_log_repo.get_by_conversation(conversation.id)
+        # Flush to ensure all IDs are generated and counts are saved
+        session.flush()
 
-        if existing_raw_logs:
-            # Update existing raw_log instead of creating new one
-            # This avoids FK constraint violations
-            raw_log = raw_log_repo.update_from_file(
-                raw_log=existing_raw_logs[0],
-                file_path=file_path,
-            )
-            logger.debug(f"Updated existing raw log: {raw_log.id} (file_path updated to {file_path.name})")
-        else:
-            # Create new raw_log
-            raw_log = raw_log_repo.create_from_file(
-                conversation_id=conversation.id,
-                agent_type=parsed.agent_type,
-                log_format="jsonl",  # Assume JSONL for now
-                file_path=file_path,
-            )
-            logger.debug(f"Stored raw log: {raw_log.id}")
+        # Refresh conversation to load relationships
+        session.refresh(conversation)
 
-    # Step 9: Update denormalized counts for performance
-    total_files = len(parsed.files_touched) + len(parsed.code_changes)
-    conversation.message_count = len(messages)
-    conversation.epoch_count = 1  # Currently 1 epoch per conversation
-    conversation.files_count = total_files
-    logger.debug(
-        f"Updated counts: messages={conversation.message_count}, "
-        f"epochs={conversation.epoch_count}, files={conversation.files_count}"
-    )
+        # Update ingestion job as successful
+        elapsed_ms = int((time.time() * 1000) - start_ms)
+        ingestion_job.status = "success"
+        ingestion_job.conversation_id = conversation.id
+        ingestion_job.raw_log_id = raw_log.id if raw_log else None
+        ingestion_job.processing_time_ms = elapsed_ms
+        ingestion_job.messages_added = len(messages)
+        ingestion_job.incremental = False  # Full parse (not incremental)
+        ingestion_job.completed_at = datetime.utcnow()
+        session.flush()
+        logger.debug(
+            f"Updated ingestion job to success: {ingestion_job.id}, "
+            f"processing_time={elapsed_ms}ms"
+        )
 
-    # Flush to ensure all IDs are generated and counts are saved
-    session.flush()
+        total_files = len(parsed.files_touched) + len(parsed.code_changes)
+        logger.info(
+            f"Ingestion complete: conversation={conversation.id}, "
+            f"messages={len(messages)}, files={total_files}"
+        )
 
-    # Refresh conversation to load relationships
-    session.refresh(conversation)
+        # Note: Canonical representation generation happens on-demand via API endpoints
+        # or tagging pipeline. The CanonicalRepository.get_or_generate() implements
+        # window-based regeneration logic, so it will only regenerate when needed.
 
-    # Update ingestion job as successful
-    elapsed_ms = int((time.time() * 1000) - start_ms)
-    ingestion_job.status = "success"
-    ingestion_job.conversation_id = conversation.id
-    ingestion_job.raw_log_id = raw_log.id if raw_log else None
-    ingestion_job.processing_time_ms = elapsed_ms
-    ingestion_job.messages_added = len(messages)
-    ingestion_job.incremental = False  # Full parse (not incremental)
-    ingestion_job.completed_at = datetime.utcnow()
-    session.flush()
-    logger.debug(
-        f"Updated ingestion job to success: {ingestion_job.id}, "
-        f"processing_time={elapsed_ms}ms"
-    )
-
-    total_files = len(parsed.files_touched) + len(parsed.code_changes)
-    logger.info(
-        f"Ingestion complete: conversation={conversation.id}, "
-        f"messages={len(messages)}, files={total_files}"
-    )
-
-    # Note: Canonical representation generation happens on-demand via API endpoints
-    # or tagging pipeline. The CanonicalRepository.get_or_generate() implements
-    # window-based regeneration logic, so it will only regenerate when needed.
+    except Exception as e:
+        # Update ingestion job as failed
+        elapsed_ms = int((time.time() * 1000) - start_ms)
+        ingestion_job.status = "failed"
+        ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
+        ingestion_job.processing_time_ms = elapsed_ms
+        ingestion_job.completed_at = datetime.utcnow()
+        session.flush()
+        logger.error(
+            f"Ingestion failed: {type(e).__name__}: {str(e)}",
+            exc_info=True
+        )
+        # Re-raise exception to propagate to caller
+        raise
 
     return conversation
 
