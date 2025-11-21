@@ -357,3 +357,39 @@ export interface ProjectFileAggregation {
   last_modified_at: string;
   session_ids: string[];
 }
+
+// ===== Canonical Types =====
+
+export interface CanonicalMetadata {
+  tools_used: string[];
+  files_touched: string[];
+  errors_encountered: string[];
+  has_errors: boolean;
+}
+
+export interface CanonicalConfig {
+  canonical_type: string;
+  max_tokens: number;
+  sampling_strategy: string;
+}
+
+export interface CanonicalResponse {
+  id: string;
+  conversation_id: string;
+  version: number;
+  canonical_type: string;
+  narrative: string;
+  token_count: number;
+  metadata: CanonicalMetadata;
+  config: CanonicalConfig;
+  source_message_count: number;
+  source_token_estimate: number;
+  generated_at: string;
+}
+
+export interface CanonicalNarrativeResponse {
+  narrative: string;
+  token_count: number;
+  canonical_type: string;
+  version: number;
+}

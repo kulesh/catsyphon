@@ -5,6 +5,7 @@
  */
 
 import type {
+  CanonicalNarrativeResponse,
   ConversationDetail,
   ConversationFilters,
   ConversationListResponse,
@@ -107,6 +108,21 @@ export async function getConversationMessages(
 ): Promise<MessageResponse[]> {
   return apiFetch<MessageResponse[]>(
     `/conversations/${id}/messages?page=${page}&page_size=${pageSize}`
+  );
+}
+
+export async function getCanonicalNarrative(
+  conversationId: string,
+  canonicalType: 'tagging' | 'insights' | 'export' = 'tagging',
+  samplingStrategy: 'semantic' | 'epoch' | 'chronological' = 'chronological'
+): Promise<CanonicalNarrativeResponse> {
+  const params = new URLSearchParams({
+    canonical_type: canonicalType,
+    sampling_strategy: samplingStrategy,
+  });
+
+  return apiFetch<CanonicalNarrativeResponse>(
+    `/conversations/${conversationId}/canonical/narrative?${params.toString()}`
   );
 }
 
