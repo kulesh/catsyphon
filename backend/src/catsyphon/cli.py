@@ -110,19 +110,53 @@ def ingest(
         raise typer.Exit(1)
 
     # Collect files to process
-    files_to_process = []
+    from catsyphon.parsers.utils import is_conversational_log
+
+    all_files = []
     if log_path.is_file():
-        files_to_process = [log_path]
+        all_files = [log_path]
     elif log_path.is_dir():
-        files_to_process = list(log_path.rglob("*.jsonl"))
-        if not files_to_process:
+        all_files = list(log_path.rglob("*.jsonl"))
+        if not all_files:
             console.print("[yellow]No .jsonl files found in directory[/yellow]")
             raise typer.Exit(0)
     else:
         console.print(f"[bold red]Error:[/bold red] Invalid path: {path}")
         raise typer.Exit(1)
 
-    console.print(f"Found {len(files_to_process)} file(s) to process\n")
+    # Filter out metadata-only files (files without conversation messages)
+    from catsyphon.pipeline.failure_tracking import track_skip
+
+    files_to_process = []
+    skipped_files = []
+    for file_path in all_files:
+        if is_conversational_log(file_path):
+            files_to_process.append(file_path)
+        else:
+            skipped_files.append(file_path)
+            # Track skip in database
+            track_skip(
+                file_path=file_path,
+                source_type="cli",
+                reason="Metadata-only file (no conversation messages found). "
+                       "These files typically contain only 'summary' or 'file-history-snapshot' "
+                       "entries and are not meant to be parsed as conversations.",
+                created_by=developer,
+            )
+
+    if skipped_files:
+        console.print(f"[dim]Skipped {len(skipped_files)} metadata-only file(s)[/dim]")
+        for skipped in skipped_files[:5]:  # Show first 5
+            console.print(f"  [dim]- {skipped.name} (no conversation messages)[/dim]")
+        if len(skipped_files) > 5:
+            console.print(f"  [dim]... and {len(skipped_files) - 5} more[/dim]")
+        console.print()
+
+    if not files_to_process:
+        console.print("[yellow]No conversational log files found to process[/yellow]")
+        raise typer.Exit(0)
+
+    console.print(f"Found {len(files_to_process)} conversational log(s) to process\n")
 
     # Process files
     successful = 0

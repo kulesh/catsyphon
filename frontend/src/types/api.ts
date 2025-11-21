@@ -199,7 +199,7 @@ export interface HealthResponse {
 
 export interface UploadResult {
   filename: string;
-  status: 'success' | 'error';
+  status: 'success' | 'duplicate' | 'skipped' | 'error';
   conversation_id?: string;
   message_count: number;
   epoch_count: number;

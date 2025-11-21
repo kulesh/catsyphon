@@ -276,6 +276,31 @@ class FileWatcher(FileSystemEventHandler):
 
             logger.info(f"Detected file: {file_path.name}")
 
+            # Pre-filter: Check if this is a conversational log
+            from catsyphon.parsers.utils import is_conversational_log
+            from catsyphon.pipeline.failure_tracking import track_skip
+
+            if not is_conversational_log(file_path):
+                logger.info(
+                    f"Skipped {file_path.name} (metadata-only file, "
+                    "no conversation messages found)"
+                )
+
+                # Track skip in database
+                track_skip(
+                    file_path=file_path,
+                    source_type="watch",
+                    reason="Metadata-only file (no conversation messages found). "
+                           "These files typically contain only 'summary' or 'file-history-snapshot' "
+                           "entries and are not meant to be parsed as conversations.",
+                    source_config_id=self.config_id,
+                )
+
+                with self._stats_lock:
+                    self.stats.files_skipped += 1
+                    self.stats.last_activity = datetime.now()
+                return
+
             # Check database for existing raw_log
             with db_session() as session:
                 raw_log_repo = RawLogRepository(session)

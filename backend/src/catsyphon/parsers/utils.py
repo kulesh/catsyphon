@@ -5,7 +5,9 @@ This module provides common utilities used by various parsers, including
 timestamp parsing, thread reconstruction, and tool call matching.
 """
 
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 from dateutil import parser as date_parser
@@ -201,3 +203,64 @@ def safe_get_nested(
             return default
 
     return current
+
+
+def is_conversational_log(file_path: Path, max_lines: int = 5) -> bool:
+    """
+    Quick pre-check to identify conversational logs vs metadata-only files.
+
+    Checks first N lines for Claude Code conversation markers (sessionId + version).
+    This is a lightweight filter to skip obviously non-conversational files before
+    attempting full parse.
+
+    Metadata-only files typically contain only 'summary' and 'file-history-snapshot'
+    message types without sessionId/version fields. These are auxiliary files created
+    by Claude Code for tracking state and are not meant to be parsed as conversations.
+
+    Args:
+        file_path: Path to .jsonl file to check
+        max_lines: Number of lines to check (default: 5, enough to detect markers)
+
+    Returns:
+        True if file appears to be a conversational log (has sessionId + version)
+        False if file appears to be metadata-only (no conversation markers found)
+
+    Example:
+        >>> path = Path("session-123.jsonl")
+        >>> is_conversational_log(path)
+        True
+        >>> metadata_path = Path("metadata-only.jsonl")
+        >>> is_conversational_log(metadata_path)
+        False
+
+    Note:
+        This is a heuristic check. The full parser still validates files completely.
+        Files that pass this pre-check may still be rejected by the parser if they
+        have deeper validation issues.
+    """
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                # Stop after checking max_lines
+                if i >= max_lines:
+                    return False  # First N lines don't have markers
+
+                # Skip empty lines
+                if not line.strip():
+                    continue
+
+                try:
+                    data = json.loads(line)
+                    # Look for Claude Code conversation markers
+                    if "sessionId" in data and "version" in data:
+                        return True  # Conversational log detected
+                except json.JSONDecodeError:
+                    # Malformed JSON line, continue checking
+                    continue
+
+    except (OSError, UnicodeDecodeError):
+        # File can't be read - let parser handle it
+        return False
+
+    # No markers found in first N lines = likely metadata-only file
+    return False

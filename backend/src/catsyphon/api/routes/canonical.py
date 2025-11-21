@@ -229,7 +229,7 @@ def get_canonical_narrative(
 
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
-        canonical_type=canonical_type,
+        canonical_type=canonical_type_enum,  # Fixed: use enum, not string
         canonicalizer=canonicalizer,
         children=conversation.children if hasattr(conversation, 'children') else [],
     )
@@ -237,8 +237,8 @@ def get_canonical_narrative(
     return CanonicalNarrativeResponse(
         narrative=canonical.narrative,
         token_count=canonical.token_count,
-        canonical_type=canonical.canonical_type,
-        version=canonical.version,
+        canonical_type=canonical_type,  # Use the string parameter
+        version=canonical.canonical_version,  # Fixed: correct attribute name
     )
 
 
@@ -310,7 +310,7 @@ def regenerate_canonical(
     )
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
-        canonical_type=request.canonical_type,
+        canonical_type=canonical_type_enum,  # Fixed: use enum, not string
         canonicalizer=canonicalizer,
         children=conversation.children if hasattr(conversation, 'children') else [],
     )

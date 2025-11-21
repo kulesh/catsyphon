@@ -13,6 +13,8 @@ from catsyphon.api.schemas import UploadResponse, UploadResult
 from catsyphon.db.connection import db_session
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers import get_default_registry
+from catsyphon.parsers.utils import is_conversational_log
+from catsyphon.pipeline.failure_tracking import track_skip
 from catsyphon.pipeline.ingestion import (
     ingest_conversation,
     link_orphaned_agents,
@@ -77,6 +79,35 @@ async def upload_conversation_logs(
                 temp_path = Path(temp_file.name)
 
             try:
+                # Pre-filter: Check if file is a conversational log
+                if not is_conversational_log(temp_path):
+                    # Metadata-only file (no conversation messages)
+                    skip_reason = (
+                        "Metadata-only file (no conversation messages found). "
+                        "These files typically contain only 'summary' or 'file-history-snapshot' "
+                        "entries and are not meant to be parsed as conversations."
+                    )
+
+                    # Track skip in database
+                    track_skip(
+                        file_path=temp_path,
+                        source_type="upload",
+                        reason=skip_reason,
+                    )
+
+                    results.append(
+                        UploadResult(
+                            filename=uploaded_file.filename,
+                            status="skipped",
+                            error=skip_reason,
+                        )
+                    )
+                    # Note: skipped files are counted as success (not failed)
+                    success_count += 1
+                    # Clean up and continue to next file
+                    temp_path.unlink(missing_ok=True)
+                    continue
+
                 # Parse the file
                 conversation = registry.parse(temp_path)
 

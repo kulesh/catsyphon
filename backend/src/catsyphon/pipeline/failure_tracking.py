@@ -57,3 +57,50 @@ def track_failure(
     except Exception as tracking_error:
         # Don't let failure tracking errors break the main flow
         logger.debug(f"Could not track failure in DB: {tracking_error}")
+
+
+def track_skip(
+    file_path: Path,
+    source_type: str,
+    reason: str,
+    source_config_id: Optional[UUID] = None,
+    created_by: Optional[str] = None,
+) -> None:
+    """
+    Track a skipped file in the ingestion_jobs table.
+
+    Files are skipped when they are metadata-only files (no conversation messages),
+    such as files containing only 'summary' or 'file-history-snapshot' entries.
+
+    Args:
+        file_path: Path to the file that was skipped
+        source_type: Source of the ingestion ('upload', 'watch', 'cli')
+        reason: Human-readable explanation of why the file was skipped
+        source_config_id: Optional watch config ID (for watch source)
+        created_by: Optional username (for uploads)
+
+    This function is safe to call - it will log but not raise if tracking fails.
+    """
+    try:
+        with db_session() as session:
+            ingestion_repo = IngestionJobRepository(session)
+            ingestion_repo.create(
+                source_type=source_type,
+                source_config_id=source_config_id,
+                file_path=str(file_path),
+                status="skipped",
+                error_message=reason,  # Store reason in error_message field
+                started_at=datetime.utcnow(),
+                completed_at=datetime.utcnow(),
+                processing_time_ms=0,
+                incremental=False,
+                messages_added=0,
+                created_by=created_by,
+            )
+            session.commit()
+
+        logger.debug(f"Tracked skip for {file_path.name}: {reason}")
+
+    except Exception as tracking_error:
+        # Don't let tracking errors break the main flow
+        logger.debug(f"Could not track skip in DB: {tracking_error}")
