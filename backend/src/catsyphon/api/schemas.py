@@ -561,6 +561,10 @@ class RegenerateCanonicalRequest(BaseModel):
         default="tagging",
         description="Type of canonical to regenerate (tagging, insights, export)"
     )
+    sampling_strategy: str = Field(
+        default="semantic",
+        description="Sampling strategy (semantic, epoch, chronological)"
+    )
 
 
 # ===== Insights Schemas =====

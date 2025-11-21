@@ -365,3 +365,82 @@ class EpochSampler:
         # Reuse SemanticSampler's estimation logic
         sampler = SemanticSampler(self.config, self.token_counter)
         return sampler._estimate_message_tokens(message)
+
+
+class ChronologicalSampler:
+    """Include all messages chronologically with unlimited token budget.
+
+    This sampler produces a complete chronological log of EVERYTHING in a
+    conversation - all messages, all tool calls, all thinking content, without
+    any filtering or budget constraints.
+
+    Use cases:
+    - Large context models (Claude 3.5 with 200K context, GPT-4 Turbo)
+    - Full conversation exports for archival/debugging
+    - Analysis tools requiring complete context
+    - Manual review and comprehensive logging
+
+    Note: May produce very large outputs (50K-200K+ tokens for complex sessions).
+    """
+
+    def __init__(self, config: CanonicalConfig, token_counter: TokenCounter):
+        """Initialize chronological sampler.
+
+        Args:
+            config: Canonicalization configuration
+            token_counter: Token counter for tracking (budget not enforced)
+        """
+        self.config = config
+        self.token_counter = token_counter
+
+    def sample(
+        self,
+        messages: list[Message],
+        epochs: list[Epoch],
+        token_budget: int,
+    ) -> list[SampledMessage]:
+        """Include all messages chronologically.
+
+        Args:
+            messages: All messages in conversation
+            epochs: All epochs in conversation (not used)
+            token_budget: Token budget (not enforced, used for logging only)
+
+        Returns:
+            List of all messages as SampledMessage objects, chronologically sorted
+        """
+        if not messages:
+            return []
+
+        # Sort messages by sequence (should already be sorted, but ensure it)
+        sorted_messages = sorted(messages, key=lambda m: m.sequence)
+
+        sampled: list[SampledMessage] = []
+        total_tokens = 0
+
+        for msg in sorted_messages:
+            estimated_tokens = self._estimate_message_tokens(msg)
+
+            sampled.append(
+                SampledMessage(
+                    message=msg,
+                    priority=1000,  # All messages equal priority
+                    reason="chronological",
+                    estimated_tokens=estimated_tokens,
+                )
+            )
+            total_tokens += estimated_tokens
+
+        # Log statistics (no budget enforcement)
+        logger.info(
+            f"Chronological sampler: included all {len(sampled)} messages "
+            f"({total_tokens} tokens, budget was {token_budget})"
+        )
+
+        return sampled
+
+    def _estimate_message_tokens(self, message: Message) -> int:
+        """Estimate token count for a message."""
+        # Reuse SemanticSampler's estimation logic
+        sampler = SemanticSampler(self.config, self.token_counter)
+        return sampler._estimate_message_tokens(message)

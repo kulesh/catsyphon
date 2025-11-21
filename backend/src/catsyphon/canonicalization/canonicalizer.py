@@ -10,7 +10,11 @@ from catsyphon.canonicalization.models import (
     CanonicalConversation,
     CanonicalType,
 )
-from catsyphon.canonicalization.samplers import EpochSampler, SemanticSampler
+from catsyphon.canonicalization.samplers import (
+    ChronologicalSampler,
+    EpochSampler,
+    SemanticSampler,
+)
 from catsyphon.canonicalization.tokens import BudgetAllocator, TokenCounter
 from catsyphon.canonicalization.version import CANONICAL_VERSION
 from catsyphon.models.db import Conversation
@@ -33,7 +37,7 @@ class Canonicalizer:
         self,
         canonical_type: CanonicalType = CanonicalType.TAGGING,
         config: Optional[CanonicalConfig] = None,
-        sampling_strategy: str = "semantic",  # "semantic" or "epoch"
+        sampling_strategy: str = "semantic",  # "semantic", "epoch", or "chronological"
         model: str = "gpt-4o-mini",  # For token counting
     ):
         """Initialize canonicalizer.
@@ -41,7 +45,7 @@ class Canonicalizer:
         Args:
             canonical_type: Type of canonical form (determines defaults)
             config: Custom configuration (overrides type defaults)
-            sampling_strategy: "semantic" or "epoch"
+            sampling_strategy: "semantic", "epoch", or "chronological"
             model: Model name for token counting
         """
         self.canonical_type = canonical_type
@@ -58,8 +62,13 @@ class Canonicalizer:
             self.sampler = SemanticSampler(self.config, self.token_counter)
         elif sampling_strategy == "epoch":
             self.sampler = EpochSampler(self.config, self.token_counter)
+        elif sampling_strategy == "chronological":
+            self.sampler = ChronologicalSampler(self.config, self.token_counter)
         else:
-            raise ValueError(f"Unknown sampling strategy: {sampling_strategy}")
+            raise ValueError(
+                f"Unknown sampling strategy: {sampling_strategy}. "
+                f"Valid options: semantic, epoch, chronological"
+            )
 
         # Initialize builders
         self.play_builder = PlayFormatBuilder(self.config)
@@ -100,11 +109,18 @@ class Canonicalizer:
         # Canonicalize children (if included)
         canonical_children: list[CanonicalConversation] = []
         if children and self.config.include_children:
-            child_budget = self.budget_allocator.remaining("children")
-            budget_per_child = child_budget // len(children) if children else 0
+            # For chronological strategy, use unlimited budget
+            # For other strategies, use normal budget allocation
+            if self.sampling_strategy == "chronological":
+                # Unlimited budget for children when using chronological
+                import sys
+                budget_per_child = sys.maxsize
+            else:
+                child_budget = self.budget_allocator.remaining("children")
+                budget_per_child = child_budget // len(children) if children else 0
 
             for child in children:
-                # Recursively canonicalize child with smaller budget
+                # Recursively canonicalize child
                 child_canonicalizer = Canonicalizer(
                     canonical_type=self.canonical_type,
                     config=CanonicalConfig(
@@ -114,7 +130,7 @@ class Canonicalizer:
                         include_code_changes=self.config.include_code_changes,
                         include_children=False,  # Don't include nested children
                     ),
-                    sampling_strategy=self.sampling_strategy,
+                    sampling_strategy=self.sampling_strategy,  # Propagate strategy
                     model=self.model,
                 )
                 canonical_children.append(

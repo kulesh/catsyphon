@@ -32,6 +32,10 @@ def get_canonical(
         default="tagging",
         description="Type of canonical representation (tagging, insights, export)"
     ),
+    sampling_strategy: str = Query(
+        default="semantic",
+        description="Sampling strategy (semantic, epoch, chronological)"
+    ),
     force_regenerate: bool = Query(
         default=False,
         description="Force regeneration even if cached version exists"
@@ -63,6 +67,7 @@ def get_canonical(
     Args:
         conversation_id: UUID of the conversation
         canonical_type: Type of canonical (tagging, insights, export)
+        sampling_strategy: Sampling strategy (semantic, epoch, chronological)
         force_regenerate: Force regeneration even if cached
         session: Database session
 
@@ -71,7 +76,7 @@ def get_canonical(
 
     Raises:
         HTTPException 404: Conversation not found
-        HTTPException 400: Invalid canonical type
+        HTTPException 400: Invalid canonical type or sampling strategy
     """
     # Validate canonical type
     try:
@@ -80,6 +85,14 @@ def get_canonical(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid canonical_type. Must be one of: tagging, insights, export"
+        )
+
+    # Validate sampling strategy
+    valid_strategies = ["semantic", "epoch", "chronological"]
+    if sampling_strategy not in valid_strategies:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}"
         )
 
     # Get conversation
@@ -95,7 +108,10 @@ def get_canonical(
     # Get or generate canonical
     try:
         canonical_repo = CanonicalRepository(session)
-        canonicalizer = Canonicalizer(canonical_type=canonical_type_enum)
+        canonicalizer = Canonicalizer(
+            canonical_type=canonical_type_enum,
+            sampling_strategy=sampling_strategy
+        )
 
         # Force regeneration if requested
         if force_regenerate:
@@ -127,7 +143,7 @@ def get_canonical(
             config=CanonicalConfig(
                 canonical_type=canonical_type,
                 max_tokens=canonical.config.token_budget if canonical.config else 0,
-                sampling_strategy="semantic",  # Default
+                sampling_strategy=sampling_strategy,
             ),
             source_message_count=canonical.message_count,
             source_token_estimate=canonical.message_count * 100,  # Estimate
@@ -151,6 +167,10 @@ def get_canonical_narrative(
         default="tagging",
         description="Type of canonical representation"
     ),
+    sampling_strategy: str = Query(
+        default="semantic",
+        description="Sampling strategy (semantic, epoch, chronological)"
+    ),
     session: Session = Depends(get_db),
 ) -> CanonicalNarrativeResponse:
     """
@@ -163,6 +183,7 @@ def get_canonical_narrative(
     Args:
         conversation_id: UUID of the conversation
         canonical_type: Type of canonical (tagging, insights, export)
+        sampling_strategy: Sampling strategy (semantic, epoch, chronological)
         session: Database session
 
     Returns:
@@ -170,7 +191,7 @@ def get_canonical_narrative(
 
     Raises:
         HTTPException 404: Conversation not found
-        HTTPException 400: Invalid canonical type
+        HTTPException 400: Invalid canonical type or sampling strategy
     """
     # Validate canonical type
     try:
@@ -179,6 +200,14 @@ def get_canonical_narrative(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid canonical_type. Must be one of: tagging, insights, export"
+        )
+
+    # Validate sampling strategy
+    valid_strategies = ["semantic", "epoch", "chronological"]
+    if sampling_strategy not in valid_strategies:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}"
         )
 
     # Get conversation
@@ -193,7 +222,10 @@ def get_canonical_narrative(
 
     # Get or generate canonical
     canonical_repo = CanonicalRepository(session)
-    canonicalizer = Canonicalizer(canonical_type=canonical_type_enum)
+    canonicalizer = Canonicalizer(
+        canonical_type=canonical_type_enum,
+        sampling_strategy=sampling_strategy
+    )
 
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
@@ -227,7 +259,7 @@ def regenerate_canonical(
 
     Args:
         conversation_id: UUID of the conversation
-        request: Request with canonical type to regenerate
+        request: Request with canonical type and sampling strategy to regenerate
         session: Database session
 
     Returns:
@@ -235,7 +267,7 @@ def regenerate_canonical(
 
     Raises:
         HTTPException 404: Conversation not found
-        HTTPException 400: Invalid canonical type
+        HTTPException 400: Invalid canonical type or sampling strategy
     """
     # Validate canonical type
     try:
@@ -244,6 +276,14 @@ def regenerate_canonical(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid canonical_type. Must be one of: tagging, insights, export"
+        )
+
+    # Validate sampling strategy
+    valid_strategies = ["semantic", "epoch", "chronological"]
+    if request.sampling_strategy not in valid_strategies:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}"
         )
 
     # Get conversation
@@ -264,7 +304,10 @@ def regenerate_canonical(
     )
 
     # Generate fresh canonical
-    canonicalizer = Canonicalizer(canonical_type=canonical_type_enum)
+    canonicalizer = Canonicalizer(
+        canonical_type=canonical_type_enum,
+        sampling_strategy=request.sampling_strategy
+    )
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
         canonical_type=request.canonical_type,
@@ -290,7 +333,7 @@ def regenerate_canonical(
         config=CanonicalConfig(
             canonical_type=request.canonical_type,
             max_tokens=canonical.config.token_budget if canonical.config else 0,
-            sampling_strategy="semantic",  # Default
+            sampling_strategy=request.sampling_strategy,
         ),
         source_message_count=canonical.message_count,
         source_token_estimate=canonical.message_count * 100,  # Estimate
