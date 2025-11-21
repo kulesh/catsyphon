@@ -500,3 +500,147 @@ class SetupStatusResponse(BaseModel):
     )
     organization_count: int = Field(..., description="Number of organizations")
     workspace_count: int = Field(..., description="Number of workspaces")
+
+
+# ===== Canonical Schemas =====
+
+
+class CanonicalMetadata(BaseModel):
+    """Metadata extracted from canonical conversation."""
+
+    tools_used: list[str] = Field(default_factory=list)
+    files_touched: list[str] = Field(default_factory=list)
+    errors_encountered: list[str] = Field(default_factory=list)
+    has_errors: bool = False
+
+
+class CanonicalConfig(BaseModel):
+    """Configuration used to generate canonical representation."""
+
+    canonical_type: str = Field(..., description="Type of canonical (tagging, insights, export)")
+    max_tokens: int = Field(..., description="Maximum tokens allowed")
+    sampling_strategy: str = Field(..., description="Sampling strategy used")
+
+
+class CanonicalResponse(BaseModel):
+    """Response schema for canonical conversation representation."""
+
+    id: UUID
+    conversation_id: UUID
+    version: int = Field(..., description="Canonical version for cache invalidation")
+    canonical_type: str = Field(..., description="Type of canonical (tagging, insights, export)")
+    narrative: str = Field(..., description="Play-format narrative of conversation")
+    token_count: int = Field(..., description="Number of tokens in narrative")
+    metadata: CanonicalMetadata = Field(..., description="Extracted metadata")
+    config: CanonicalConfig = Field(..., description="Configuration used")
+
+    # Source conversation metadata
+    source_message_count: int = Field(..., description="Total messages in source conversation")
+    source_token_estimate: int = Field(..., description="Estimated tokens in source")
+
+    # Generation metadata
+    generated_at: datetime = Field(..., description="When this canonical was generated")
+
+    class Config:
+        from_attributes = True
+
+
+class CanonicalNarrativeResponse(BaseModel):
+    """Simplified response containing only the narrative text."""
+
+    narrative: str = Field(..., description="Play-format narrative")
+    token_count: int = Field(..., description="Number of tokens")
+    canonical_type: str = Field(..., description="Type of canonical")
+    version: int = Field(..., description="Canonical version")
+
+
+class RegenerateCanonicalRequest(BaseModel):
+    """Request schema for forcing canonical regeneration."""
+
+    canonical_type: str = Field(
+        default="tagging",
+        description="Type of canonical to regenerate (tagging, insights, export)"
+    )
+
+
+# ===== Insights Schemas =====
+
+
+class KeyMoment(BaseModel):
+    """A key moment in the conversation."""
+
+    timestamp: str = Field(..., description="Relative timestamp (early, mid, late)")
+    event: str = Field(..., description="Description of the event")
+    impact: str = Field(..., description="Impact (positive, negative, neutral)")
+
+
+class QuantitativeMetrics(BaseModel):
+    """Quantitative metrics from conversation analysis."""
+
+    message_count: int = Field(..., description="Total messages")
+    epoch_count: int = Field(..., description="Number of epochs/iterations")
+    files_touched_count: int = Field(..., description="Files modified")
+    tool_calls_count: int = Field(..., description="Tool invocations")
+    token_count: int = Field(..., description="Tokens in canonical")
+    has_errors: bool = Field(..., description="Whether errors occurred")
+    tools_used: list[str] = Field(default_factory=list, description="Tools used")
+    child_conversations_count: int = Field(..., description="Child conversations")
+    duration_seconds: Optional[int] = Field(None, description="Duration in seconds")
+
+
+class InsightsResponse(BaseModel):
+    """Response schema for conversation insights."""
+
+    conversation_id: UUID = Field(..., description="Conversation UUID")
+
+    # Qualitative insights from LLM
+    workflow_patterns: list[str] = Field(
+        default_factory=list,
+        description="Observable workflow patterns"
+    )
+    productivity_indicators: list[str] = Field(
+        default_factory=list,
+        description="Productivity signals"
+    )
+    collaboration_quality: int = Field(
+        ...,
+        ge=1,
+        le=10,
+        description="Human-AI collaboration quality (1-10)"
+    )
+    key_moments: list[KeyMoment] = Field(
+        default_factory=list,
+        description="Critical turning points"
+    )
+    learning_opportunities: list[str] = Field(
+        default_factory=list,
+        description="Areas for improvement"
+    )
+    agent_effectiveness: int = Field(
+        ...,
+        ge=1,
+        le=10,
+        description="Agent helpfulness (1-10)"
+    )
+    scope_clarity: int = Field(
+        ...,
+        ge=1,
+        le=10,
+        description="Goal definition quality (1-10)"
+    )
+    technical_debt_indicators: list[str] = Field(
+        default_factory=list,
+        description="Technical debt signals"
+    )
+    testing_behavior: str = Field(..., description="Testing practices observed")
+    summary: str = Field(..., description="2-3 sentence summary")
+
+    # Quantitative metrics
+    quantitative_metrics: QuantitativeMetrics = Field(
+        ...,
+        description="Numerical metrics"
+    )
+
+    # Metadata
+    canonical_version: int = Field(..., description="Canonical algorithm version")
+    analysis_timestamp: float = Field(..., description="Unix timestamp of analysis")

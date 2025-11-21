@@ -45,6 +45,8 @@ from catsyphon.parsers.registry import get_default_registry
 from catsyphon.pipeline.ingestion import (
     ingest_conversation,
     ingest_messages_incremental,
+    link_orphaned_agents,
+    _get_or_create_default_workspace,
 )
 
 logger = logging.getLogger(__name__)
@@ -406,6 +408,16 @@ class FileWatcher(FileSystemEventHandler):
                         self.stats.files_failed += 1
                         self.stats.last_activity = datetime.now()
 
+                    # Track parser/watch failures in ingestion_jobs table
+                    from catsyphon.pipeline.failure_tracking import track_failure
+
+                    track_failure(
+                        error=e,
+                        file_path=file_path,
+                        source_type="watch",
+                        source_config_id=self.config_id,
+                    )
+
                     # Add to retry queue
                     if self.retry_queue:
                         self.retry_queue.add(file_path, error_msg)
@@ -534,6 +546,7 @@ class WatcherDaemon:
         developer_username: Optional[str] = None,
         poll_interval: int = 2,
         retry_interval: int = 300,
+        linking_interval: int = 60,  # Link orphaned agents every 60 seconds
         max_retries: int = 3,
         debounce_seconds: float = 1.0,
         enable_tagging: bool = False,
@@ -545,6 +558,7 @@ class WatcherDaemon:
         self.developer_username = developer_username
         self.poll_interval = poll_interval
         self.retry_interval = retry_interval
+        self.linking_interval = linking_interval
         self.debounce_seconds = debounce_seconds
         self.enable_tagging = enable_tagging
         self.config_id = config_id
@@ -593,6 +607,7 @@ class WatcherDaemon:
         # Background threads
         self.retry_thread: Optional[Thread] = None
         self.stats_push_thread: Optional[Thread] = None
+        self.linking_thread: Optional[Thread] = None
 
     def start(self, blocking: bool = True) -> None:
         """
@@ -628,6 +643,11 @@ class WatcherDaemon:
             self.stats_push_thread = Thread(target=self._stats_push_loop, daemon=False)
             self.stats_push_thread.start()
             logger.info("✓ Stats push thread started")
+
+        # Start linking thread for orphaned agent conversations
+        self.linking_thread = Thread(target=self._linking_loop, daemon=False)
+        self.linking_thread.start()
+        logger.info("✓ Linking thread started")
 
         # Main loop - only block if requested
         if blocking:
@@ -665,6 +685,11 @@ class WatcherDaemon:
         if self.stats_push_thread and self.stats_push_thread.is_alive():
             self.stats_push_thread.join(timeout=2)
             logger.info("✓ Stats push thread stopped")
+
+        # Wait for linking thread to finish
+        if self.linking_thread and self.linking_thread.is_alive():
+            self.linking_thread.join(timeout=2)
+            logger.info("✓ Linking thread stopped")
 
         logger.info("✓ Watch daemon stopped")
 
@@ -850,6 +875,28 @@ class WatcherDaemon:
             except Exception as e:
                 logger.error(f"Error in retry loop: {e}", exc_info=True)
                 self.shutdown_event.wait(timeout=60)  # Wait a minute before retrying
+
+    def _linking_loop(self) -> None:
+        """Background thread that periodically links orphaned agent conversations."""
+        logger.info(f"Linking thread started (interval: {self.linking_interval}s)")
+
+        while not self.shutdown_event.is_set():
+            try:
+                # Periodically link orphaned agents to their parents
+                with db_session() as session:
+                    workspace_id = _get_or_create_default_workspace(session)
+                    linked_count = link_orphaned_agents(session, workspace_id)
+                    if linked_count > 0:
+                        logger.info(f"Linked {linked_count} orphaned agent(s)")
+                    session.commit()
+
+                # Sleep for the specified interval before next linking attempt
+                self.shutdown_event.wait(timeout=self.linking_interval)
+
+            except Exception as e:
+                logger.error(f"Error in linking loop: {e}", exc_info=True)
+                # Wait a bit before retrying on error
+                self.shutdown_event.wait(timeout=60)
 
 
 def run_daemon_process(

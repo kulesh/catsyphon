@@ -46,7 +46,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         )
 
     def get_by_session_id(
-        self, session_id: str, workspace_id: uuid.UUID
+        self,
+        session_id: str,
+        workspace_id: uuid.UUID,
+        conversation_type: Optional[str] = None,
     ) -> Optional[Conversation]:
         """
         Get conversation by session_id from extra_data (metadata) JSONB field within a workspace.
@@ -54,18 +57,27 @@ class ConversationRepository(BaseRepository[Conversation]):
         Args:
             session_id: Session ID to search for
             workspace_id: Workspace UUID
+            conversation_type: Optional filter by conversation type (e.g., 'main', 'agent')
 
         Returns:
-            Conversation with matching session_id or None
+            Conversation matching the criteria, or None if not found.
+            If multiple conversations match, returns MAIN before AGENT, and oldest first.
         """
-        return (
-            self.session.query(Conversation)
-            .filter(
-                Conversation.extra_data["session_id"].as_string() == session_id,
-                Conversation.workspace_id == workspace_id,
-            )
-            .first()
+        query = self.session.query(Conversation).filter(
+            Conversation.extra_data["session_id"].as_string() == session_id,
+            Conversation.workspace_id == workspace_id,
         )
+
+        if conversation_type:
+            query = query.filter(
+                Conversation.conversation_type == conversation_type
+            )
+
+        # Deterministic ordering: MAIN conversations first, then by creation time
+        return query.order_by(
+            Conversation.conversation_type.desc(),  # MAIN before AGENT (descending alphabetically)
+            Conversation.created_at.asc(),
+        ).first()
 
     def get_by_project(
         self,
@@ -405,7 +417,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             offset: Number of results to skip
 
         Returns:
-            List of (Conversation, message_count, epoch_count, files_count) tuples
+            List of (Conversation, message_count, epoch_count, files_count, children_count) tuples
         """
         # Use denormalized count columns - no expensive joins needed!
         query = (
@@ -414,6 +426,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.message_count,
                 Conversation.epoch_count,
                 Conversation.files_count,
+                Conversation.children_count,
             )
             .filter(Conversation.workspace_id == workspace_id)
             .options(

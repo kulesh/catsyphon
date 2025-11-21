@@ -370,3 +370,82 @@ class TestHierarchicalConversationRepository:
 
         # Verify agent remains orphaned (cannot link to parent in different workspace)
         assert agent_ws2.parent_conversation_id is None
+
+    def test_get_by_session_id_with_lowercase_conversation_type(self, db_session: Session, sample_workspace):
+        """
+        Regression test for bug where get_by_session_id() failed to find conversations
+        with lowercase conversation_type values.
+
+        Bug: The method was calling .upper() on conversation_type parameter, converting
+        'main' to 'MAIN', but database stores lowercase 'main' after migration a3438217bff2.
+        This prevented parent lookup during agent ingestion, causing orphaned agents.
+        """
+        repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create main conversation with lowercase 'main' type (as stored in DB)
+        main_conv = repo.create(
+            workspace_id=sample_workspace.id,
+            agent_type="claude-code",
+            start_time=now,
+            extra_data={"session_id": "test-parent-session-123"},
+            conversation_type="main",  # Lowercase as in database
+        )
+        db_session.flush()
+
+        # Test get_by_session_id with conversation_type='main' (lowercase)
+        # This should find the conversation without .upper() bug
+        found = repo.get_by_session_id(
+            session_id="test-parent-session-123",
+            workspace_id=sample_workspace.id,
+            conversation_type="main"  # Pass lowercase
+        )
+
+        # Should find the main conversation
+        assert found is not None, "get_by_session_id should find conversation with lowercase conversation_type"
+        assert found.id == main_conv.id
+        assert found.conversation_type == "main"
+        assert found.extra_data["session_id"] == "test-parent-session-123"
+
+    def test_get_by_session_id_finds_main_not_agent(self, db_session: Session, sample_workspace):
+        """
+        Test that get_by_session_id correctly filters by conversation_type to find
+        only the main conversation when both main and agent share similar session IDs.
+        """
+        repo = ConversationRepository(db_session)
+        now = datetime.now(UTC)
+
+        # Create main conversation
+        main_conv = repo.create(
+            workspace_id=sample_workspace.id,
+            agent_type="claude-code",
+            start_time=now,
+            extra_data={"session_id": "shared-session-abc"},
+            conversation_type="main",
+        )
+
+        # Create agent conversation with parent_session_id that might conflict
+        agent_conv = repo.create(
+            workspace_id=sample_workspace.id,
+            agent_type="claude-code",
+            start_time=now + timedelta(minutes=1),
+            extra_data={"session_id": "agent-abc"},
+            conversation_type="agent",
+            agent_metadata={"parent_session_id": "shared-session-abc"},
+        )
+        db_session.flush()
+
+        # Query specifically for main conversation type
+        found = repo.get_by_session_id(
+            session_id="shared-session-abc",
+            workspace_id=sample_workspace.id,
+            conversation_type="main"
+        )
+
+        # Should find main conversation, not the agent
+        assert found is not None
+        assert found.id == main_conv.id
+        assert found.conversation_type == "main"
+
+        # Verify the agent is not returned
+        assert found.id != agent_conv.id

@@ -3,8 +3,10 @@ API routes for CatSyphon.
 """
 
 from catsyphon.api.routes import (
+    canonical,
     conversations,
     ingestion,
+    insights,
     metadata,
     projects,
     setup,
@@ -13,4 +15,4 @@ from catsyphon.api.routes import (
     watch,
 )
 
-__all__ = ["conversations", "ingestion", "metadata", "projects", "setup", "stats", "upload", "watch"]
+__all__ = ["canonical", "conversations", "ingestion", "insights", "metadata", "projects", "setup", "stats", "upload", "watch"]

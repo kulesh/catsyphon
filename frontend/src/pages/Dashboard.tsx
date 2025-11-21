@@ -327,7 +327,7 @@ export default function Dashboard() {
           </Link>
 
           <Link
-            to="/conversations?status=failed"
+            to="/failed-sessions"
             className="group relative p-5 border border-border/50 rounded-lg hover:border-rose-400/50 transition-all overflow-hidden"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-rose-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />

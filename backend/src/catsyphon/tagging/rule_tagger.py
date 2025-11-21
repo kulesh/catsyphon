@@ -2,6 +2,7 @@
 
 import logging
 import re
+from typing import Optional
 
 from catsyphon.models.parsed import ConversationTags, ParsedConversation
 
@@ -66,6 +67,45 @@ class RuleTagger:
 
         # Extract patterns (common phrases/issues)
         patterns = self._extract_patterns(parsed)
+
+        return ConversationTags(
+            has_errors=has_errors,
+            tools_used=tools_used,
+            iterations=iterations,
+            patterns=patterns,
+        )
+
+    def tag_from_canonical(
+        self,
+        canonical,
+        metadata: Optional[dict] = None,
+    ) -> ConversationTags:
+        """Extract rule-based tags from canonical conversation.
+
+        This is the preferred method as it uses pre-extracted metadata
+        from the canonical representation instead of text searching.
+
+        Args:
+            canonical: CanonicalConversation object
+            metadata: Optional additional metadata
+
+        Returns:
+            ConversationTags with rule-extracted metadata
+        """
+        # Extract directly from canonical metadata
+        has_errors = canonical.has_errors
+        tools_used = canonical.tools_used or []
+
+        # Use epoch count as iterations proxy
+        iterations = canonical.epoch_count
+
+        # Derive patterns from canonical metadata
+        patterns = self._derive_patterns_from_canonical(canonical)
+
+        logger.debug(
+            f"Extracted rule tags from canonical: "
+            f"errors={has_errors}, tools={tools_used}, patterns={patterns}"
+        )
 
         return ConversationTags(
             has_errors=has_errors,
@@ -153,5 +193,62 @@ class RuleTagger:
         # Refactoring pattern
         if re.search(r"\b(refactor|rename|restructure|reorganize)\b", combined_text):
             patterns.append("refactoring")
+
+        return patterns
+
+    def _derive_patterns_from_canonical(self, canonical) -> list[str]:
+        """Derive patterns from canonical conversation metadata.
+
+        This is more efficient than text searching as it uses
+        pre-extracted metadata and structured information.
+
+        Args:
+            canonical: CanonicalConversation object
+
+        Returns:
+            List of detected patterns
+        """
+        patterns = []
+
+        # Length-based patterns
+        if canonical.message_count > 50:
+            patterns.append("long_conversation")
+        elif canonical.message_count <= 5:
+            patterns.append("quick_resolution")
+
+        # Tool-based patterns
+        tools_used = set(canonical.tools_used or [])
+
+        if any(t in tools_used for t in ["test", "pytest", "vitest"]):
+            patterns.append("testing")
+
+        if any(t in tools_used for t in ["git", "commit", "push"]):
+            patterns.append("git_operations")
+
+        if any(t in tools_used for t in ["npm", "yarn", "pnpm"]):
+            patterns.append("dependency_management")
+
+        if any(t in tools_used for t in ["docker", "container"]):
+            patterns.append("containerization")
+
+        # Use narrative for specific pattern detection (more efficient than full text)
+        narrative_lower = canonical.narrative.lower()
+
+        if re.search(r"\b(mypy|type\s+error|type\s+checking)\b", narrative_lower):
+            patterns.append("type_checking")
+
+        if re.search(r"\b(debug|debugger|breakpoint)\b", narrative_lower):
+            patterns.append("debugging")
+
+        if re.search(r"\b(refactor|rename|restructure|reorganize)\b", narrative_lower):
+            patterns.append("refactoring")
+
+        # Error-based patterns
+        if canonical.has_errors:
+            patterns.append("error_handling")
+
+        # Child conversation patterns (agent delegation)
+        if canonical.children:
+            patterns.append("agent_delegation")
 
         return patterns

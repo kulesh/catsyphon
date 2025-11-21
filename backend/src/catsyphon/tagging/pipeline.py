@@ -4,6 +4,10 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
+from sqlalchemy.orm import Session
+
+from catsyphon.canonicalization import CanonicalType, Canonicalizer
+from catsyphon.db.repositories.canonical import CanonicalRepository
 from catsyphon.models.parsed import ConversationTags, ParsedConversation
 
 from .cache import TagCache
@@ -57,12 +61,20 @@ class TaggingPipeline:
     def tag_conversation(self, parsed: ParsedConversation) -> dict[str, Any]:
         """Tag a conversation with combined rule-based and LLM tags.
 
+        DEPRECATED: Use tag_from_canonical_async for better performance and accuracy.
+        This method is kept for backward compatibility.
+
         Args:
             parsed: The parsed conversation to tag
 
         Returns:
             Dictionary of tags suitable for database storage
         """
+        logger.warning(
+            "Using deprecated tag_conversation method. "
+            "Consider migrating to tag_from_canonical_async for better performance."
+        )
+
         # Check cache first
         if self.enable_cache:
             cached_tags = self.cache.get(parsed)
@@ -81,6 +93,69 @@ class TaggingPipeline:
         # Store in cache
         if self.enable_cache:
             self.cache.set(parsed, merged_tags)
+
+        return merged_tags.to_dict()
+
+    def tag_from_canonical(
+        self,
+        conversation,
+        session: Session,
+        children: Optional[list] = None,
+    ) -> dict[str, Any]:
+        """Tag a conversation using canonical representation.
+
+        This is the preferred method as it:
+        - Uses intelligently sampled content (not just first/last messages)
+        - Leverages pre-extracted metadata (errors, tools, patterns)
+        - Caches canonical representations to avoid recomputation
+        - Provides better context to LLM with hierarchical narrative
+
+        Args:
+            conversation: Database Conversation object (must have .id attribute)
+            session: SQLAlchemy session for canonical caching
+            children: Optional list of child conversations to include
+
+        Returns:
+            Dictionary of tags suitable for database storage
+        """
+        # Check cache first (using conversation ID as key)
+        # Note: We could enhance cache to use canonical hash, but for now
+        # we rely on the canonical repository's caching
+        if self.enable_cache and hasattr(conversation, "id"):
+            # Try to get from tag cache using conversation ID
+            # This requires adapting the cache to support ID-based lookup
+            # For now, we'll skip tag cache and rely on canonical cache
+            pass
+
+        # Get or generate canonical representation
+        canonical_repo = CanonicalRepository(session)
+        canonicalizer = Canonicalizer(canonical_type=CanonicalType.TAGGING)
+
+        canonical = canonical_repo.get_or_generate(
+            conversation=conversation,
+            canonical_type="tagging",
+            canonicalizer=canonicalizer,
+            regeneration_threshold_tokens=2000,
+            children=children,
+        )
+
+        logger.info(
+            f"Using canonical representation: "
+            f"{canonical.token_count} tokens, version {canonical.version}"
+        )
+
+        # Run taggers with canonical data
+        rule_tags = self.rule_tagger.tag_from_canonical(canonical)
+        llm_tags = self.llm_tagger.tag_from_canonical(
+            narrative=canonical.narrative,
+            metadata=canonical.canonical_metadata,
+        )
+
+        # Merge tags (rule-based takes precedence for deterministic fields)
+        merged_tags = self._merge_tags(rule_tags, llm_tags)
+
+        # Note: Tag cache could be updated here if needed
+        # For now, canonical caching provides the primary benefit
 
         return merged_tags.to_dict()
 
