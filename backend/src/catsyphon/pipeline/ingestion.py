@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from catsyphon.canonicalization import CanonicalType, Canonicalizer
@@ -511,13 +512,12 @@ def ingest_conversation(
     # NOTE: Parser returns lowercase "agent" but database stores uppercase "AGENT"
     # (due to migration using enum key names instead of values)
     if parsed.conversation_type.lower() == "agent" and parsed.parent_session_id:
-        # Look up parent - it should be the MAIN conversation with this session_id
+        # Look up parent - use conversation_type='main' for deterministic, safe lookup
         parent_conversation = conversation_repo.get_by_session_id(
-            parsed.parent_session_id, workspace_id
+            parsed.parent_session_id, workspace_id, conversation_type="main"
         )
-        # Only link if we found a MAIN conversation (avoid self-reference with agents)
-        # Database has uppercase values, so compare with uppercase
-        if parent_conversation and parent_conversation.conversation_type.upper() == "MAIN":
+
+        if parent_conversation:
             parent_conversation_id = parent_conversation.id
             logger.info(
                 f"Linking agent conversation (session_id={parsed.session_id}) "
@@ -561,6 +561,14 @@ def ingest_conversation(
             },
         )
         logger.info(f"Created conversation: {conversation.id} (success={success_value})")
+
+        # Increment parent's children_count if this conversation has a parent
+        if parent_conversation_id:
+            session.execute(
+                text("UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"),
+                {"parent_id": parent_conversation_id}
+            )
+            logger.debug(f"Incremented children_count for parent {parent_conversation_id}")
     else:
         # Update existing conversation with project/developer/hierarchy associations
         assert conversation is not None, "conversation must be set in replace mode"
@@ -1249,9 +1257,9 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
             )
             continue
 
-        # Look up parent conversation by session_id
+        # Look up parent conversation by session_id - use deterministic lookup for MAIN type
         parent_conversation = conversation_repo.get_by_session_id(
-            parent_session_id, workspace_id
+            parent_session_id, workspace_id, conversation_type="main"
         )
 
         if not parent_conversation:
@@ -1261,17 +1269,15 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
             )
             continue
 
-        # Verify parent is a MAIN conversation (avoid linking agents to other agents)
-        if parent_conversation.conversation_type.upper() != "MAIN":
-            logger.warning(
-                f"Parent conversation {parent_conversation.id} is not MAIN type "
-                f"(type={parent_conversation.conversation_type}), skipping agent {agent.id}"
-            )
-            continue
-
         # Link agent to parent
         agent.parent_conversation_id = parent_conversation.id
         linked_count += 1
+
+        # Increment parent's children_count
+        session.execute(
+            text("UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"),
+            {"parent_id": parent_conversation.id}
+        )
 
         logger.info(
             f"Linked agent conversation {agent.id} (session_id={agent.extra_data.get('session_id')}) "

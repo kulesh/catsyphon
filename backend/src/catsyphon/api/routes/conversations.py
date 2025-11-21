@@ -207,8 +207,9 @@ async def list_conversations(
             message_count=msg_count,
             epoch_count=epoch_count,
             files_count=files_count,
+            children_count=child_count,
         )
-        for conv, msg_count, epoch_count, files_count in results
+        for conv, msg_count, epoch_count, files_count, child_count in results
     ]
 
     return ConversationListResponse(

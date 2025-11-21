@@ -13,7 +13,11 @@ from catsyphon.api.schemas import UploadResponse, UploadResult
 from catsyphon.db.connection import db_session
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers import get_default_registry
-from catsyphon.pipeline.ingestion import ingest_conversation
+from catsyphon.pipeline.ingestion import (
+    ingest_conversation,
+    link_orphaned_agents,
+    _get_or_create_default_workspace,
+)
 
 router = APIRouter()
 
@@ -134,6 +138,20 @@ async def upload_conversation_logs(
                 )
             )
             failed_count += 1
+
+    # Post-upload linking: Link orphaned agents to parents after all files processed
+    # This handles cases where agents were uploaded before their parent conversations
+    if success_count > 0:
+        try:
+            with db_session() as session:
+                workspace_id = _get_or_create_default_workspace(session)
+                linked_count = link_orphaned_agents(session, workspace_id)
+                session.commit()
+                # Note: We don't report linking failures to the user since the
+                # conversations were successfully ingested. Linking is a post-processing step.
+        except Exception:
+            # Silently ignore linking errors - don't fail the upload
+            pass
 
     return UploadResponse(
         success_count=success_count,

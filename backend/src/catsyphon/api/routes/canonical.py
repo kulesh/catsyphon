@@ -4,6 +4,7 @@ Canonical representation API routes.
 Endpoints for generating and retrieving canonical conversation representations.
 """
 
+import uuid
 from typing import Optional
 from uuid import UUID
 
@@ -83,7 +84,7 @@ def get_canonical(
 
     # Get conversation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get_by_id(conversation_id)
+    conversation = conversation_repo.get(conversation_id)
 
     if not conversation:
         raise HTTPException(
@@ -92,44 +93,55 @@ def get_canonical(
         )
 
     # Get or generate canonical
-    canonical_repo = CanonicalRepository(session)
-    canonicalizer = Canonicalizer(canonical_type=canonical_type_enum)
+    try:
+        canonical_repo = CanonicalRepository(session)
+        canonicalizer = Canonicalizer(canonical_type=canonical_type_enum)
 
-    # Force regeneration if requested
-    if force_regenerate:
-        canonical_repo.invalidate(conversation_id=conversation_id)
+        # Force regeneration if requested
+        if force_regenerate:
+            canonical_repo.invalidate(conversation_id=conversation_id)
 
-    canonical = canonical_repo.get_or_generate(
-        conversation=conversation,
-        canonical_type=canonical_type,
-        canonicalizer=canonicalizer,
-        regeneration_threshold_tokens=2000,
-        children=conversation.children if hasattr(conversation, 'children') else [],
-    )
+        canonical = canonical_repo.get_or_generate(
+            conversation=conversation,
+            canonical_type=canonical_type_enum,
+            canonicalizer=canonicalizer,
+            regeneration_threshold_tokens=2000,
+            children=conversation.children if hasattr(conversation, 'children') else [],
+        )
 
-    # Build response
-    return CanonicalResponse(
-        id=canonical.id,
-        conversation_id=canonical.conversation_id,
-        version=canonical.version,
-        canonical_type=canonical.canonical_type,
-        narrative=canonical.narrative,
-        token_count=canonical.token_count,
-        metadata=CanonicalMetadata(
-            tools_used=canonical.canonical_metadata.get("tools_used", []),
-            files_touched=canonical.canonical_metadata.get("files_touched", []),
-            errors_encountered=canonical.canonical_metadata.get("errors_encountered", []),
-            has_errors=canonical.canonical_metadata.get("has_errors", False),
-        ),
-        config=CanonicalConfig(
-            canonical_type=canonical.config.get("canonical_type", canonical_type),
-            max_tokens=canonical.config.get("max_tokens", 0),
-            sampling_strategy=canonical.config.get("sampling_strategy", "semantic"),
-        ),
-        source_message_count=canonical.source_message_count,
-        source_token_estimate=canonical.source_token_estimate,
-        generated_at=canonical.generated_at,
-    )
+        # Build response
+        # CanonicalConversation dataclass has direct attributes, not nested metadata
+        return CanonicalResponse(
+            id=uuid.uuid4(),  # Generate new ID for API response (canonical doesn't have one)
+            conversation_id=uuid.UUID(canonical.conversation_id),
+            version=canonical.canonical_version,
+            canonical_type=canonical_type,
+            narrative=canonical.narrative,
+            token_count=canonical.token_count,
+            metadata=CanonicalMetadata(
+                tools_used=canonical.tools_used,
+                files_touched=canonical.files_touched,
+                errors_encountered=[],  # Not stored in CanonicalConversation
+                has_errors=canonical.has_errors,
+            ),
+            config=CanonicalConfig(
+                canonical_type=canonical_type,
+                max_tokens=canonical.config.token_budget if canonical.config else 0,
+                sampling_strategy="semantic",  # Default
+            ),
+            source_message_count=canonical.message_count,
+            source_token_estimate=canonical.message_count * 100,  # Estimate
+            generated_at=canonical.generated_at,
+        )
+    except Exception as e:
+        # Log the error and return a 500 with useful info
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error generating canonical for conversation {conversation_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate canonical representation: {str(e)}"
+        )
 
 
 @router.get("/{conversation_id}/canonical/narrative", response_model=CanonicalNarrativeResponse)
@@ -171,7 +183,7 @@ def get_canonical_narrative(
 
     # Get conversation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get_by_id(conversation_id)
+    conversation = conversation_repo.get(conversation_id)
 
     if not conversation:
         raise HTTPException(
@@ -236,7 +248,7 @@ def regenerate_canonical(
 
     # Get conversation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get_by_id(conversation_id)
+    conversation = conversation_repo.get(conversation_id)
 
     if not conversation:
         raise HTTPException(
@@ -261,26 +273,27 @@ def regenerate_canonical(
     )
 
     # Build response
+    # CanonicalConversation dataclass has direct attributes, not nested metadata
     return CanonicalResponse(
-        id=canonical.id,
-        conversation_id=canonical.conversation_id,
-        version=canonical.version,
-        canonical_type=canonical.canonical_type,
+        id=uuid.uuid4(),  # Generate new ID for API response
+        conversation_id=uuid.UUID(canonical.conversation_id),
+        version=canonical.canonical_version,
+        canonical_type=request.canonical_type,
         narrative=canonical.narrative,
         token_count=canonical.token_count,
         metadata=CanonicalMetadata(
-            tools_used=canonical.canonical_metadata.get("tools_used", []),
-            files_touched=canonical.canonical_metadata.get("files_touched", []),
-            errors_encountered=canonical.canonical_metadata.get("errors_encountered", []),
-            has_errors=canonical.canonical_metadata.get("has_errors", False),
+            tools_used=canonical.tools_used,
+            files_touched=canonical.files_touched,
+            errors_encountered=[],  # Not stored in CanonicalConversation
+            has_errors=canonical.has_errors,
         ),
         config=CanonicalConfig(
-            canonical_type=canonical.config.get("canonical_type", request.canonical_type),
-            max_tokens=canonical.config.get("max_tokens", 0),
-            sampling_strategy=canonical.config.get("sampling_strategy", "semantic"),
+            canonical_type=request.canonical_type,
+            max_tokens=canonical.config.token_budget if canonical.config else 0,
+            sampling_strategy="semantic",  # Default
         ),
-        source_message_count=canonical.source_message_count,
-        source_token_estimate=canonical.source_token_estimate,
+        source_message_count=canonical.message_count,
+        source_token_estimate=canonical.message_count * 100,  # Estimate
         generated_at=canonical.generated_at,
     )
 
@@ -314,7 +327,7 @@ def delete_canonical(
     """
     # Verify conversation exists
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get_by_id(conversation_id)
+    conversation = conversation_repo.get(conversation_id)
 
     if not conversation:
         raise HTTPException(
