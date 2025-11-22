@@ -66,7 +66,7 @@ export default function ConversationDetail() {
     },
   });
 
-  const hasTags = conversation?.conversation_tags && conversation.conversation_tags.length > 0;
+  const hasTags = conversation?.tags && Object.keys(conversation.tags).length > 0;
 
   const handleTagClick = () => {
     if (!id) return;
@@ -522,27 +522,87 @@ export default function ConversationDetail() {
           </button>
         </div>
 
-        {hasTags ? (
+        {hasTags && conversation.tags ? (
           <>
+            {/* Primary Tags */}
             <div className="flex flex-wrap gap-2 mb-4">
-              {conversation.conversation_tags.map((tag) => (
-                <div
-                  key={tag.id}
-                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm"
-                >
-                  <span className="font-medium">{tag.tag_type}:</span>
-                  <span>{tag.tag_value}</span>
-                  {tag.confidence !== null && (
+              {conversation.tags.intent && (
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 text-sm">
+                  <span className="font-medium">Intent:</span>
+                  <span>{conversation.tags.intent}</span>
+                </div>
+              )}
+              {conversation.tags.outcome && (
+                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
+                  conversation.tags.outcome === 'success' ? 'bg-emerald-500/10 text-emerald-500' :
+                  conversation.tags.outcome === 'failed' ? 'bg-rose-500/10 text-rose-500' :
+                  'bg-amber-500/10 text-amber-500'
+                }`}>
+                  <span className="font-medium">Outcome:</span>
+                  <span>{conversation.tags.outcome}</span>
+                </div>
+              )}
+              {conversation.tags.sentiment && (
+                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
+                  conversation.tags.sentiment === 'positive' ? 'bg-emerald-500/10 text-emerald-500' :
+                  conversation.tags.sentiment === 'negative' || conversation.tags.sentiment === 'frustrated' ? 'bg-rose-500/10 text-rose-500' :
+                  'bg-slate-500/10 text-slate-500'
+                }`}>
+                  <span className="font-medium">Sentiment:</span>
+                  <span>{conversation.tags.sentiment}</span>
+                  {conversation.tags.sentiment_score !== undefined && (
                     <span className="text-xs opacity-75">
-                      ({Math.round(tag.confidence * 100)}%)
+                      ({conversation.tags.sentiment_score > 0 ? '+' : ''}{conversation.tags.sentiment_score.toFixed(2)})
                     </span>
                   )}
                 </div>
-              ))}
+              )}
             </div>
 
+            {/* Features */}
+            {conversation.tags.features && conversation.tags.features.length > 0 && (
+              <div className="mb-3">
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Features Discussed:</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {conversation.tags.features.map((feature: string, idx: number) => (
+                    <span key={idx} className="px-2 py-0.5 rounded bg-primary/5 text-xs">
+                      {feature}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Problems */}
+            {conversation.tags.problems && conversation.tags.problems.length > 0 && (
+              <div className="mb-3">
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Problems Encountered:</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {conversation.tags.problems.map((problem: string, idx: number) => (
+                    <span key={idx} className="px-2 py-0.5 rounded bg-destructive/10 text-destructive text-xs">
+                      {problem}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tools Used */}
+            {conversation.tags.tools_used && conversation.tags.tools_used.length > 0 && (
+              <div className="mb-3">
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Tools Used:</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {conversation.tags.tools_used.map((tool: string, idx: number) => (
+                    <span key={idx} className="px-2 py-0.5 rounded bg-slate-500/10 text-xs font-mono">
+                      {tool}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* AI Reasoning */}
-            {conversation.tags?.reasoning && (
+            {conversation.tags.reasoning && (
               <div className="mt-4 pt-4 border-t border-border">
                 <div className="flex items-start gap-2">
                   <Sparkles className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
