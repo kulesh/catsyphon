@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import Project
@@ -147,7 +148,10 @@ class ProjectRepository(BaseRepository[Project]):
         self, directory_path: str, workspace_id: uuid.UUID, name: Optional[str] = None
     ) -> Project:
         """
-        Get existing project or create new one by directory path.
+        Get existing project or create new one by directory path (race-safe).
+
+        This method uses PostgreSQL's ON CONFLICT DO NOTHING to prevent race conditions
+        when multiple threads/processes attempt to create the same project simultaneously.
 
         Args:
             directory_path: Full directory path
@@ -156,7 +160,11 @@ class ProjectRepository(BaseRepository[Project]):
 
         Returns:
             Project instance
+
+        Raises:
+            RuntimeError: If project creation/fetch fails unexpectedly
         """
+        # Fast path: try to get existing first
         project = self.get_by_directory(directory_path, workspace_id)
         if project:
             return project
@@ -165,9 +173,30 @@ class ProjectRepository(BaseRepository[Project]):
         if name is None:
             name = self._generate_project_name(directory_path)
 
-        return self.create(
-            workspace_id=workspace_id, name=name, directory_path=directory_path
+        # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING for atomic upsert
+        # This prevents IntegrityError when multiple threads race to create same project
+        stmt = pg_insert(Project).values(
+            id=uuid.uuid4(),
+            workspace_id=workspace_id,
+            name=name,
+            directory_path=directory_path,
+        ).on_conflict_do_nothing(
+            index_elements=['workspace_id', 'directory_path']  # uq_workspace_directory constraint
         )
+
+        self.session.execute(stmt)
+        self.session.flush()
+
+        # Fetch the project (either newly created or existing from conflict)
+        project = self.get_by_directory(directory_path, workspace_id)
+        if not project:
+            # Extremely rare: another transaction created and deleted it between insert and fetch
+            raise RuntimeError(
+                f"Project creation/fetch failed for workspace_id={workspace_id}, "
+                f"directory_path={directory_path}"
+            )
+
+        return project
 
     def _generate_project_name(self, directory_path: str) -> str:
         """
