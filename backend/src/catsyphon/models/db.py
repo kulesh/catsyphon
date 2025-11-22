@@ -24,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 
 class Base(DeclarativeBase):
@@ -823,6 +823,9 @@ class IngestionJob(Base):
     messages_added: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
+    metrics: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )  # Stage-level performance metrics: {parse, canonical, llm, db, total}
 
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
