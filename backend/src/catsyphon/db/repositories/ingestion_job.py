@@ -226,7 +226,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         Get overall ingestion statistics.
 
         Returns:
-            Dictionary with statistics
+            Dictionary with statistics including stage-level metrics
         """
         total = self.count()
         by_status = self.count_by_status()
@@ -246,6 +246,29 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             .scalar()
         )
 
+        # Calculate stage-level averages from metrics JSONB field
+        # Fetch all jobs with metrics (successful jobs only for meaningful averages)
+        jobs_with_metrics = (
+            self.session.query(IngestionJob)
+            .filter(IngestionJob.status == "success")
+            .filter(IngestionJob.metrics.isnot(None))
+            .all()
+        )
+
+        # Calculate averages for each stage
+        dedup_times = []
+        db_times = []
+
+        for job in jobs_with_metrics:
+            if job.metrics:
+                if "deduplication_check_ms" in job.metrics:
+                    dedup_times.append(job.metrics["deduplication_check_ms"])
+                if "database_operations_ms" in job.metrics:
+                    db_times.append(job.metrics["database_operations_ms"])
+
+        avg_dedup = sum(dedup_times) / len(dedup_times) if dedup_times else None
+        avg_db = sum(db_times) / len(db_times) if db_times else None
+
         return {
             "total_jobs": total,
             "by_status": by_status,
@@ -255,6 +278,10 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             "incremental_percentage": (
                 (incremental_count / total * 100) if total > 0 else 0
             ),
+            # Stage-level metrics
+            "avg_deduplication_check_ms": avg_dedup,
+            "avg_database_operations_ms": avg_db,
+            "error_rates_by_stage": {},  # Placeholder for future error tracking
         }
 
     def search(

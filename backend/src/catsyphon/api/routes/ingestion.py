@@ -97,7 +97,7 @@ async def get_ingestion_stats(
     Get overall ingestion statistics.
 
     Returns:
-        Ingestion statistics including counts by status and source type
+        Ingestion statistics including counts by status, source type, and stage-level metrics
     """
     repo = IngestionJobRepository(session)
     stats = repo.get_stats()
@@ -109,6 +109,10 @@ async def get_ingestion_stats(
         avg_processing_time_ms=stats["avg_processing_time_ms"],  # type: ignore
         incremental_jobs=stats["incremental_jobs"],  # type: ignore
         incremental_percentage=stats["incremental_percentage"],  # type: ignore
+        # Stage-level metrics
+        avg_deduplication_check_ms=stats["avg_deduplication_check_ms"],  # type: ignore
+        avg_database_operations_ms=stats["avg_database_operations_ms"],  # type: ignore
+        error_rates_by_stage=stats["error_rates_by_stage"],  # type: ignore
     )
 
 

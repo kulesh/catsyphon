@@ -254,7 +254,9 @@ class OverviewStats(BaseModel):
     # Hierarchical conversation stats (Phase 2: Epic 7u2)
     total_main_conversations: int = 0  # Main human conversations
     total_agent_conversations: int = 0  # Agent/subagent conversations
-    conversations_by_type: dict[str, int] = Field(default_factory=dict)  # main, agent, mcp, etc.
+    conversations_by_type: dict[str, int] = Field(
+        default_factory=dict
+    )  # main, agent, mcp, etc.
 
 
 class AgentPerformanceStats(BaseModel):
@@ -384,6 +386,10 @@ class IngestionJobResponse(BaseModel):
     processing_time_ms: Optional[int] = None
     incremental: bool
     messages_added: int
+    metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Stage-level performance metrics (deduplication_check_ms, database_operations_ms, total_ms)",
+    )
     started_at: datetime
     completed_at: Optional[datetime] = None
     created_by: Optional[str] = None
@@ -413,6 +419,20 @@ class IngestionStatsResponse(BaseModel):
     avg_processing_time_ms: Optional[float] = None
     incremental_jobs: int
     incremental_percentage: float
+
+    # Stage-level aggregate metrics
+    avg_deduplication_check_ms: Optional[float] = Field(
+        default=None,
+        description="Average deduplication check time (file hash + DB lookup)",
+    )
+    avg_database_operations_ms: Optional[float] = Field(
+        default=None,
+        description="Average database operations time (inserts, updates, queries)",
+    )
+    error_rates_by_stage: dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of errors by stage (if tracked in future)",
+    )
 
 
 # ===== Setup / Onboarding Schemas =====
@@ -503,7 +523,9 @@ class CanonicalMetadata(BaseModel):
 class CanonicalConfig(BaseModel):
     """Configuration used to generate canonical representation."""
 
-    canonical_type: str = Field(..., description="Type of canonical (tagging, insights, export)")
+    canonical_type: str = Field(
+        ..., description="Type of canonical (tagging, insights, export)"
+    )
     max_tokens: int = Field(..., description="Maximum tokens allowed")
     sampling_strategy: str = Field(..., description="Sampling strategy used")
 
@@ -514,14 +536,18 @@ class CanonicalResponse(BaseModel):
     id: UUID
     conversation_id: UUID
     version: int = Field(..., description="Canonical version for cache invalidation")
-    canonical_type: str = Field(..., description="Type of canonical (tagging, insights, export)")
+    canonical_type: str = Field(
+        ..., description="Type of canonical (tagging, insights, export)"
+    )
     narrative: str = Field(..., description="Play-format narrative of conversation")
     token_count: int = Field(..., description="Number of tokens in narrative")
     metadata: CanonicalMetadata = Field(..., description="Extracted metadata")
     config: CanonicalConfig = Field(..., description="Configuration used")
 
     # Source conversation metadata
-    source_message_count: int = Field(..., description="Total messages in source conversation")
+    source_message_count: int = Field(
+        ..., description="Total messages in source conversation"
+    )
     source_token_estimate: int = Field(..., description="Estimated tokens in source")
 
     # Generation metadata
@@ -545,11 +571,11 @@ class RegenerateCanonicalRequest(BaseModel):
 
     canonical_type: str = Field(
         default="tagging",
-        description="Type of canonical to regenerate (tagging, insights, export)"
+        description="Type of canonical to regenerate (tagging, insights, export)",
     )
     sampling_strategy: str = Field(
         default="semantic",
-        description="Sampling strategy (semantic, epoch, chronological)"
+        description="Sampling strategy (semantic, epoch, chronological)",
     )
 
 
@@ -585,50 +611,35 @@ class InsightsResponse(BaseModel):
 
     # Qualitative insights from LLM
     workflow_patterns: list[str] = Field(
-        default_factory=list,
-        description="Observable workflow patterns"
+        default_factory=list, description="Observable workflow patterns"
     )
     productivity_indicators: list[str] = Field(
-        default_factory=list,
-        description="Productivity signals"
+        default_factory=list, description="Productivity signals"
     )
     collaboration_quality: int = Field(
-        ...,
-        ge=1,
-        le=10,
-        description="Human-AI collaboration quality (1-10)"
+        ..., ge=1, le=10, description="Human-AI collaboration quality (1-10)"
     )
     key_moments: list[KeyMoment] = Field(
-        default_factory=list,
-        description="Critical turning points"
+        default_factory=list, description="Critical turning points"
     )
     learning_opportunities: list[str] = Field(
-        default_factory=list,
-        description="Areas for improvement"
+        default_factory=list, description="Areas for improvement"
     )
     agent_effectiveness: int = Field(
-        ...,
-        ge=1,
-        le=10,
-        description="Agent helpfulness (1-10)"
+        ..., ge=1, le=10, description="Agent helpfulness (1-10)"
     )
     scope_clarity: int = Field(
-        ...,
-        ge=1,
-        le=10,
-        description="Goal definition quality (1-10)"
+        ..., ge=1, le=10, description="Goal definition quality (1-10)"
     )
     technical_debt_indicators: list[str] = Field(
-        default_factory=list,
-        description="Technical debt signals"
+        default_factory=list, description="Technical debt signals"
     )
     testing_behavior: str = Field(..., description="Testing practices observed")
     summary: str = Field(..., description="2-3 sentence summary")
 
     # Quantitative metrics
     quantitative_metrics: QuantitativeMetrics = Field(
-        ...,
-        description="Numerical metrics"
+        ..., description="Numerical metrics"
     )
 
     # Metadata
