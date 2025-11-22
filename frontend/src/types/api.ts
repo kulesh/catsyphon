@@ -281,6 +281,7 @@ export interface IngestionStatsResponse {
   avg_processing_time_ms: number | null;
   incremental_jobs: number;
   incremental_percentage: number | null;
+  avg_parse_duration_ms: number | null;
   avg_deduplication_check_ms: number | null;
   avg_database_operations_ms: number | null;
   error_rates_by_stage: Record<string, number>;

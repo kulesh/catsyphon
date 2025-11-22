@@ -166,8 +166,19 @@ def ingest(
         try:
             console.print(f"[blue]Parsing:[/blue] {log_file.name}... ", end="")
 
-            # Parse the file
+            # Parse the file with timing
+            import time
+
+            parse_start_ms = time.time() * 1000
             conversation = registry.parse(log_file)
+            parse_duration_ms = (time.time() * 1000) - parse_start_ms
+
+            # Build parse metrics
+            parse_metrics = {
+                "parse_duration_ms": parse_duration_ms,
+                "parse_method": "full",
+                "parse_messages_count": len(conversation.messages),
+            }
 
             console.print(
                 f"[green]✓[/green] "
@@ -207,6 +218,7 @@ def ingest(
                             tags=tags,
                             skip_duplicates=skip_duplicates,
                             update_mode=update_mode,
+                            parse_metrics=parse_metrics,
                         )
                         session.commit()
                         console.print(

@@ -205,6 +205,7 @@ def ingest_conversation(
     source_type: str = "cli",
     source_config_id: Optional[UUID] = None,
     created_by: Optional[str] = None,
+    parse_metrics: Optional[dict[str, Any]] = None,
 ) -> Conversation:
     """
     Ingest a parsed conversation into the database.
@@ -225,6 +226,7 @@ def ingest_conversation(
         source_type: Source of ingestion ('cli', 'upload', 'watch')
         source_config_id: UUID of watch configuration if source_type='watch'
         created_by: Username who triggered the ingestion (for 'upload')
+        parse_metrics: Optional parsing metrics from caller (e.g., duration, method, lines_read)
 
     Returns:
         Created or updated Conversation instance with all relationships loaded
@@ -264,6 +266,10 @@ def ingest_conversation(
 
     # Initialize stage metrics tracker
     metrics = StageMetrics()
+
+    # Merge parse metrics if provided by caller
+    if parse_metrics:
+        metrics.stages.update(parse_metrics)
 
     # Initialize ingestion job repository
     ingestion_repo = IngestionJobRepository(session)
@@ -1058,6 +1064,7 @@ def ingest_messages_incremental(
     source_type: str = "watch",
     source_config_id: Optional[UUID] = None,
     created_by: Optional[str] = None,
+    parse_metrics: Optional[dict[str, Any]] = None,
 ) -> Conversation:
     """
     Ingest only NEW messages from incremental parsing (Phase 2).
@@ -1074,6 +1081,7 @@ def ingest_messages_incremental(
         source_type: Source of ingestion ('cli', 'upload', 'watch')
         source_config_id: UUID of watch configuration if source_type='watch'
         created_by: Username who triggered the ingestion
+        parse_metrics: Optional parsing metrics from caller (e.g., duration, method)
 
     Returns:
         Updated conversation instance
@@ -1104,6 +1112,13 @@ def ingest_messages_incremental(
     # Initialize timing for ingestion job tracking
     start_time = datetime.utcnow()
     start_ms = time.time() * 1000  # Convert to milliseconds
+
+    # Initialize stage metrics tracker
+    metrics = StageMetrics()
+
+    # Merge parse metrics if provided by caller
+    if parse_metrics:
+        metrics.stages.update(parse_metrics)
 
     # Initialize ingestion job repository
     ingestion_repo = IngestionJobRepository(session)
@@ -1267,6 +1282,7 @@ def ingest_messages_incremental(
     ingestion_job.processing_time_ms = elapsed_ms
     ingestion_job.messages_added = len(incremental_result.new_messages)
     ingestion_job.completed_at = datetime.utcnow()
+    ingestion_job.metrics = metrics.to_dict()
     session.flush()
     logger.debug(
         f"Updated ingestion job to success: {ingestion_job.id}, "

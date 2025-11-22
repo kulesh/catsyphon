@@ -421,6 +421,10 @@ class IngestionStatsResponse(BaseModel):
     incremental_percentage: float
 
     # Stage-level aggregate metrics
+    avg_parse_duration_ms: Optional[float] = Field(
+        default=None,
+        description="Average parsing time (file reading + JSONL parsing)",
+    )
     avg_deduplication_check_ms: Optional[float] = Field(
         default=None,
         description="Average deduplication check time (file hash + DB lookup)",

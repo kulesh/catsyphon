@@ -367,8 +367,17 @@ class FileWatcher(FileSystemEventHandler):
 
                 # Parse and ingest the file (full parse)
                 try:
-                    # Parse conversation (auto-detects format)
+                    # Parse conversation (auto-detects format) with timing
+                    parse_start_ms = time.time() * 1000
                     parsed = self.parser_registry.parse(file_path)
+                    parse_duration_ms = (time.time() * 1000) - parse_start_ms
+
+                    # Build parse metrics
+                    parse_metrics = {
+                        "parse_duration_ms": parse_duration_ms,
+                        "parse_method": "full",
+                        "parse_messages_count": len(parsed.messages),
+                    }
 
                     # Run tagging if enabled
                     tags = None
@@ -406,6 +415,7 @@ class FileWatcher(FileSystemEventHandler):
                         source_type="watch",
                         source_config_id=self.config_id,
                         created_by=None,  # System-triggered
+                        parse_metrics=parse_metrics,
                     )
 
                     logger.info(
@@ -482,12 +492,14 @@ class FileWatcher(FileSystemEventHandler):
             )
             raise ValueError("No incremental parser available for this file format")
 
-        # Parse only NEW content
+        # Parse only NEW content with timing
+        parse_start_ms = time.time() * 1000
         incremental_result = parser.parse_incremental(
             file_path,
             existing_raw_log.last_processed_offset,
             existing_raw_log.last_processed_line,
         )
+        parse_duration_ms = (time.time() * 1000) - parse_start_ms
 
         if not incremental_result.new_messages:
             logger.debug(f"No new messages in {file_path.name}")
@@ -497,6 +509,14 @@ class FileWatcher(FileSystemEventHandler):
             f"Incremental parse: {len(incremental_result.new_messages)} new messages "
             f"in {file_path.name}"
         )
+
+        # Build parse metrics
+        parse_metrics = {
+            "parse_duration_ms": parse_duration_ms,
+            "parse_method": "incremental",
+            "parse_messages_count": len(incremental_result.new_messages),
+            "parse_change_type": "append",
+        }
 
         # Ingest only new messages
         conversation = ingest_messages_incremental(
@@ -508,6 +528,7 @@ class FileWatcher(FileSystemEventHandler):
             source_type="watch",
             source_config_id=self.config_id,
             created_by=None,  # System-triggered
+            parse_metrics=parse_metrics,
         )
 
         logger.info(

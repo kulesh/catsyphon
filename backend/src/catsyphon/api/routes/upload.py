@@ -5,6 +5,7 @@ Endpoints for uploading and ingesting conversation log files.
 """
 
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -108,8 +109,17 @@ async def upload_conversation_logs(
                     temp_path.unlink(missing_ok=True)
                     continue
 
-                # Parse the file
+                # Parse the file with timing
+                parse_start_ms = time.time() * 1000
                 conversation = registry.parse(temp_path)
+                parse_duration_ms = (time.time() * 1000) - parse_start_ms
+
+                # Build parse metrics
+                parse_metrics = {
+                    "parse_duration_ms": parse_duration_ms,
+                    "parse_method": "full",
+                    "parse_messages_count": len(conversation.messages),
+                }
 
                 # Store to database with specified update_mode
                 try:
@@ -122,6 +132,7 @@ async def upload_conversation_logs(
                             file_path=temp_path,  # Pass temp path for hash calculation
                             skip_duplicates=True,  # Always skip file hash duplicates in API
                             update_mode=update_mode,  # Use provided update mode
+                            parse_metrics=parse_metrics,
                         )
                         session.commit()
 

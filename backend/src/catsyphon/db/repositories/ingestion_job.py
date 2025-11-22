@@ -258,6 +258,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         # Calculate averages for each stage
         dedup_times = []
         db_times = []
+        parse_times = []
 
         for job in jobs_with_metrics:
             if job.metrics:
@@ -265,9 +266,12 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                     dedup_times.append(job.metrics["deduplication_check_ms"])
                 if "database_operations_ms" in job.metrics:
                     db_times.append(job.metrics["database_operations_ms"])
+                if "parse_duration_ms" in job.metrics:
+                    parse_times.append(job.metrics["parse_duration_ms"])
 
         avg_dedup = sum(dedup_times) / len(dedup_times) if dedup_times else None
         avg_db = sum(db_times) / len(db_times) if db_times else None
+        avg_parse = sum(parse_times) / len(parse_times) if parse_times else None
 
         return {
             "total_jobs": total,
@@ -279,6 +283,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
                 (incremental_count / total * 100) if total > 0 else 0
             ),
             # Stage-level metrics
+            "avg_parse_duration_ms": avg_parse,
             "avg_deduplication_check_ms": avg_dedup,
             "avg_database_operations_ms": avg_db,
             "error_rates_by_stage": {},  # Placeholder for future error tracking

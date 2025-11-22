@@ -1007,6 +1007,14 @@ function LiveActivityTab() {
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Parsing</span>
+                <span className="font-semibold">
+                  {stats.avg_parse_duration_ms
+                    ? `${stats.avg_parse_duration_ms.toFixed(0)}ms`
+                    : 'N/A'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Deduplication</span>
                 <span className="font-semibold">
                   {stats.avg_deduplication_check_ms
@@ -1283,6 +1291,11 @@ function IngestionJobCard({ job }: IngestionJobCardProps) {
         <div className="mt-2 pt-2 border-t border-border/50">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="font-medium">Pipeline Stages:</span>
+            {job.metrics.parse_duration_ms !== undefined && (
+              <span>
+                Parse: {job.metrics.parse_duration_ms.toFixed(0)}ms
+              </span>
+            )}
             {job.metrics.deduplication_check_ms !== undefined && (
               <span>
                 Dedup: {job.metrics.deduplication_check_ms.toFixed(0)}ms

@@ -110,6 +110,7 @@ async def get_ingestion_stats(
         incremental_jobs=stats["incremental_jobs"],  # type: ignore
         incremental_percentage=stats["incremental_percentage"],  # type: ignore
         # Stage-level metrics
+        avg_parse_duration_ms=stats["avg_parse_duration_ms"],  # type: ignore
         avg_deduplication_check_ms=stats["avg_deduplication_check_ms"],  # type: ignore
         avg_database_operations_ms=stats["avg_database_operations_ms"],  # type: ignore
         error_rates_by_stage=stats["error_rates_by_stage"],  # type: ignore
