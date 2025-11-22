@@ -75,14 +75,6 @@ export interface FileTouchedResponse {
   extra_data: Record<string, any>;
 }
 
-export interface ConversationTagResponse {
-  id: string;
-  tag_type: string;
-  tag_value: string;
-  confidence: number | null;
-  extra_data: Record<string, any>;
-}
-
 export interface ConversationListItem {
   id: string;
   project_id: string | null;
@@ -120,7 +112,6 @@ export interface ConversationDetail extends ConversationListItem {
   messages: MessageResponse[];
   epochs: EpochResponse[];
   files_touched: FileTouchedResponse[];
-  conversation_tags: ConversationTagResponse[];
 
   // Hierarchical relationships (Phase 2: Epic 7u2)
   children: ConversationListItem[];

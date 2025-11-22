@@ -437,9 +437,6 @@ class Conversation(Base):
     files_touched: Mapped[list["FileTouched"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
-    conversation_tags: Mapped[list["ConversationTag"]] = relationship(
-        back_populates="conversation", cascade="all, delete-orphan"
-    )
     raw_logs: Mapped[list["RawLog"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
@@ -637,49 +634,6 @@ class FileTouched(Base):
             f"<FileTouched(id={self.id}, "
             f"file_path={self.file_path!r}, "
             f"change_type={self.change_type})>"
-        )
-
-
-class ConversationTag(Base):
-    """Conversation tags (extracted insights)."""
-
-    __tablename__ = "conversation_tags"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("conversations.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-
-    tag_type: Mapped[str] = mapped_column(
-        String(100), nullable=False
-    )  # 'feature', 'technology', 'problem', 'pattern'
-    tag_value: Mapped[str] = mapped_column(String(255), nullable=False)
-    confidence: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True
-    )  # 0.0 to 1.0
-
-    extra_data: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default="{}"
-    )
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-    # Relationships
-    conversation: Mapped["Conversation"] = relationship(
-        back_populates="conversation_tags"
-    )
-
-    def __repr__(self) -> str:
-        return (
-            f"<ConversationTag(id={self.id}, "
-            f"tag_type={self.tag_type!r}, "
-            f"tag_value={self.tag_value!r})>"
         )
 
 
