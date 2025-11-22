@@ -17,7 +17,6 @@ from catsyphon.models.db import (
     Base,
     CollectorConfig,
     Conversation,
-    ConversationTag,
     Developer,
     Epoch,
     FileTouched,
@@ -327,25 +326,6 @@ def sample_file_touched(
     db_session.commit()
     db_session.refresh(file_touched)
     return file_touched
-
-
-@pytest.fixture
-def sample_conversation_tag(
-    db_session: Session, sample_conversation: Conversation
-) -> ConversationTag:
-    """Create a sample conversation tag for testing."""
-    tag = ConversationTag(
-        id=uuid.uuid4(),
-        conversation_id=sample_conversation.id,
-        tag_type="technology",
-        tag_value="FastAPI",
-        confidence=0.95,
-        extra_data={"source": "llm_tagger"},
-    )
-    db_session.add(tag)
-    db_session.commit()
-    db_session.refresh(tag)
-    return tag
 
 
 @pytest.fixture

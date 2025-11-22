@@ -173,19 +173,6 @@ class FileTouchedResponse(BaseModel):
         from_attributes = True
 
 
-class ConversationTagResponse(BaseModel):
-    """Response schema for ConversationTag."""
-
-    id: UUID
-    tag_type: str
-    tag_value: str
-    confidence: Optional[float] = None
-    extra_data: dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        from_attributes = True
-
-
 class ConversationListItem(BaseModel):
     """Schema for conversation in list view (without messages)."""
 
@@ -230,7 +217,6 @@ class ConversationDetail(ConversationListItem):
     messages: list[MessageResponse] = Field(default_factory=list)
     epochs: list[EpochResponse] = Field(default_factory=list)
     files_touched: list[FileTouchedResponse] = Field(default_factory=list)
-    conversation_tags: list[ConversationTagResponse] = Field(default_factory=list)
 
     # Hierarchical relationships (Phase 2: Epic 7u2)
     children: list["ConversationListItem"] = Field(default_factory=list)

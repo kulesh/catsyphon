@@ -316,7 +316,6 @@ class ConversationRepository(BaseRepository[Conversation]):
                 joinedload(Conversation.epochs),
                 joinedload(Conversation.messages),
                 joinedload(Conversation.files_touched),
-                joinedload(Conversation.conversation_tags),
             )
 
         # Order, offset, limit

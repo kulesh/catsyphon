@@ -118,7 +118,6 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
         messages=[MessageResponse.model_validate(m) for m in (conv.messages or [])],
         epochs=conv.epochs or [],
         files_touched=conv.files_touched or [],
-        conversation_tags=conv.conversation_tags or [],
         children=children,
         parent=parent,
     )

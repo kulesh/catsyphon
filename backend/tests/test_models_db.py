@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from catsyphon.models.db import (
     Conversation,
-    ConversationTag,
     Developer,
     Epoch,
     FileTouched,
@@ -356,59 +355,6 @@ class TestFileTouched:
         assert file_touched.change_type == "modified"
         assert file_touched.lines_added == 15
         assert file_touched.lines_deleted == 3
-
-
-class TestConversationTag:
-    """Tests for ConversationTag model."""
-
-    def test_create_tag(self, db_session: Session, sample_conversation: Conversation):
-        """Test creating a conversation tag."""
-        tag = ConversationTag(
-            id=uuid.uuid4(),
-            conversation_id=sample_conversation.id,
-            tag_type="feature",
-            tag_value="authentication",
-            confidence=0.92,
-        )
-        db_session.add(tag)
-        db_session.commit()
-
-        assert tag.tag_type == "feature"
-        assert tag.tag_value == "authentication"
-        assert tag.confidence == 0.92
-
-    @pytest.mark.skip(reason="Unique constraints behave differently in SQLite")
-    def test_tag_unique_constraint(
-        self, db_session: Session, sample_conversation: Conversation
-    ):
-        """Test tag unique constraint on (conversation_id, tag_type, tag_value)."""
-        tag1 = ConversationTag(
-            id=uuid.uuid4(),
-            conversation_id=sample_conversation.id,
-            tag_type="technology",
-            tag_value="Python",
-        )
-        db_session.add(tag1)
-        db_session.commit()
-
-        # Try to add duplicate tag
-        tag2 = ConversationTag(
-            id=uuid.uuid4(),
-            conversation_id=sample_conversation.id,
-            tag_type="technology",
-            tag_value="Python",
-        )
-        db_session.add(tag2)
-
-        # SQLite and PostgreSQL handle this differently
-        try:
-            db_session.commit()
-            # If we got here, the constraint didn't work
-            pytest.fail("Expected unique constraint violation")
-        except Exception:
-            # Expected - constraint violation
-            db_session.rollback()
-            assert True
 
 
 class TestRawLog:
