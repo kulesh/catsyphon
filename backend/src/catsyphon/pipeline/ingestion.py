@@ -37,6 +37,33 @@ from catsyphon.utils.hashing import calculate_file_hash
 logger = logging.getLogger(__name__)
 
 
+class StageMetrics:
+    """Helper for tracking pipeline stage timings."""
+
+    def __init__(self) -> None:
+        self.stages: dict[str, float] = {}
+        self._stage_starts: dict[str, float] = {}
+
+    def start_stage(self, stage_name: str) -> None:
+        """Start timing a stage."""
+        self._stage_starts[stage_name] = time.time() * 1000
+
+    def end_stage(self, stage_name: str) -> None:
+        """End timing a stage and record duration."""
+        if stage_name in self._stage_starts:
+            start_ms = self._stage_starts[stage_name]
+            duration_ms = (time.time() * 1000) - start_ms
+            self.stages[stage_name] = duration_ms
+            del self._stage_starts[stage_name]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert metrics to dictionary for JSONB storage."""
+        return {
+            **self.stages,
+            "total_ms": sum(self.stages.values()),
+        }
+
+
 def _extract_username_from_path(path: Optional[str]) -> Optional[str]:
     """
     Extract username from a file path.
@@ -235,6 +262,9 @@ def ingest_conversation(
     start_time = datetime.utcnow()
     start_ms = time.time() * 1000  # Convert to milliseconds
 
+    # Initialize stage metrics tracker
+    metrics = StageMetrics()
+
     # Initialize ingestion job repository
     ingestion_repo = IngestionJobRepository(session)
 
@@ -254,10 +284,12 @@ def ingest_conversation(
 
     # Check for duplicate files before processing
     if file_path:
+        metrics.start_stage("deduplication_check_ms")
         raw_log_repo = RawLogRepository(session)
         file_hash = calculate_file_hash(file_path)
 
         if raw_log_repo.exists_by_file_hash(file_hash):
+            metrics.end_stage("deduplication_check_ms")
             if skip_duplicates:
                 logger.info(
                     f"Skipping duplicate file: {file_path} (hash: {file_hash[:8]}...)"
@@ -290,9 +322,15 @@ def ingest_conversation(
                 ingestion_job.completed_at = datetime.utcnow()
                 session.flush()
                 raise DuplicateFileError(file_hash, str(file_path))
+        else:
+            # Not a duplicate - end deduplication check
+            metrics.end_stage("deduplication_check_ms")
 
     # Wrap main ingestion logic in try-catch to handle failures
     try:
+        # Start database operations timing
+        metrics.start_stage("database_operations_ms")
+
         # Initialize repositories
         conversation_repo = ConversationRepository(session)
 
@@ -339,14 +377,20 @@ def ingest_conversation(
                         f"Skipping existing conversation: session_id={parsed.session_id}, "
                         f"conversation_id={existing_conversation.id}"
                     )
+                    # End database operations timing
+                    metrics.end_stage("database_operations_ms")
+
                     # Update ingestion job as skipped
                     elapsed_ms = int((time.time() * 1000) - start_ms)
                     ingestion_job.status = "skipped"
                     ingestion_job.conversation_id = existing_conversation.id
                     ingestion_job.processing_time_ms = elapsed_ms
+                    ingestion_job.metrics = metrics.to_dict()  # Store metrics
                     ingestion_job.completed_at = datetime.utcnow()
                     session.flush()
-                    logger.debug(f"Updated ingestion job to skipped: {ingestion_job.id}")
+                    logger.debug(
+                        f"Updated ingestion job to skipped: {ingestion_job.id}"
+                    )
 
                     session.refresh(existing_conversation)
                     return existing_conversation
@@ -434,6 +478,9 @@ def ingest_conversation(
                             tags=tags,
                         )
 
+                        # End database operations timing
+                        metrics.end_stage("database_operations_ms")
+
                         # Update ingestion job as successful incremental
                         elapsed_ms = int((time.time() * 1000) - start_ms)
                         messages_added = (
@@ -445,6 +492,7 @@ def ingest_conversation(
                         ingestion_job.processing_time_ms = elapsed_ms
                         ingestion_job.messages_added = messages_added
                         ingestion_job.incremental = True  # Incremental append
+                        ingestion_job.metrics = metrics.to_dict()  # Store metrics
                         ingestion_job.completed_at = datetime.utcnow()
                         session.flush()
                         logger.debug(
@@ -562,15 +610,21 @@ def ingest_conversation(
                     **parsed.metadata,
                 },
             )
-            logger.info(f"Created conversation: {conversation.id} (success={success_value})")
+            logger.info(
+                f"Created conversation: {conversation.id} (success={success_value})"
+            )
 
             # Increment parent's children_count if this conversation has a parent
             if parent_conversation_id:
                 session.execute(
-                    text("UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"),
-                    {"parent_id": parent_conversation_id}
+                    text(
+                        "UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"
+                    ),
+                    {"parent_id": parent_conversation_id},
                 )
-                logger.debug(f"Incremented children_count for parent {parent_conversation_id}")
+                logger.debug(
+                    f"Incremented children_count for parent {parent_conversation_id}"
+                )
         else:
             # Update existing conversation with project/developer/hierarchy associations
             assert conversation is not None, "conversation must be set in replace mode"
@@ -581,7 +635,9 @@ def ingest_conversation(
             conversation.context_semantics = parsed.context_semantics
             conversation.agent_metadata = parsed.agent_metadata
             conversation.success = success_value  # Update success from tags
-            logger.info(f"Updated conversation associations: {conversation.id} (success={success_value})")
+            logger.info(
+                f"Updated conversation associations: {conversation.id} (success={success_value})"
+            )
 
         # Step 4: Create Epoch (one epoch per conversation for now)
         # TODO: Implement multi-epoch detection based on conversation restarts
@@ -694,7 +750,9 @@ def ingest_conversation(
                     raw_log=existing_raw_logs[0],
                     file_path=file_path,
                 )
-                logger.debug(f"Updated existing raw log: {raw_log.id} (file_path updated to {file_path.name})")
+                logger.debug(
+                    f"Updated existing raw log: {raw_log.id} (file_path updated to {file_path.name})"
+                )
             else:
                 # Create new raw_log
                 raw_log = raw_log_repo.create_from_file(
@@ -721,6 +779,9 @@ def ingest_conversation(
         # Refresh conversation to load relationships
         session.refresh(conversation)
 
+        # End database operations timing
+        metrics.end_stage("database_operations_ms")
+
         # Update ingestion job as successful
         elapsed_ms = int((time.time() * 1000) - start_ms)
         ingestion_job.status = "success"
@@ -729,6 +790,7 @@ def ingest_conversation(
         ingestion_job.processing_time_ms = elapsed_ms
         ingestion_job.messages_added = len(messages)
         ingestion_job.incremental = False  # Full parse (not incremental)
+        ingestion_job.metrics = metrics.to_dict()  # Store stage-level metrics
         ingestion_job.completed_at = datetime.utcnow()
         session.flush()
         logger.debug(
@@ -747,17 +809,18 @@ def ingest_conversation(
         # window-based regeneration logic, so it will only regenerate when needed.
 
     except Exception as e:
+        # End database operations timing if it was started
+        metrics.end_stage("database_operations_ms")
+
         # Update ingestion job as failed
         elapsed_ms = int((time.time() * 1000) - start_ms)
         ingestion_job.status = "failed"
         ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
         ingestion_job.processing_time_ms = elapsed_ms
+        ingestion_job.metrics = metrics.to_dict()  # Store partial metrics
         ingestion_job.completed_at = datetime.utcnow()
         session.flush()
-        logger.error(
-            f"Ingestion failed: {type(e).__name__}: {str(e)}",
-            exc_info=True
-        )
+        logger.error(f"Ingestion failed: {type(e).__name__}: {str(e)}", exc_info=True)
         # Re-raise exception to propagate to caller
         raise
 
@@ -1292,8 +1355,10 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
 
         # Increment parent's children_count
         session.execute(
-            text("UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"),
-            {"parent_id": parent_conversation.id}
+            text(
+                "UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"
+            ),
+            {"parent_id": parent_conversation.id},
         )
 
         logger.info(
@@ -1303,6 +1368,8 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
 
     session.flush()
 
-    logger.info(f"Post-ingestion linking complete: linked {linked_count}/{len(orphaned_agents)} agents")
+    logger.info(
+        f"Post-ingestion linking complete: linked {linked_count}/{len(orphaned_agents)} agents"
+    )
 
     return linked_count
