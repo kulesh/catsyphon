@@ -192,6 +192,7 @@ class Canonicalizer:
             files_touched=files_touched,
             has_errors=has_errors,
             code_changes_summary=code_changes_summary,
+            agent_metadata=conversation.agent_metadata or {},
             config=self.config,
             canonical_version=CANONICAL_VERSION,
             generated_at=datetime.now(),
