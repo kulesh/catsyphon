@@ -247,24 +247,93 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         )
 
         # Percentiles for processing time (p50, p75, p90, p99)
-        percentiles_query = text(
-            """
-            SELECT
-                percentile_cont(0.5) WITHIN GROUP (ORDER BY processing_time_ms) as p50,
-                percentile_cont(0.75) WITHIN GROUP (ORDER BY processing_time_ms) as p75,
-                percentile_cont(0.9) WITHIN GROUP (ORDER BY processing_time_ms) as p90,
-                percentile_cont(0.99) WITHIN GROUP (ORDER BY processing_time_ms) as p99
-            FROM ingestion_jobs
-            WHERE processing_time_ms IS NOT NULL
-            """
-        )
-        percentiles_result = self.session.execute(percentiles_query).first()
-        processing_time_percentiles = {
-            "p50": float(percentiles_result[0]) if percentiles_result and percentiles_result[0] else None,
-            "p75": float(percentiles_result[1]) if percentiles_result and percentiles_result[1] else None,
-            "p90": float(percentiles_result[2]) if percentiles_result and percentiles_result[2] else None,
-            "p99": float(percentiles_result[3]) if percentiles_result and percentiles_result[3] else None,
-        }
+        # Use database-specific approach for percentile calculation
+        bind = self.session.bind
+        if bind is None:
+            raise RuntimeError("Session has no bind")
+        dialect_name = bind.dialect.name
+
+        if dialect_name == "postgresql":
+            # Use PostgreSQL's native percentile_cont function
+            percentiles_query = text(
+                """
+                SELECT
+                    percentile_cont(0.5) WITHIN GROUP (
+                        ORDER BY processing_time_ms
+                    ) as p50,
+                    percentile_cont(0.75) WITHIN GROUP (
+                        ORDER BY processing_time_ms
+                    ) as p75,
+                    percentile_cont(0.9) WITHIN GROUP (
+                        ORDER BY processing_time_ms
+                    ) as p90,
+                    percentile_cont(0.99) WITHIN GROUP (
+                        ORDER BY processing_time_ms
+                    ) as p99
+                FROM ingestion_jobs
+                WHERE processing_time_ms IS NOT NULL
+                """
+            )
+            percentiles_result = self.session.execute(percentiles_query).first()
+            processing_time_percentiles = {
+                "p50": (
+                    float(percentiles_result[0])
+                    if percentiles_result and percentiles_result[0]
+                    else None
+                ),
+                "p75": (
+                    float(percentiles_result[1])
+                    if percentiles_result and percentiles_result[1]
+                    else None
+                ),
+                "p90": (
+                    float(percentiles_result[2])
+                    if percentiles_result and percentiles_result[2]
+                    else None
+                ),
+                "p99": (
+                    float(percentiles_result[3])
+                    if percentiles_result and percentiles_result[3]
+                    else None
+                ),
+            }
+        else:
+            # For SQLite and other databases: calculate percentiles in Python
+            all_times = (
+                self.session.query(IngestionJob.processing_time_ms)
+                .filter(IngestionJob.processing_time_ms.isnot(None))
+                .order_by(IngestionJob.processing_time_ms)
+                .all()
+            )
+
+            if all_times:
+                times_list = [float(t[0]) for t in all_times]
+                n = len(times_list)
+
+                def percentile(data: list[float], p: float) -> float | None:
+                    """Calculate percentile using linear interpolation."""
+                    if not data:
+                        return None
+                    k = (n - 1) * p
+                    f = int(k)
+                    c = k - f
+                    if f + 1 < n:
+                        return data[f] + c * (data[f + 1] - data[f])
+                    return data[f]
+
+                processing_time_percentiles = {
+                    "p50": percentile(times_list, 0.5),
+                    "p75": percentile(times_list, 0.75),
+                    "p90": percentile(times_list, 0.9),
+                    "p99": percentile(times_list, 0.99),
+                }
+            else:
+                processing_time_percentiles = {
+                    "p50": None,
+                    "p75": None,
+                    "p90": None,
+                    "p99": None,
+                }
 
         # Recent activity metrics
         now = datetime.now(timezone.utc)
@@ -287,34 +356,70 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         processing_rate = jobs_last_hour / 60.0 if jobs_last_hour > 0 else 0.0
 
         # Time-series data for sparklines (last 24 hours, hourly buckets)
-        timeseries_query = text(
-            """
-            SELECT
-                date_trunc('hour', started_at) as hour,
-                COUNT(*) as job_count,
-                AVG(processing_time_ms) as avg_time,
-                COUNT(CASE WHEN status = 'success' THEN 1 END) as success_count,
-                COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count
-            FROM ingestion_jobs
-            WHERE started_at >= :one_day_ago
-            GROUP BY hour
-            ORDER BY hour ASC
-            """
-        )
-        timeseries_result = self.session.execute(
-            timeseries_query, {"one_day_ago": one_day_ago}
-        ).fetchall()
+        # Use database-specific approach for date truncation
+        if dialect_name == "postgresql":
+            timeseries_query = text(
+                """
+                SELECT
+                    date_trunc('hour', started_at) as hour,
+                    COUNT(*) as job_count,
+                    AVG(processing_time_ms) as avg_time,
+                    COUNT(CASE WHEN status = 'success' THEN 1 END) as success_count,
+                    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count
+                FROM ingestion_jobs
+                WHERE started_at >= :one_day_ago
+                GROUP BY hour
+                ORDER BY hour ASC
+                """
+            )
+            timeseries_result = self.session.execute(
+                timeseries_query, {"one_day_ago": one_day_ago}
+            ).fetchall()
 
-        timeseries_data = [
-            {
-                "timestamp": row[0].isoformat(),
-                "job_count": row[1],
-                "avg_processing_time_ms": float(row[2]) if row[2] else None,
-                "success_count": row[3],
-                "failed_count": row[4],
-            }
-            for row in timeseries_result
-        ]
+            timeseries_data = [
+                {
+                    "timestamp": row[0].isoformat(),
+                    "job_count": row[1],
+                    "avg_processing_time_ms": float(row[2]) if row[2] else None,
+                    "success_count": row[3],
+                    "failed_count": row[4],
+                }
+                for row in timeseries_result
+            ]
+        else:
+            # For SQLite: use strftime for date truncation
+            timeseries_query = text(
+                """
+                SELECT
+                    strftime('%Y-%m-%d %H:00:00', started_at) as hour,
+                    COUNT(*) as job_count,
+                    AVG(processing_time_ms) as avg_time,
+                    SUM(
+                        CASE WHEN status = 'success' THEN 1 ELSE 0 END
+                    ) as success_count,
+                    SUM(
+                        CASE WHEN status = 'failed' THEN 1 ELSE 0 END
+                    ) as failed_count
+                FROM ingestion_jobs
+                WHERE started_at >= :one_day_ago
+                GROUP BY hour
+                ORDER BY hour ASC
+                """
+            )
+            timeseries_result = self.session.execute(
+                timeseries_query, {"one_day_ago": one_day_ago}
+            ).fetchall()
+
+            timeseries_data = [
+                {
+                    "timestamp": row[0],
+                    "job_count": row[1],
+                    "avg_processing_time_ms": float(row[2]) if row[2] else None,
+                    "success_count": row[3],
+                    "failed_count": row[4],
+                }
+                for row in timeseries_result
+            ]
 
         # Time since last failure
         last_failure = (
@@ -325,7 +430,11 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         )
         time_since_last_failure_minutes = None
         if last_failure:
-            delta = now - last_failure[0]
+            failure_time = last_failure[0]
+            # Ensure timezone-aware comparison (SQLite returns offset-naive datetimes)
+            if failure_time.tzinfo is None:
+                failure_time = failure_time.replace(tzinfo=timezone.utc)
+            delta = now - failure_time
             time_since_last_failure_minutes = delta.total_seconds() / 60.0
 
         # Success and failure rates
@@ -355,11 +464,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             .scalar()
         )
         incremental_speedup = None
-        if (
-            avg_incremental_time
-            and avg_full_parse_time
-            and avg_incremental_time > 0
-        ):
+        if avg_incremental_time and avg_full_parse_time and avg_incremental_time > 0:
             incremental_speedup = avg_full_parse_time / avg_incremental_time
 
         # Calculate stage-level averages from metrics JSONB field
