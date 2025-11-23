@@ -639,10 +639,16 @@ def ingest_conversation(
         # NOTE: Parser returns lowercase "agent" but database stores uppercase "AGENT"
         # (due to migration using enum key names instead of values)
         if parsed.conversation_type.lower() == "agent" and parsed.parent_session_id:
-            # Look up parent - use conversation_type='main' for deterministic, safe lookup
+            # Look up parent - try MAIN first, then METADATA
             parent_conversation = conversation_repo.get_by_session_id(
                 parsed.parent_session_id, workspace_id, conversation_type="main"
             )
+
+            if not parent_conversation:
+                # Parent might be a metadata-only conversation
+                parent_conversation = conversation_repo.get_by_session_id(
+                    parsed.parent_session_id, workspace_id, conversation_type="metadata"
+                )
 
             if parent_conversation:
                 parent_conversation_id = parent_conversation.id
@@ -1439,14 +1445,20 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
             )
             continue
 
-        # Look up parent conversation by session_id - use deterministic lookup for MAIN type
+        # Look up parent conversation by session_id - try MAIN first, then METADATA
         parent_conversation = conversation_repo.get_by_session_id(
             parent_session_id, workspace_id, conversation_type="main"
         )
 
         if not parent_conversation:
+            # Parent might be a metadata-only conversation
+            parent_conversation = conversation_repo.get_by_session_id(
+                parent_session_id, workspace_id, conversation_type="metadata"
+            )
+
+        if not parent_conversation:
             logger.warning(
-                f"Parent MAIN conversation not found for agent {agent.id} "
+                f"Parent conversation (MAIN or METADATA) not found for agent {agent.id} "
                 f"(parent_session_id={parent_session_id})"
             )
             continue
