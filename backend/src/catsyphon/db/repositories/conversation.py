@@ -6,7 +6,8 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import Conversation
@@ -22,8 +23,6 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         Create a new conversation.
 
-        If parent_conversation_id is provided, increments the parent's children_count.
-
         Args:
             **kwargs: Conversation field values
 
@@ -32,16 +31,6 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         # Create the conversation using parent method
         conversation = super().create(**kwargs)
-
-        # Update parent's children_count if this is a child conversation
-        if kwargs.get("parent_conversation_id"):
-            parent_id = kwargs["parent_conversation_id"]
-            # Use ORM update instead of raw SQL to avoid SQLite UUID issues
-            parent = self.get(parent_id)
-            if parent:
-                parent.children_count = (parent.children_count or 0) + 1
-                self.session.flush()
-
         return conversation
 
     def get_with_relations(
@@ -538,13 +527,21 @@ class ConversationRepository(BaseRepository[Conversation]):
                     for parents and 1 for children
         """
         # First, build query for parent conversations only
+        # Calculate children_count dynamically using subquery
+        ChildConv = aliased(Conversation)
+        children_count_subq = (
+            select(func.count(ChildConv.id))
+            .where(ChildConv.parent_conversation_id == Conversation.id)
+            .scalar_subquery()
+        )
+
         parent_query = (
             self.session.query(
                 Conversation,
                 Conversation.message_count,
                 Conversation.epoch_count,
                 Conversation.files_count,
-                Conversation.children_count,
+                children_count_subq,
             )
             .filter(
                 Conversation.workspace_id == workspace_id,
@@ -594,13 +591,21 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         parent_ids = [p[0].id for p in parents]
 
+        # For children, calculate children_count dynamically (usually 0 for leaf nodes)
+        ChildConv2 = aliased(Conversation)
+        children_count_subq2 = (
+            select(func.count(ChildConv2.id))
+            .where(ChildConv2.parent_conversation_id == Conversation.id)
+            .scalar_subquery()
+        )
+
         children_query = (
             self.session.query(
                 Conversation,
                 Conversation.message_count,
                 Conversation.epoch_count,
                 Conversation.files_count,
-                Conversation.children_count,
+                children_count_subq2,
             )
             .filter(
                 Conversation.workspace_id == workspace_id,

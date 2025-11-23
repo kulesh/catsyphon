@@ -383,9 +383,6 @@ class Conversation(Base):
     files_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
-    children_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
 
     # Metadata (flexible storage for additional fields)
     tags: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")

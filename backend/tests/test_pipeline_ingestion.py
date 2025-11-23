@@ -14,6 +14,7 @@ from catsyphon.db.repositories import (
     ProjectRepository,
     RawLogRepository,
 )
+from catsyphon.models.db import Conversation
 from catsyphon.models.parsed import (
     CodeChange,
     ParsedConversation,
@@ -1393,8 +1394,13 @@ class TestHierarchicalConversationIngestion:
         session_convs = [c for c in all_convs if c.extra_data.get("session_id") == session_id]
         assert len(session_convs) == 2
 
-    def test_update_mode_replace_preserves_children(self, db_session: Session, sample_workspace):
-        """Test that replace mode on parent preserves child relationships."""
+    def test_update_mode_replace_deletes_children(self, db_session: Session, sample_workspace):
+        """Test that replace mode on parent deletes existing children.
+
+        This ensures children_count stays in sync when re-ingesting files with --force.
+        When a log file is re-ingested, old children should be deleted so new ones
+        from the file can be created, preventing orphaned children and stale counts.
+        """
         parent_session_id = "parent-replace"
         agent_id = "agent-child"
         now = datetime.now(UTC)
@@ -1442,11 +1448,14 @@ class TestHierarchicalConversationIngestion:
         )
         agent_conv = ingest_conversation(db_session, agent_parsed)
         db_session.commit()
+        original_agent_id = agent_conv.id
 
         # Verify child is linked
         assert agent_conv.parent_conversation_id == original_parent_id
+        db_session.refresh(parent_conv)
+        assert len(parent_conv.children) == 1
 
-        # Replace parent conversation
+        # Replace parent conversation (simulates --force re-ingest)
         parent_parsed_v2 = ParsedConversation(
             agent_type="claude-code",
             agent_version="2.0.28",
@@ -1473,11 +1482,10 @@ class TestHierarchicalConversationIngestion:
         # Parent ID should be same
         assert parent_conv_v2.id == original_parent_id
 
-        # Child should still be linked to same parent
-        db_session.refresh(agent_conv)
-        assert agent_conv.parent_conversation_id == original_parent_id
-
-        # Parent should still have child
+        # Children should be deleted
         db_session.refresh(parent_conv_v2)
-        assert len(parent_conv_v2.children) == 1
-        assert parent_conv_v2.children[0].id == agent_conv.id
+        assert len(parent_conv_v2.children) == 0
+
+        # Old child should no longer exist in database
+        old_child = db_session.query(Conversation).filter_by(id=original_agent_id).first()
+        assert old_child is None

@@ -468,6 +468,31 @@ def ingest_conversation(
                         FileTouched.conversation_id == existing_conversation.id
                     ).delete()
 
+                    # Delete child conversations if this is a parent conversation
+                    # This prevents orphaned children when re-ingesting a file that now has fewer sub-agents
+                    if existing_conversation.parent_conversation_id is None:
+                        child_conversations = session.query(Conversation).filter(
+                            Conversation.parent_conversation_id == existing_conversation.id
+                        ).all()
+
+                        if child_conversations:
+                            logger.info(
+                                f"Deleting {len(child_conversations)} child conversations for re-ingest"
+                            )
+                            # Delete child's related data first (Messages, Epochs, FilesTouched)
+                            for child in child_conversations:
+                                session.query(Message).filter(
+                                    Message.conversation_id == child.id
+                                ).delete()
+                                session.query(Epoch).filter(
+                                    Epoch.conversation_id == child.id
+                                ).delete()
+                                session.query(FileTouched).filter(
+                                    FileTouched.conversation_id == child.id
+                                ).delete()
+                                # Delete the child conversation itself
+                                session.delete(child)
+
                     session.flush()
 
                     # Update conversation fields with new data
@@ -686,18 +711,6 @@ def ingest_conversation(
             logger.info(
                 f"Created conversation: {conversation.id} (success={success_value})"
             )
-
-            # Increment parent's children_count if this conversation has a parent
-            if parent_conversation_id:
-                session.execute(
-                    text(
-                        "UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"
-                    ),
-                    {"parent_id": str(parent_conversation_id)},  # Convert UUID to string for SQLite
-                )
-                logger.debug(
-                    f"Incremented children_count for parent {parent_conversation_id}"
-                )
         else:
             # Update existing conversation with project/developer/hierarchy associations
             assert conversation is not None, "conversation must be set in replace mode"
@@ -1441,14 +1454,6 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
         # Link agent to parent
         agent.parent_conversation_id = parent_conversation.id
         linked_count += 1
-
-        # Increment parent's children_count
-        session.execute(
-            text(
-                "UPDATE conversations SET children_count = children_count + 1 WHERE id = :parent_id"
-            ),
-            {"parent_id": str(parent_conversation.id)},  # Convert UUID to string for SQLite
-        )
 
         logger.info(
             f"Linked agent conversation {agent.id} (session_id={agent.extra_data.get('session_id')}) "

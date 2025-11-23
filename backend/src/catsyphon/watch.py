@@ -297,6 +297,33 @@ class FileWatcher(FileSystemEventHandler):
             self.processing.add(path_str)
 
         try:
+            # EARLY DEDUPLICATION CHECK: Query database BEFORE parsing
+            # This prevents race condition during concurrent startup scan where both threads
+            # might pass the deduplication check in ingestion.py before either commits
+            try:
+                from catsyphon.db.connection import get_db
+                from catsyphon.db.repositories import RawLogRepository
+                from catsyphon.utils.hashing import calculate_file_hash
+
+                with get_db() as session:
+                    raw_log_repo = RawLogRepository(session)
+                    file_hash = calculate_file_hash(file_path)
+
+                    if raw_log_repo.exists_by_file_hash(file_hash):
+                        logger.debug(
+                            f"File already tracked in database (hash: {file_hash[:8]}...): "
+                            f"{file_path.name}, skipping"
+                        )
+                        self.stats.files_skipped += 1
+                        return
+            except Exception as e:
+                # Don't fail entire processing if early check fails
+                # Let normal deduplication logic handle it
+                logger.warning(
+                    f"Early deduplication check failed for {file_path.name}: {e}, "
+                    "proceeding with normal ingestion"
+                )
+
             # Wait for file to finish writing (debounce at file level)
             time.sleep(self.debounce_seconds)
 
@@ -434,10 +461,11 @@ class FileWatcher(FileSystemEventHandler):
                             tagging_duration_ms = None
 
                     # Determine update mode
-                    # - If raw_log exists: use "replace" to update existing tracking
-                    # - If no raw_log: use "replace" to create raw_log (don't skip!)
-                    # This ensures files are always ingested, even on fresh DB
-                    update_mode = "replace"
+                    # - Use "skip" mode for watch daemon to prevent duplicate ingestion
+                    # - Only first ingestion should create conversation; subsequent are skipped
+                    # - Incremental updates still work via change_type detection (APPEND)
+                    # - This prevents race conditions where multiple threads process same file
+                    update_mode = "skip"
 
                     # Merge LLM metrics and tagging duration into parse metrics
                     combined_metrics = parse_metrics.copy()
