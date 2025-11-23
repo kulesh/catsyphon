@@ -232,9 +232,16 @@ export const renderHelpers = {
   /** Format agent type with badges */
   agentType: (session: Session) => {
     const conv = session as ConversationListItem;
+    const projSession = session as ProjectSession;
+
+    // Check if this is a sub-agent:
+    // - ConversationListItem: conversation_type === 'agent'
+    // - ProjectSession: depth_level > 0
+    const isSubAgent = conv.conversation_type === 'agent' || (projSession.depth_level !== undefined && projSession.depth_level > 0);
+
     return (
       <div className="flex items-center gap-2">
-        {conv.conversation_type === 'agent' && (
+        {isSubAgent && (
           <span
             className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-400/10 border border-purple-400/30 text-[10px] font-mono text-purple-400 uppercase tracking-wide"
             title="Agent conversation"
@@ -242,8 +249,8 @@ export const renderHelpers = {
             Sub
           </span>
         )}
-        <span className="font-mono text-xs text-foreground/80">{conv.agent_type}</span>
-        {conv.children_count > 0 && (
+        <span className="font-mono text-xs text-foreground/80">{session.agent_type}</span>
+        {(conv.children_count ?? 0) > 0 && (
           <span
             className="font-mono text-[10px] text-amber-400"
             title={`${conv.children_count} spawned agent${conv.children_count !== 1 ? 's' : ''}`}
