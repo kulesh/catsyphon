@@ -461,7 +461,7 @@ class IngestionStatsResponse(BaseModel):
     )
 
     # Time-series data for sparklines
-    timeseries_24h: list[dict[str, any]] = Field(
+    timeseries_24h: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Hourly time-series data for last 24 hours (for sparklines)",
     )
