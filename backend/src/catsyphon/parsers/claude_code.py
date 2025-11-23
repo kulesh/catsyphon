@@ -130,7 +130,14 @@ class ClaudeCodeParser:
                     try:
                         data = json.loads(line)
                         # Look for Claude Code markers
+                        # Accept files with sessionId+version (normal conversations)
                         if "sessionId" in data and "version" in data:
+                            return True
+                        # Also accept files with sessionId alone (metadata-only files)
+                        # or files with summary/file-history-snapshot entries
+                        if "sessionId" in data:
+                            return True
+                        if data.get("type") in ("summary", "file-history-snapshot"):
                             return True
                     except json.JSONDecodeError:
                         continue
@@ -184,8 +191,20 @@ class ClaudeCodeParser:
                 agent_id = msg.get("agentId")
                 break
 
+        # For metadata-only files, extract session_id from filename if not found in content
         if not session_id:
-            raise ParseDataError("Missing required field: sessionId")
+            # Check if filename looks like a UUID (the session ID)
+            filename_stem = file_path.stem  # Remove .jsonl extension
+            # Basic UUID format check: 8-4-4-4-12 hex digits
+            if len(filename_stem) == 36 and filename_stem.count("-") == 4:
+                session_id = filename_stem
+                logger.info(
+                    f"Extracted session_id from filename for metadata-only file: {session_id}"
+                )
+            else:
+                raise ParseDataError(
+                    f"Missing sessionId in file content and filename doesn't match UUID pattern: {file_path.name}"
+                )
 
         # Build message thread and extract tool calls
         parsed_messages = self._build_message_thread(raw_messages)
