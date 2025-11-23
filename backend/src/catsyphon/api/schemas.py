@@ -86,6 +86,11 @@ class ProjectSession(BaseModel):
     developer: Optional[str] = None  # Developer username
     agent_type: str
 
+    # Hierarchy fields (for hierarchical display)
+    children_count: int = 0
+    depth_level: int = 0
+    parent_conversation_id: Optional[UUID] = None
+
 
 class ProjectFileAggregation(BaseModel):
     """Aggregated file modification data across project sessions."""

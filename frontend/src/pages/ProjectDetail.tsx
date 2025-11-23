@@ -402,8 +402,6 @@ function SessionsTab({ projectId }: { projectId: string }) {
   // Filters and sorting
   const [developer, setDeveloper] = useState<string>('');
   const [outcome, setOutcome] = useState<'success' | 'failed' | 'partial' | ''>('');
-  const [sortBy, setSortBy] = useState<'start_time' | 'duration' | 'messages'>('start_time');
-  const [order, setOrder] = useState<'asc' | 'desc'>('desc');
 
   const page = parseInt(searchParams.get('page') || '1');
   const pageSize = 20;
@@ -418,8 +416,6 @@ function SessionsTab({ projectId }: { projectId: string }) {
   const filters: ProjectSessionFilters = {
     ...(developer && { developer }),
     ...(outcome && { outcome }),
-    sort_by: sortBy,
-    order,
   };
 
   const { data: sessions, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
@@ -433,22 +429,9 @@ function SessionsTab({ projectId }: { projectId: string }) {
     setSearchParams({ page: String(newPage) });
   };
 
-  const handleSort = (column: 'start_time' | 'duration' | 'messages') => {
-    if (sortBy === column) {
-      // Toggle order if clicking same column
-      setOrder(order === 'asc' ? 'desc' : 'asc');
-    } else {
-      // Set new column and default to desc
-      setSortBy(column);
-      setOrder('desc');
-    }
-  };
-
   const clearFilters = () => {
     setDeveloper('');
     setOutcome('');
-    setSortBy('start_time');
-    setOrder('desc');
   };
 
   // Define columns for SessionTable (Observatory theme to match ConversationList)
@@ -456,7 +439,6 @@ function SessionsTab({ projectId }: { projectId: string }) {
     {
       id: 'start_time',
       label: 'Start Time',
-      sortable: true,
       render: (session) => renderHelpers.startTime(session, 'observatory'),
     },
     {
@@ -467,7 +449,6 @@ function SessionsTab({ projectId }: { projectId: string }) {
     {
       id: 'developer',
       label: 'Developer',
-      sortable: true,
       render: renderHelpers.developerObservatory,
     },
     {
@@ -484,7 +465,6 @@ function SessionsTab({ projectId }: { projectId: string }) {
       id: 'messages',
       label: 'Messages',
       align: 'right' as const,
-      sortable: true,
       render: (session) => renderHelpers.messageCount(session, 'observatory'),
     },
     {
@@ -503,7 +483,7 @@ function SessionsTab({ projectId }: { projectId: string }) {
     );
   }
 
-  const hasActiveFilters = developer || outcome || sortBy !== 'start_time' || order !== 'desc';
+  const hasActiveFilters = developer || outcome;
 
   return (
     <div className="space-y-6">
@@ -594,11 +574,6 @@ function SessionsTab({ projectId }: { projectId: string }) {
             columns={columns}
             onRowClick={(id) => navigate(`/conversations/${id}`)}
             variant="observatory"
-            sorting={{
-              sortBy,
-              order,
-              onSort: handleSort,
-            }}
             emptyMessage="No archive entries found"
             emptyHint="Sessions will appear here once you ingest conversation logs"
           />

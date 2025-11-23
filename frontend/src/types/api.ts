@@ -381,6 +381,11 @@ export interface ProjectSession {
   files_count: number;
   developer: string | null;
   agent_type: string;
+
+  // Hierarchy fields (for hierarchical display)
+  children_count: number;
+  depth_level: number;
+  parent_conversation_id: string | null;
 }
 
 export interface ProjectFileAggregation {

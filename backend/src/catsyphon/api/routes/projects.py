@@ -19,10 +19,29 @@ from catsyphon.api.schemas import (
     SentimentTimelinePoint,
 )
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import ProjectRepository
+from catsyphon.db.repositories import ConversationRepository, ProjectRepository, WorkspaceRepository
 from catsyphon.models.db import Conversation, Developer, Epoch, FileTouched, Message
 
 router = APIRouter()
+
+
+def _get_default_workspace_id(session: Session) -> Optional[UUID]:
+    """
+    Get default workspace ID for API operations.
+
+    This is a temporary helper until proper authentication is implemented.
+    Returns the first workspace in the database, or None if no workspaces exist.
+
+    Returns:
+        UUID of the first workspace, or None if no workspaces exist
+    """
+    workspace_repo = WorkspaceRepository(session)
+    workspaces = workspace_repo.get_all(limit=1)
+
+    if not workspaces:
+        return None
+
+    return workspaces[0].id
 
 
 @router.get("/{project_id}/stats", response_model=ProjectStats)
@@ -240,25 +259,18 @@ async def list_project_sessions(
     date_to: Optional[str] = Query(
         None, description="Filter sessions to this date (ISO format: YYYY-MM-DD)"
     ),
-    sort_by: Optional[str] = Query(
-        "start_time", description="Sort by: start_time, duration, status, developer"
-    ),
-    order: str = Query("desc", description="Sort order: asc or desc"),
     session: Session = Depends(get_db),
 ) -> list[ProjectSession]:
     """
-    List all sessions (conversations) for a project with filtering and sorting.
+    List all sessions (conversations) for a project with hierarchical ordering.
 
-    Returns paginated list of conversations with lightweight metadata.
+    Returns paginated list of conversations in hierarchical order (parents followed by children)
+    with lightweight metadata.
 
     Filters:
     - developer: Filter by developer username
     - outcome: Filter by success/failed status
     - date_from/date_to: Filter by date range
-
-    Sorting:
-    - sort_by: Column to sort by (start_time, duration, status, developer)
-    - order: asc or desc
     """
     from datetime import datetime
 
@@ -269,76 +281,52 @@ async def list_project_sessions(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Build base query
-    query = (
-        session.query(Conversation, Developer.username)
-        .outerjoin(Developer, Conversation.developer_id == Developer.id)
-        .filter(Conversation.project_id == project_id)
-    )
+    # Get workspace ID
+    workspace_id = _get_default_workspace_id(session)
+    if workspace_id is None:
+        return []
 
-    # Apply filters
+    # Build filters
+    filters = {"project_id": project_id}
+
+    # Developer filter (need to get developer_id from username)
     if developer:
-        query = query.filter(Developer.username == developer)
+        dev_query = session.query(Developer.id).filter(Developer.username == developer).first()
+        if dev_query:
+            filters["developer_id"] = dev_query[0]
 
+    # Outcome filter
     if outcome:
         if outcome == "success":
-            query = query.filter(Conversation.success.is_(True))
+            filters["success"] = True
         elif outcome == "failed":
-            query = query.filter(Conversation.success.is_(False))
-        # "all" or invalid values: no filter
+            filters["success"] = False
 
+    # Date filters
     if date_from:
         try:
-            from_date = datetime.fromisoformat(date_from)
-            query = query.filter(Conversation.start_time >= from_date)
+            filters["start_date"] = datetime.fromisoformat(date_from)
         except ValueError:
-            pass  # Invalid date format, skip filter
+            pass
 
     if date_to:
         try:
-            to_date = datetime.fromisoformat(date_to)
-            query = query.filter(Conversation.start_time <= to_date)
+            filters["end_date"] = datetime.fromisoformat(date_to)
         except ValueError:
-            pass  # Invalid date format, skip filter
+            pass
 
-    # Apply sorting
-    if sort_by == "duration":
-        # Sort by calculated duration (end_time - start_time)
-        # Use database-agnostic approach with epoch timestamps
-        from sqlalchemy import Integer, cast, func
-
-        # Calculate duration as difference between Unix timestamps (in seconds)
-        # This works with both PostgreSQL and SQLite
-        end_epoch = func.extract("epoch", Conversation.end_time)
-        start_epoch = func.extract("epoch", Conversation.start_time)
-        duration_seconds = cast(end_epoch - start_epoch, Integer)
-
-        if order == "desc":
-            query = query.order_by(duration_seconds.desc().nulls_last())
-        else:
-            query = query.order_by(duration_seconds.asc().nulls_last())
-    elif sort_by == "status":
-        query = query.order_by(
-            Conversation.status.desc() if order == "desc" else Conversation.status.asc()
-        )
-    elif sort_by == "developer":
-        query = query.order_by(
-            Developer.username.desc() if order == "desc" else Developer.username.asc()
-        )
-    else:  # default: start_time
-        query = query.order_by(
-            Conversation.start_time.desc()
-            if order == "desc"
-            else Conversation.start_time.asc()
-        )
-
-    # Apply pagination
-    offset = (page - 1) * page_size
-    results = query.offset(offset).limit(page_size).all()
+    # Use hierarchical query
+    repo = ConversationRepository(session)
+    results = repo.get_with_counts_hierarchical(
+        workspace_id=workspace_id,
+        **filters,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
 
     # Build response
     sessions = []
-    for conv, developer_username in results:
+    for conv, msg_count, epoch_count, files_count, child_count, depth in results:
         duration_seconds = None
         if conv.end_time and conv.start_time:
             duration_seconds = int((conv.end_time - conv.start_time).total_seconds())
@@ -351,10 +339,13 @@ async def list_project_sessions(
                 duration_seconds=duration_seconds,
                 status=conv.status,
                 success=conv.success,
-                message_count=conv.message_count or 0,
-                files_count=conv.files_count or 0,
-                developer=developer_username,
+                message_count=msg_count,
+                files_count=files_count,
+                developer=conv.developer.username if conv.developer else None,
                 agent_type=conv.agent_type,
+                children_count=child_count,
+                depth_level=depth,
+                parent_conversation_id=conv.parent_conversation_id,
             )
         )
 
