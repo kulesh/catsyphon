@@ -53,6 +53,18 @@ class PlayFormatBuilder:
         lines.append(self._build_header(conversation, files_touched))
         lines.append("")
 
+        # Pre-compute insertion points for all children
+        # Maps message_id -> list of children to insert after that message
+        child_insertion_map: dict[any, list[CanonicalConversation]] = {}
+        if children:
+            for child in children:
+                insertion_msg = self._get_insertion_message(sampled_messages, child)
+                if insertion_msg:
+                    msg_id = insertion_msg.id
+                    if msg_id not in child_insertion_map:
+                        child_insertion_map[msg_id] = []
+                    child_insertion_map[msg_id].append(child)
+
         # Messages
         current_epoch_id = None
         for i, sm in enumerate(sampled_messages):
@@ -70,14 +82,12 @@ class PlayFormatBuilder:
             # Message
             lines.extend(self._build_message(msg, sm.reason))
 
-            # Check if there's a child conversation spawned after this message
-            if children:
-                for child in children:
-                    # Simple heuristic: if child start time is close to this message
-                    if self._child_spawned_after(msg, child):
-                        lines.append("")
-                        lines.extend(self._build_child_narrative(child))
-                        lines.append("")
+            # Insert any children that spawn after this message
+            if msg.id in child_insertion_map:
+                for child in child_insertion_map[msg.id]:
+                    lines.append("")
+                    lines.extend(self._build_child_narrative(child))
+                    lines.append("")
 
             lines.append("")  # Blank line after each message
 
@@ -261,18 +271,49 @@ Sampling: {sampled_count}/{total_messages} messages included"""
                 return epoch.sequence
         return 0
 
-    def _child_spawned_after(
-        self, msg: any, child: CanonicalConversation
-    ) -> bool:
-        """Check if child was spawned after this message.
+    def _get_insertion_message(
+        self, sampled_messages: list[SampledMessage], child: CanonicalConversation
+    ) -> Optional[any]:
+        """Find the parent message that spawned the child conversation.
 
-        Simple heuristic: child start time within 1 minute of message timestamp.
+        Uses exact parent_message_id from agent_metadata when available,
+        falling back to chronological matching (closest preceding message)
+        for legacy data or non-agent children.
+
+        Args:
+            sampled_messages: List of sampled messages from parent conversation
+            child: Child conversation to find insertion point for
+
+        Returns:
+            The message to insert child after, or None if no valid insertion point
         """
-        if not msg.timestamp or not child.start_time:
-            return False
+        # Strategy 1: Try exact parent_message_id match (from Task tool call correlation)
+        parent_message_id = child.agent_metadata.get("parent_message_id")
+        if parent_message_id:
+            # Find message with matching ID
+            for sm in sampled_messages:
+                if str(sm.message.id) == parent_message_id:
+                    return sm.message
 
-        delta = abs((child.start_time - msg.timestamp).total_seconds())
-        return delta < 60  # Within 1 minute
+            # If exact match not found, log warning and fall back to timestamp
+            logger.warning(
+                f"parent_message_id {parent_message_id} not found in sampled messages, "
+                f"falling back to timestamp-based matching"
+            )
+
+        # Strategy 2: Fallback to chronological matching (timestamp-based)
+        if not child.start_time:
+            return None
+
+        # Find all messages that occurred before child started
+        preceding = [
+            sm.message
+            for sm in sampled_messages
+            if sm.message.timestamp and sm.message.timestamp <= child.start_time
+        ]
+
+        # Return the most recent one (closest to child start)
+        return max(preceding, key=lambda m: m.timestamp) if preceding else None
 
 
 class JSONBuilder:

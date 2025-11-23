@@ -37,6 +37,46 @@ from catsyphon.utils.hashing import calculate_file_hash
 logger = logging.getLogger(__name__)
 
 
+def _find_parent_task_message(
+    session: Session,
+    parent_conversation_id: UUID,
+    agent_start_time: datetime,
+) -> Optional[UUID]:
+    """Find the parent message that spawned an agent conversation.
+
+    Looks for Task tool calls in the parent conversation that occurred
+    before the agent started, returning the closest preceding one.
+
+    Args:
+        session: Database session
+        parent_conversation_id: Parent conversation UUID
+        agent_start_time: When the agent conversation started
+
+    Returns:
+        Message ID of the spawning Task call, or None if not found
+    """
+    # Query parent conversation's messages before agent start
+    # ordered by timestamp descending (newest first)
+    messages = (
+        session.query(Message)
+        .filter(
+            Message.conversation_id == parent_conversation_id,
+            Message.timestamp <= agent_start_time,
+        )
+        .order_by(Message.timestamp.desc())
+        .all()
+    )
+
+    # Find the most recent message with a Task tool call
+    for msg in messages:
+        if msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                if tool_call.get("tool_name") == "Task":
+                    return msg.id
+
+    return None
+
+
 class StageMetrics:
     """Helper for tracking pipeline stage timings."""
 
@@ -585,6 +625,27 @@ def ingest_conversation(
                     f"Linking agent conversation (session_id={parsed.session_id}) "
                     f"to parent (session_id={parsed.parent_session_id}, id={parent_conversation_id})"
                 )
+
+                # Find the exact parent message that spawned this agent
+                # by looking for Task tool calls that occurred before agent start
+                parent_message_id = _find_parent_task_message(
+                    session=session,
+                    parent_conversation_id=parent_conversation_id,
+                    agent_start_time=parsed.start_time,
+                )
+
+                if parent_message_id:
+                    # Update agent_metadata with parent_message_id
+                    if parsed.agent_metadata is None:
+                        parsed.agent_metadata = {}
+                    parsed.agent_metadata["parent_message_id"] = str(parent_message_id)
+                    logger.info(
+                        f"Found spawning Task message: {parent_message_id}"
+                    )
+                else:
+                    logger.debug(
+                        "No Task tool call found in parent conversation before agent start time"
+                    )
             else:
                 logger.warning(
                     f"Parent MAIN conversation not found for agent (parent_session_id={parsed.parent_session_id}). "

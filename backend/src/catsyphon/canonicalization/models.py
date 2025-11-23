@@ -131,6 +131,7 @@ class CanonicalConversation:
     code_changes_summary: dict = field(
         default_factory=dict
     )  # {added: N, deleted: M, modified: K}
+    agent_metadata: dict = field(default_factory=dict)  # Agent-specific metadata (e.g., parent_message_id)
 
     # Generation metadata
     config: Optional[CanonicalConfig] = None
@@ -160,6 +161,7 @@ class CanonicalConversation:
             "files_touched": self.files_touched,
             "has_errors": self.has_errors,
             "code_changes_summary": self.code_changes_summary,
+            "agent_metadata": self.agent_metadata,
             "canonical_version": self.canonical_version,
             "generated_at": (
                 self.generated_at.isoformat() if self.generated_at else None
@@ -198,6 +200,7 @@ class CanonicalConversation:
             files_touched=data.get("files_touched", []),
             has_errors=data.get("has_errors", False),
             code_changes_summary=data.get("code_changes_summary", {}),
+            agent_metadata=data.get("agent_metadata", {}),
             canonical_version=data.get("canonical_version", 1),
             generated_at=(
                 datetime.fromisoformat(data["generated_at"])
