@@ -1452,7 +1452,8 @@ class TestHierarchicalConversationIngestion:
 
         # Verify child is linked
         assert agent_conv.parent_conversation_id == original_parent_id
-        assert parent_conv.children_count == 1
+        db_session.refresh(parent_conv)
+        assert len(parent_conv.children) == 1
 
         # Replace parent conversation (simulates --force re-ingest)
         parent_parsed_v2 = ParsedConversation(
@@ -1481,9 +1482,8 @@ class TestHierarchicalConversationIngestion:
         # Parent ID should be same
         assert parent_conv_v2.id == original_parent_id
 
-        # Children should be deleted (children_count reset to 0)
+        # Children should be deleted
         db_session.refresh(parent_conv_v2)
-        assert parent_conv_v2.children_count == 0
         assert len(parent_conv_v2.children) == 0
 
         # Old child should no longer exist in database
