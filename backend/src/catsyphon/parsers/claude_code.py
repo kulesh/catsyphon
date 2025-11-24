@@ -119,22 +119,20 @@ class ClaudeCodeParser:
         if not file_path.exists() or not file_path.is_file():
             return False
 
-        # Scan entire file to detect format
-        # Each JSONL message is independent - sessionId could appear anywhere
+        # Scan a small prefix to detect format
+        # Each JSONL message is independent - sessionId could appear early
         try:
-            with file_path.open("r", encoding="utf-8") as f:
-                for line in f:
+            with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+                for idx, line in enumerate(f):
+                    if idx > 200:  # lightweight detection cap
+                        break
                     if not line.strip():
                         continue
 
                     try:
                         data = json.loads(line)
-                        # Look for Claude Code markers
-                        # Accept files with sessionId+version (normal conversations)
                         if "sessionId" in data and "version" in data:
                             return True
-                        # Also accept files with sessionId alone (metadata-only files)
-                        # or files with summary/file-history-snapshot entries
                         if "sessionId" in data:
                             return True
                         if data.get("type") in ("summary", "file-history-snapshot"):

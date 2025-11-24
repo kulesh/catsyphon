@@ -115,6 +115,7 @@ class Settings(BaseSettings):
 
     # Application
     environment: str = "development"
+    parser_modules: list[str] | str = []  # Optional additional parser module paths
 
     # Logging
     log_level: str = "INFO"

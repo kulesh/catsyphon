@@ -12,6 +12,7 @@ from typing import Optional
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.base import ConversationParser, ParseFormatError
 from catsyphon.parsers.incremental import IncrementalParser
+from catsyphon.parsers.metadata import ParserMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,30 @@ class ParserRegistry:
         self._parsers.append(parser)
         logger.debug(f"Registered parser: {type(parser).__name__}")
 
+    def _sorted_parsers(self, file_path: Path) -> list[ConversationParser]:
+        """
+        Order parsers using metadata priority and format support.
+
+        Parsers that don't declare metadata fall back to priority 50.
+        Parsers that list supported formats but don't include this file
+        extension are deprioritized.
+        """
+
+        def score(parser: ConversationParser) -> tuple[int, int]:
+            priority = 50
+            format_penalty = 0
+            metadata: Optional[ParserMetadata] = getattr(parser, "metadata", None)
+            if metadata:
+                priority = metadata.priority
+                if metadata.supported_formats and not metadata.supports_format(
+                    file_path.suffix
+                ):
+                    # Penalize but still allow can_parse() to reject definitively
+                    format_penalty = -100
+            return (priority + format_penalty, 0)
+
+        return sorted(self._parsers, key=lambda p: score(p), reverse=True)
+
     def parse(self, file_path: Path) -> ParsedConversation:
         """
         Parse a conversation log file with automatic format detection.
@@ -73,14 +98,24 @@ class ParserRegistry:
             raise FileNotFoundError(f"Log file not found: {file_path}")
 
         # Try each registered parser
-        for parser in self._parsers:
+        for parser in self._sorted_parsers(file_path):
             parser_name = type(parser).__name__
             logger.debug(f"Trying parser: {parser_name}")
 
             try:
                 if parser.can_parse(file_path):
                     logger.info(f"Parsing {file_path} with {parser_name}")
-                    return parser.parse(file_path)
+                    parsed = parser.parse(file_path)
+                    # Attach parser metadata for downstream observability
+                    parser_meta: Optional[ParserMetadata] = getattr(parser, "metadata", None)
+                    if parser_meta is not None:
+                        existing_meta = getattr(parsed, "metadata", {}) or {}
+                        existing_meta["parser"] = {
+                            "name": parser_meta.name,
+                            "version": parser_meta.version,
+                        }
+                        parsed.metadata = existing_meta
+                    return parsed
             except Exception as e:
                 logger.debug(f"Parser {parser_name} failed: {e}")
                 continue
@@ -108,7 +143,7 @@ class ParserRegistry:
         if not file_path.exists():
             return None
 
-        for parser in self._parsers:
+        for parser in self._sorted_parsers(file_path):
             try:
                 if parser.can_parse(file_path):
                     return parser
@@ -205,9 +240,46 @@ def get_default_registry() -> ParserRegistry:
 
         # Register built-in parsers
         from catsyphon.parsers.claude_code import ClaudeCodeParser
+        from catsyphon.parsers.codex import CodexParser
 
         _default_registry.register(ClaudeCodeParser())
+        _default_registry.register(CodexParser())
 
         logger.debug("Initialized default parser registry")
+
+        # Load optional external parsers from configuration
+        try:
+            from importlib import import_module
+
+            from catsyphon.config import settings
+
+            modules = []
+            if getattr(settings, "parser_modules", None):
+                # Accept comma- or space-separated env values
+                if isinstance(settings.parser_modules, str):
+                    modules = [
+                        m.strip() for m in settings.parser_modules.split(",") if m.strip()
+                    ]
+                else:
+                    modules = list(settings.parser_modules)
+
+            for module_path in modules:
+                try:
+                    module = import_module(module_path)
+                    factory = getattr(module, "get_parser", None)
+                    parser = factory() if callable(factory) else getattr(module, "PARSER", None)
+                    if parser:
+                        _default_registry.register(parser)
+                        logger.info(f"Loaded external parser from {module_path}")
+                    else:
+                        logger.warning(
+                            f"Module {module_path} did not provide get_parser()/PARSER"
+                        )
+                except Exception as import_error:
+                    logger.warning(
+                        f"Failed to load parser module {module_path}: {import_error}"
+                    )
+        except Exception as e:
+            logger.debug(f"Parser plugin load skipped due to error: {e}")
 
     return _default_registry

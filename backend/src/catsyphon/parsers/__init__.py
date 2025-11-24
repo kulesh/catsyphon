@@ -12,6 +12,7 @@ from catsyphon.parsers.base import (
     ParserError,
 )
 from catsyphon.parsers.claude_code import ClaudeCodeParser
+from catsyphon.parsers.codex import CodexParser
 from catsyphon.parsers.registry import ParserRegistry, get_default_registry
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "ParseFormatError",
     "ParseDataError",
     "ClaudeCodeParser",
+    "CodexParser",
     "ParserRegistry",
     "get_default_registry",
 ]
