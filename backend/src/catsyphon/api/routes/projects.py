@@ -23,6 +23,8 @@ from catsyphon.api.schemas import (
     RoleDynamicsSummary,
     HandoffStats,
     ImpactMetrics,
+    InfluenceFlow,
+    ErrorBucket,
 )
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
@@ -30,7 +32,13 @@ from catsyphon.db.repositories import (
     ProjectRepository,
     WorkspaceRepository,
 )
-from catsyphon.models.db import Conversation, Developer, FileTouched, Message
+from catsyphon.models.db import (
+    Conversation,
+    Developer,
+    FileTouched,
+    Message,
+    IngestionJob,
+)
 
 router = APIRouter()
 
@@ -62,6 +70,23 @@ def _classify_role_dynamics(
     if assistant_ratio <= 0.4:
         return "dev_led"
     return "co_pilot"
+
+
+def _categorize_error(msg: Optional[str]) -> str:
+    if not msg:
+        return "other"
+    lower = msg.lower()
+    if "duplicate" in lower:
+        return "duplicate"
+    if "auth" in lower or "unauthorized" in lower or "forbidden" in lower:
+        return "auth"
+    if "timeout" in lower or "connection" in lower:
+        return "network"
+    if "parse" in lower or "json" in lower:
+        return "parse_error"
+    if "tool" in lower or "ingestion" in lower:
+        return "tool_fail"
+    return "other"
 
 
 @router.get("/{project_id}/stats", response_model=ProjectStats)
@@ -312,20 +337,12 @@ async def get_project_analytics(
     } if dev_ids else {}
 
     # Messages and files
-    messages = (
-        session.query(Message)
-        .filter(Message.conversation_id.in_(conv_ids))
-        .all()
-    )
+    messages = session.query(Message).filter(Message.conversation_id.in_(conv_ids)).all()
     msgs_by_conv: dict[UUID, list[Message]] = {}
     for m in messages:
         msgs_by_conv.setdefault(m.conversation_id, []).append(m)
 
-    files = (
-        session.query(FileTouched)
-        .filter(FileTouched.conversation_id.in_(conv_ids))
-        .all()
-    )
+    files = session.query(FileTouched).filter(FileTouched.conversation_id.in_(conv_ids)).all()
     files_by_conv: dict[UUID, list[FileTouched]] = {}
     for f in files:
         files_by_conv.setdefault(f.conversation_id, []).append(f)
@@ -416,6 +433,57 @@ async def get_project_analytics(
                     and m.timestamp <= conv.start_time
                 )
                 handoff_clarifications.append(clarifications)
+
+    # Influence flows (file introduction -> later adopter)
+    influence_counts: dict[tuple[str, str], int] = {}
+    first_touch: dict[str, tuple[str, datetime]] = {}
+    for f in sorted(files, key=lambda x: x.timestamp):
+        # Identify actor string
+        conv = conversation_lookup.get(f.conversation_id)
+        actor = "unknown"
+        if conv:
+            dev_name = dev_map.get(conv.developer_id) if conv.developer_id else None
+            actor = dev_name or conv.agent_type or "unknown"
+
+        existing = first_touch.get(f.file_path)
+        if existing:
+            introducer, _ = existing
+            if introducer != actor:
+                influence_counts[(introducer, actor)] = influence_counts.get(
+                    (introducer, actor), 0
+                ) + 1
+        else:
+            first_touch[f.file_path] = (actor, f.timestamp)
+
+    influence_flows = [
+        InfluenceFlow(source=src, target=dst, count=count)
+        for (src, dst), count in sorted(
+            influence_counts.items(), key=lambda kv: kv[1], reverse=True
+        )[:10]
+    ]
+
+    # Error heatmap from ingestion jobs
+    error_counts: dict[tuple[str, str], int] = {}
+    ingestion_jobs = (
+        session.query(IngestionJob)
+        .filter(IngestionJob.conversation_id.in_(conv_ids))
+        .filter(IngestionJob.status == "failed")
+        .all()
+    )
+    for job in ingestion_jobs:
+        conv = conversation_lookup.get(job.conversation_id)
+        agent_type = conv.agent_type if conv else "unknown"
+        category = _categorize_error(job.error_message)
+        error_counts[(agent_type, category)] = error_counts.get(
+            (agent_type, category), 0
+        ) + 1
+
+    error_heatmap = [
+        ErrorBucket(agent_type=a, category=c, count=count)
+        for (a, c), count in sorted(
+            error_counts.items(), key=lambda kv: kv[1], reverse=True
+        )
+    ]
 
     # Build pairing pairs
     pairs: list[PairingEffectivenessPair] = []
@@ -515,6 +583,8 @@ async def get_project_analytics(
             sessions_measured=impact_sessions,
         ),
         sentiment_by_agent=sentiment_by_agent,
+        influence_flows=influence_flows,
+        error_heatmap=error_heatmap,
     )
 
 

@@ -93,6 +93,22 @@ class SentimentByAgent(BaseModel):
     sessions: int = 0
 
 
+class InfluenceFlow(BaseModel):
+    """Adoption/influence flows between actors."""
+
+    source: str
+    target: str
+    count: int
+
+
+class ErrorBucket(BaseModel):
+    """Error counts by agent and category."""
+
+    agent_type: str
+    category: str
+    count: int
+
+
 class ProjectAnalytics(BaseModel):
     """Advanced analytics for a project."""
 
@@ -104,6 +120,8 @@ class ProjectAnalytics(BaseModel):
     handoffs: HandoffStats = HandoffStats()
     impact: ImpactMetrics = ImpactMetrics()
     sentiment_by_agent: list[SentimentByAgent] = Field(default_factory=list)
+    influence_flows: list[InfluenceFlow] = Field(default_factory=list)
+    error_heatmap: list[ErrorBucket] = Field(default_factory=list)
 
 
 class ProjectStats(BaseModel):

@@ -406,6 +406,18 @@ export interface SentimentByAgent {
   sessions: number;
 }
 
+export interface InfluenceFlow {
+  source: string;
+  target: string;
+  count: number;
+}
+
+export interface ErrorBucket {
+  agent_type: string;
+  category: string;
+  count: number;
+}
+
 export interface ProjectAnalytics {
   project_id: string;
   date_range?: string | null;
@@ -415,6 +427,8 @@ export interface ProjectAnalytics {
   handoffs: HandoffStats;
   impact: ImpactMetrics;
   sentiment_by_agent: SentimentByAgent[];
+  influence_flows: InfluenceFlow[];
+  error_heatmap: ErrorBucket[];
 }
 
 export interface ProjectSession {
