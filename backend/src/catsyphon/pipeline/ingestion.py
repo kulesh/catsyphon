@@ -33,6 +33,7 @@ from catsyphon.models.db import Conversation, Epoch, FileTouched, Message, RawLo
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.incremental import IncrementalParseResult
 from catsyphon.utils.hashing import calculate_file_hash
+from catsyphon.db.connection import db_session
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,45 @@ class StageMetrics:
             **self.stages,
             "total_ms": sum(self.stages.values()),
         }
+
+
+def _log_ingestion_failure_out_of_band(
+    job_id: UUID,
+    source_type: str,
+    source_config_id: Optional[UUID],
+    file_path: Optional[Path],
+    error_message: str,
+    started_at: datetime,
+    processing_time_ms: int,
+    incremental: bool,
+    messages_added: int,
+    metrics: dict[str, Any],
+    created_by: Optional[str],
+) -> None:
+    """Persist a failed ingestion job even if the caller rolls back its transaction."""
+    try:
+        with db_session() as log_session:
+            ingestion_repo = IngestionJobRepository(log_session)
+            ingestion_repo.create(
+                id=job_id,
+                source_type=source_type,
+                source_config_id=source_config_id,
+                file_path=str(file_path) if file_path else None,
+                status="failed",
+                error_message=error_message,
+                started_at=started_at,
+                completed_at=datetime.utcnow(),
+                processing_time_ms=processing_time_ms,
+                incremental=incremental,
+                messages_added=messages_added,
+                metrics=metrics,
+                created_by=created_by,
+            )
+            log_session.commit()
+    except Exception:
+        logger.debug(
+            "Failed to persist ingestion failure for job %s", job_id, exc_info=True
+        )
 
 
 def _extract_username_from_path(path: Optional[str]) -> Optional[str]:
@@ -906,13 +946,29 @@ def ingest_conversation(
 
         # Update ingestion job as failed
         elapsed_ms = int((time.time() * 1000) - start_ms)
+        error_message = f"{type(e).__name__}: {str(e)}"
         ingestion_job.status = "failed"
-        ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
+        ingestion_job.error_message = error_message
         ingestion_job.processing_time_ms = elapsed_ms
         ingestion_job.metrics = {**metrics.to_dict(), **metadata_fields}  # Store partial metrics
         ingestion_job.completed_at = datetime.utcnow()
         session.flush()
         logger.error(f"Ingestion failed: {type(e).__name__}: {str(e)}", exc_info=True)
+
+        # Persist failure details out-of-band so they survive caller rollbacks
+        _log_ingestion_failure_out_of_band(
+            job_id=ingestion_job.id,
+            source_type=source_type,
+            source_config_id=source_config_id,
+            file_path=file_path,
+            error_message=error_message,
+            started_at=start_time,
+            processing_time_ms=elapsed_ms,
+            incremental=False,
+            messages_added=ingestion_job.messages_added,
+            metrics={**metrics.to_dict(), **metadata_fields},
+            created_by=created_by,
+        )
         # Re-raise exception to propagate to caller
         raise
 
@@ -1229,165 +1285,191 @@ def ingest_messages_incremental(
     session.flush()  # Get job ID
     logger.debug(f"Created ingestion job (incremental): {ingestion_job.id}")
 
-    # Get existing conversation and raw_log
-    conversation_repo = ConversationRepository(session)
-    raw_log_repo = RawLogRepository(session)
+    try:
+        # Get existing conversation and raw_log
+        conversation_repo = ConversationRepository(session)
+        raw_log_repo = RawLogRepository(session)
 
-    conversation = conversation_repo.get(uuid.UUID(conversation_id))
-    if not conversation:
-        raise ValueError(f"Conversation not found: {conversation_id}")
+        conversation = conversation_repo.get(uuid.UUID(conversation_id))
+        if not conversation:
+            raise ValueError(f"Conversation not found: {conversation_id}")
 
-    raw_log = raw_log_repo.get(uuid.UUID(raw_log_id))
-    if not raw_log:
-        raise ValueError(f"Raw log not found: {raw_log_id}")
+        raw_log = raw_log_repo.get(uuid.UUID(raw_log_id))
+        if not raw_log:
+            raise ValueError(f"Raw log not found: {raw_log_id}")
 
-    # Get existing epoch (assume 1 epoch per conversation for now)
-    epoch_repo = EpochRepository(session)
-    message_repo = MessageRepository(session)
+        # Get existing epoch (assume 1 epoch per conversation for now)
+        epoch_repo = EpochRepository(session)
+        message_repo = MessageRepository(session)
 
-    epochs = (
-        session.query(Epoch)
-        .filter(Epoch.conversation_id == conversation.id)
-        .order_by(Epoch.sequence.desc())
-        .all()
-    )
-
-    if epochs:
-        epoch = epochs[0]
-    else:
-        # Create epoch if none exists
-        epoch = epoch_repo.create_epoch(
-            conversation_id=conversation.id,
-            sequence=0,
-            start_time=conversation.start_time,
-            end_time=conversation.end_time,
+        epochs = (
+            session.query(Epoch)
+            .filter(Epoch.conversation_id == conversation.id)
+            .order_by(Epoch.sequence.desc())
+            .all()
         )
 
-    # Get current message count for sequencing
-    existing_message_count = conversation.message_count
+        if epochs:
+            epoch = epochs[0]
+        else:
+            # Create epoch if none exists
+            epoch = epoch_repo.create_epoch(
+                conversation_id=conversation.id,
+                sequence=0,
+                start_time=conversation.start_time,
+                end_time=conversation.end_time,
+            )
 
-    # Create Message records for NEW messages only
-    message_data = []
-    for idx, msg in enumerate(incremental_result.new_messages):
-        sequence = existing_message_count + idx
+        # Get current message count for sequencing
+        existing_message_count = conversation.message_count
 
-        # Serialize tool calls and code changes
-        tool_calls_json = [
-            {
-                "tool_name": tc.tool_name,
-                "parameters": tc.parameters,
-                "result": tc.result,
-                "success": tc.success,
-                "timestamp": tc.timestamp.isoformat() if tc.timestamp else None,
-            }
-            for tc in msg.tool_calls
-        ]
+        # Create Message records for NEW messages only
+        message_data = []
+        for idx, msg in enumerate(incremental_result.new_messages):
+            sequence = existing_message_count + idx
 
-        code_changes_json = [
-            {
-                "file_path": cc.file_path,
-                "change_type": cc.change_type,
-                "old_content": cc.old_content,
-                "new_content": cc.new_content,
-                "lines_added": cc.lines_added,
-                "lines_deleted": cc.lines_deleted,
-            }
-            for cc in msg.code_changes
-        ]
+            # Serialize tool calls and code changes
+            tool_calls_json = [
+                {
+                    "tool_name": tc.tool_name,
+                    "parameters": tc.parameters,
+                    "result": tc.result,
+                    "success": tc.success,
+                    "timestamp": tc.timestamp.isoformat() if tc.timestamp else None,
+                }
+                for tc in msg.tool_calls
+            ]
 
-        extra_data: dict[str, Any] = {}
-        if msg.model:
-            extra_data["model"] = msg.model
-        if msg.token_usage:
-            extra_data["token_usage"] = msg.token_usage
+            code_changes_json = [
+                {
+                    "file_path": cc.file_path,
+                    "change_type": cc.change_type,
+                    "old_content": cc.old_content,
+                    "new_content": cc.new_content,
+                    "lines_added": cc.lines_added,
+                    "lines_deleted": cc.lines_deleted,
+                }
+                for cc in msg.code_changes
+            ]
 
-        message_data.append(
-            {
-                "epoch_id": epoch.id,
-                "conversation_id": conversation.id,
-                "role": msg.role,
-                "content": msg.content,
-                "timestamp": msg.timestamp,
-                "sequence": sequence,
-                "tool_calls": tool_calls_json,
-                "code_changes": code_changes_json,
-                "entities": msg.entities,
-                "extra_data": extra_data,
-            }
+            extra_data: dict[str, Any] = {}
+            if msg.model:
+                extra_data["model"] = msg.model
+            if msg.token_usage:
+                extra_data["token_usage"] = msg.token_usage
+
+            message_data.append(
+                {
+                    "epoch_id": epoch.id,
+                    "conversation_id": conversation.id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                    "sequence": sequence,
+                    "tool_calls": tool_calls_json,
+                    "code_changes": code_changes_json,
+                    "entities": msg.entities,
+                    "extra_data": extra_data,
+                }
+            )
+
+        # Bulk create messages
+        new_messages = message_repo.bulk_create(message_data)
+        logger.info(f"Created {len(new_messages)} new message records")
+
+        # Create FileTouched records
+        new_code_changes = []
+        for msg in incremental_result.new_messages:
+            new_code_changes.extend(msg.code_changes)
+
+        for code_change in new_code_changes:
+            file_touched = FileTouched(
+                conversation_id=conversation.id,
+                epoch_id=epoch.id,
+                file_path=code_change.file_path,
+                change_type=code_change.change_type,
+                lines_added=code_change.lines_added,
+                lines_deleted=code_change.lines_deleted,
+                timestamp=incremental_result.last_message_timestamp
+                or conversation.end_time,
+            )
+            session.add(file_touched)
+
+        # Update conversation counts
+        conversation.message_count += len(incremental_result.new_messages)
+        conversation.files_count += len(new_code_changes)
+
+        # Update epoch end time if available
+        if incremental_result.last_message_timestamp:
+            epoch.end_time = incremental_result.last_message_timestamp
+            conversation.end_time = incremental_result.last_message_timestamp
+
+        # Update raw_log state
+        raw_log_repo.update_state(
+            raw_log=raw_log,
+            last_processed_offset=incremental_result.last_processed_offset,
+            last_processed_line=incremental_result.last_processed_line,
+            file_size_bytes=incremental_result.file_size_bytes,
+            partial_hash=incremental_result.partial_hash,
+            last_message_timestamp=incremental_result.last_message_timestamp,
         )
 
-    # Bulk create messages
-    new_messages = message_repo.bulk_create(message_data)
-    logger.info(f"Created {len(new_messages)} new message records")
-
-    # Create FileTouched records
-    new_code_changes = []
-    for msg in incremental_result.new_messages:
-        new_code_changes.extend(msg.code_changes)
-
-    for code_change in new_code_changes:
-        file_touched = FileTouched(
-            conversation_id=conversation.id,
-            epoch_id=epoch.id,
-            file_path=code_change.file_path,
-            change_type=code_change.change_type,
-            lines_added=code_change.lines_added,
-            lines_deleted=code_change.lines_deleted,
-            timestamp=incremental_result.last_message_timestamp
-            or conversation.end_time,
+        logger.debug(
+            f"Updated raw_log state: offset={incremental_result.last_processed_offset}, "
+            f"line={incremental_result.last_processed_line}"
         )
-        session.add(file_touched)
 
-    # Update conversation counts
-    conversation.message_count += len(incremental_result.new_messages)
-    conversation.files_count += len(new_code_changes)
+        # Flush and refresh
+        session.flush()
+        session.refresh(conversation)
 
-    # Update epoch end time if available
-    if incremental_result.last_message_timestamp:
-        epoch.end_time = incremental_result.last_message_timestamp
-        conversation.end_time = incremental_result.last_message_timestamp
+        # Update ingestion job as successful
+        elapsed_ms = int((time.time() * 1000) - start_ms)
+        ingestion_job.status = "success"
+        ingestion_job.conversation_id = conversation.id
+        ingestion_job.raw_log_id = uuid.UUID(raw_log_id)
+        ingestion_job.processing_time_ms = elapsed_ms
+        ingestion_job.messages_added = len(incremental_result.new_messages)
+        ingestion_job.completed_at = datetime.utcnow()
+        ingestion_job.metrics = {**metrics.to_dict(), **metadata_fields}
+        session.flush()
+        logger.debug(
+            f"Updated ingestion job to success: {ingestion_job.id}, "
+            f"messages_added={len(incremental_result.new_messages)}, "
+            f"processing_time={elapsed_ms}ms"
+        )
 
-    # Update raw_log state
-    raw_log_repo.update_state(
-        raw_log=raw_log,
-        last_processed_offset=incremental_result.last_processed_offset,
-        last_processed_line=incremental_result.last_processed_line,
-        file_size_bytes=incremental_result.file_size_bytes,
-        partial_hash=incremental_result.partial_hash,
-        last_message_timestamp=incremental_result.last_message_timestamp,
-    )
+        logger.info(
+            f"Incremental ingest complete: conversation={conversation.id}, "
+            f"added={len(new_messages)}, total={conversation.message_count}"
+        )
 
-    logger.debug(
-        f"Updated raw_log state: offset={incremental_result.last_processed_offset}, "
-        f"line={incremental_result.last_processed_line}"
-    )
+        return conversation
 
-    # Flush and refresh
-    session.flush()
-    session.refresh(conversation)
+    except Exception as e:
+        elapsed_ms = int((time.time() * 1000) - start_ms)
+        error_message = f"{type(e).__name__}: {str(e)}"
+        failure_metrics = {**metrics.to_dict(), **metadata_fields}
 
-    # Update ingestion job as successful
-    elapsed_ms = int((time.time() * 1000) - start_ms)
-    ingestion_job.status = "success"
-    ingestion_job.conversation_id = conversation.id
-    ingestion_job.raw_log_id = uuid.UUID(raw_log_id)
-    ingestion_job.processing_time_ms = elapsed_ms
-    ingestion_job.messages_added = len(incremental_result.new_messages)
-    ingestion_job.completed_at = datetime.utcnow()
-    ingestion_job.metrics = {**metrics.to_dict(), **metadata_fields}
-    session.flush()
-    logger.debug(
-        f"Updated ingestion job to success: {ingestion_job.id}, "
-        f"messages_added={len(incremental_result.new_messages)}, "
-        f"processing_time={elapsed_ms}ms"
-    )
+        _log_ingestion_failure_out_of_band(
+            job_id=ingestion_job.id,
+            source_type=source_type,
+            source_config_id=source_config_id,
+            file_path=Path(raw_log.file_path) if "raw_log" in locals() and raw_log and raw_log.file_path else None,
+            error_message=error_message,
+            started_at=start_time,
+            processing_time_ms=elapsed_ms,
+            incremental=True,
+            messages_added=ingestion_job.messages_added,
+            metrics=failure_metrics,
+            created_by=created_by,
+        )
 
-    logger.info(
-        f"Incremental ingest complete: conversation={conversation.id}, "
-        f"added={len(new_messages)}, total={conversation.message_count}"
-    )
-
-    return conversation
+        logger.error(
+            f"Incremental ingestion failed: {type(e).__name__}: {str(e)}",
+            exc_info=True,
+        )
+        raise
 
 
 def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:

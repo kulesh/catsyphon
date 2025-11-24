@@ -390,6 +390,15 @@ class Conversation(Base):
     extra_data: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
+    __table_args__ = (
+        Index(
+            "uq_conversation_ws_type_session",
+            "workspace_id",
+            "conversation_type",
+            extra_data["session_id"].as_string(),
+            unique=True,
+        ),
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

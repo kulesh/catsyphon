@@ -378,6 +378,7 @@ class FileWatcher(FileSystemEventHandler):
                                 return
                             except Exception as e:
                                 # Fall back to full reparse on error
+                                session.rollback()
                                 logger.warning(
                                     f"Incremental update failed for "
                                     f"{file_path.name}: {e}, "
