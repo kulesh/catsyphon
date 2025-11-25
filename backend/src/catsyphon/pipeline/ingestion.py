@@ -1249,6 +1249,12 @@ def _append_messages_incremental(
         f"files={existing_conversation.files_count}"
     )
 
+    # Flush messages and conversation updates BEFORE updating RawLog state.
+    # This ensures that if message insertion fails, RawLog state won't be
+    # corrupted (pointing to non-existent messages). The RawLog state must
+    # only be updated after messages are successfully persisted.
+    session.flush()
+
     # Update raw_log state tracking
     # Note: This assumes parsed contains the incremental state info
     # In practice, the caller should provide IncrementalParseResult
@@ -1483,6 +1489,12 @@ def ingest_messages_incremental(
         if incremental_result.last_message_timestamp:
             epoch.end_time = incremental_result.last_message_timestamp
             conversation.end_time = incremental_result.last_message_timestamp
+
+        # Flush messages and conversation updates BEFORE updating RawLog state.
+        # This ensures that if message insertion fails, RawLog state won't be
+        # corrupted (pointing to non-existent messages). The RawLog state must
+        # only be updated after messages are successfully persisted.
+        session.flush()
 
         # Update raw_log state
         raw_log_repo.update_state(

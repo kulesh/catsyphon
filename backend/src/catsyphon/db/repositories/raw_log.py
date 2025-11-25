@@ -212,7 +212,8 @@ class RawLogRepository(BaseRepository[RawLog]):
         raw_log.partial_hash = partial_hash
         raw_log.imported_at = datetime.utcnow()
 
-        self.session.flush()
+        # Note: Caller is responsible for flushing to ensure proper
+        # transaction ordering (messages must be persisted before RawLog state)
         return raw_log
 
     def create_from_content(
@@ -284,5 +285,6 @@ class RawLogRepository(BaseRepository[RawLog]):
         raw_log.file_size_bytes = file_size_bytes
         raw_log.partial_hash = partial_hash
         raw_log.last_message_timestamp = last_message_timestamp
-        self.session.flush()
+        # Note: Caller is responsible for flushing to ensure proper
+        # transaction ordering (messages must be persisted before RawLog state)
         return raw_log
