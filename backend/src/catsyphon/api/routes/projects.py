@@ -618,6 +618,106 @@ async def get_project_analytics(
     return result
 
 
+@router.get("/{project_id}/insights")
+async def get_project_insights(
+    project_id: UUID,
+    date_range: str = Query(
+        "30d",
+        description="Date range: '7d', '30d', '90d', or 'all'",
+        pattern="^(7d|30d|90d|all)$",
+    ),
+    include_summary: bool = Query(
+        True,
+        description="Include LLM-generated narrative summary (adds ~1-2s latency)",
+    ),
+    force_regenerate: bool = Query(
+        False,
+        description="Force regeneration of all insights (ignores cache)",
+    ),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Get comprehensive insights for a project.
+
+    This endpoint aggregates conversation-level insights across a project to provide:
+    - **Pattern Aggregation**: Top workflow patterns, learning opportunities, anti-patterns
+    - **Temporal Trends**: Weekly collaboration quality, agent effectiveness, scope clarity
+    - **LLM Summary**: Narrative overview of the project's AI collaboration health
+
+    **Performance Notes:**
+    - Uses cached conversation insights when available (instant)
+    - On-demand generation for conversations without cached insights (~2-5s per conversation)
+    - LLM summary adds ~1-2s latency (disable with include_summary=false)
+    - First-time generation may take 1-2 minutes for projects with many conversations
+
+    **Cache Metadata:**
+    The response includes freshness indicators:
+    - insights_cached: Number of insights from cache
+    - insights_generated: Number of insights generated in this request
+    - insights_failed: Number of conversations that failed to generate
+    - oldest_insight_at: Timestamp of oldest cached insight
+    - latest_conversation_at: Timestamp of most recent conversation
+
+    Args:
+        project_id: UUID of the project
+        date_range: Time filter for conversations ('7d', '30d', '90d', 'all')
+        include_summary: Whether to generate LLM narrative summary
+        force_regenerate: Force regeneration of all insights (clears cache first)
+        session: Database session
+
+    Returns:
+        ProjectInsightsResponse with patterns, trends, averages, and optional summary
+
+    Raises:
+        HTTPException 404: Project not found
+        HTTPException 500: Insights generation failed
+    """
+    from catsyphon.config import settings
+    from catsyphon.db.repositories import ProjectRepository
+    from catsyphon.insights import ProjectInsightsGenerator
+
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Get project
+    project_repo = ProjectRepository(session)
+    project = project_repo.get(project_id)
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Generate insights
+    if not settings.openai_api_key and include_summary:
+        # Fall back to no summary if no API key
+        include_summary = False
+
+    generator = ProjectInsightsGenerator(
+        api_key=settings.openai_api_key or "",
+        model="gpt-4o-mini",
+        max_tokens=500,
+    )
+
+    insights = generator.generate(
+        project_id=project_id,
+        project_name=project.name,
+        session=session,
+        date_range=date_range,
+        include_summary=include_summary,
+        workspace_id=workspace_id,
+        force_regenerate=force_regenerate,
+    )
+
+    return insights
+
+
 @router.get("/{project_id}/sessions", response_model=list[ProjectSession])
 async def list_project_sessions(
     project_id: UUID,

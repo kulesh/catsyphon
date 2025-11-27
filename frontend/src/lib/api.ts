@@ -18,6 +18,7 @@ import type {
   MessageResponse,
   OverviewStats,
   ProjectFileAggregation,
+  ProjectInsightsResponse,
   ProjectListItem,
   ProjectSession,
   ProjectStats,
@@ -395,6 +396,22 @@ export async function getProjectAnalytics(
 ): Promise<ProjectAnalytics> {
   const params = dateRange ? `?date_range=${dateRange}` : '';
   return apiFetch<ProjectAnalytics>(`/projects/${projectId}/analytics${params}`);
+}
+
+export async function getProjectInsights(
+  projectId: string,
+  dateRange: '7d' | '30d' | '90d' | 'all' = '30d',
+  includeSummary = true,
+  forceRegenerate = false
+): Promise<ProjectInsightsResponse> {
+  const params = new URLSearchParams({
+    date_range: dateRange,
+    include_summary: String(includeSummary),
+    force_regenerate: String(forceRegenerate),
+  });
+  return apiFetch<ProjectInsightsResponse>(
+    `/projects/${projectId}/insights?${params.toString()}`
+  );
 }
 
 export interface ProjectSessionFilters {
