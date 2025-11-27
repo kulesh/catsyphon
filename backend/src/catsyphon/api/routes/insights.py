@@ -4,7 +4,7 @@ Insights API routes.
 Endpoints for generating and retrieving canonical-powered insights.
 """
 
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,10 +13,19 @@ from sqlalchemy.orm import Session
 from catsyphon.api.schemas import InsightsResponse
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import ConversationRepository
+from catsyphon.db.repositories import ConversationRepository, WorkspaceRepository
 from catsyphon.insights import InsightsGenerator
 
 router = APIRouter()
+
+
+def _get_default_workspace_id(session: Session) -> Optional[UUID]:
+    """Get default workspace ID for API operations."""
+    workspace_repo = WorkspaceRepository(session)
+    workspaces = workspace_repo.get_all(limit=1)
+    if not workspaces:
+        return None
+    return workspaces[0].id
 
 
 @router.get("/{conversation_id}/insights", response_model=InsightsResponse)
@@ -67,7 +76,15 @@ def get_conversation_insights(
     """
     # Get conversation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get_by_id(conversation_id)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Conversation {conversation_id} not found"
+        )
+
+    conversation = conversation_repo.get_with_relations(conversation_id, workspace_id)
 
     if not conversation:
         raise HTTPException(
@@ -139,7 +156,15 @@ def get_batch_insights(
     """
     # Get recent conversations for project
     conversation_repo = ConversationRepository(session)
-    conversations = conversation_repo.get_by_project(project_id, limit=limit)
+    workspace_id = _get_default_workspace_id(session)
+
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No conversations found for project {project_id}"
+        )
+
+    conversations = conversation_repo.get_by_project(project_id, workspace_id, limit=limit)
 
     if not conversations:
         raise HTTPException(
