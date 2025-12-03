@@ -11,6 +11,31 @@
 
 ---
 
+## 30-Second Quick Start
+
+```bash
+# Clone and setup
+git clone https://github.com/kulesh/catsyphon.git && cd catsyphon
+cp .env.example .env
+
+# Start everything
+docker-compose up -d
+cd backend && uv sync --all-extras && uv run alembic upgrade head
+uv run catsyphon serve &
+cd ../frontend && pnpm install && pnpm dev
+```
+
+Open **http://localhost:5173** and start ingesting your Claude Code logs!
+
+**Where are my Claude Code logs?** `~/.claude/projects/` contains your conversation history.
+
+> **Prerequisites**: Python 3.11+, Node 20+, Docker, [uv](https://github.com/astral-sh/uv), and [pnpm](https://pnpm.io/).
+> Use [mise](https://mise.jdx.dev/) to install all tools automatically: `mise install`
+>
+> **Optional**: Add `OPENAI_API_KEY` to `.env` for AI-powered sentiment/intent tagging.
+
+---
+
 ## Overview
 
 CatSyphon transforms AI coding assistant conversation logs into actionable insights. Whether you're an **engineering manager** tracking team productivity, a **product team** understanding feature adoption, or an **AI researcher** studying agent effectiveness, CatSyphon provides the analytics you need.
@@ -342,9 +367,9 @@ node --version      # Should be 20.x
 docker --version    # Any recent version
 ```
 
-## Quick Start
+## Detailed Setup Guide
 
-Get CatSyphon running in **5 minutes**!
+Step-by-step instructions if you need more guidance.
 
 ### Step 1: Clone and Configure
 
