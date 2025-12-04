@@ -617,6 +617,9 @@ class ClaudeCodeParser:
                     if tool_call:
                         tool_calls.append(tool_call)
 
+        # Extract code changes from this message's tool calls
+        code_changes = self._detect_code_changes(tool_calls)
+
         # Extract token usage (assistant messages only)
         usage = message.get("usage", {})
         token_usage = None
@@ -636,6 +639,7 @@ class ClaudeCodeParser:
             tool_calls=tool_calls,
             token_usage=token_usage,
             thinking_content=thinking_content,
+            code_changes=code_changes,
         )
 
     def _extract_tool_call(
