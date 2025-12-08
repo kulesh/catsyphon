@@ -5,6 +5,8 @@ Minimal CLI providing essential commands for automation and server management.
 For interactive features, use the web UI.
 """
 
+import time
+
 import typer
 from rich.console import Console
 
@@ -32,7 +34,8 @@ def ingest(
         help="Force re-ingest (skip file deduplication and replace existing conversations)",
     ),
     skip_duplicates: bool = typer.Option(
-        True, help="[DEPRECATED] Use --force instead. Skip files that have already been processed"
+        True,
+        help="[DEPRECATED] Use --force instead. Skip files that have already been processed",
     ),
     enable_tagging: bool = typer.Option(
         False, "--enable-tagging", help="Enable LLM-based tagging (uses OpenAI API)"
@@ -248,14 +251,19 @@ def ingest(
         console.print("[cyan]Linking orphaned agents to parents...[/cyan]")
         try:
             from catsyphon.db.connection import db_session
-            from catsyphon.pipeline.ingestion import link_orphaned_agents, _get_or_create_default_workspace
+            from catsyphon.pipeline.ingestion import (
+                link_orphaned_agents,
+                _get_or_create_default_workspace,
+            )
 
             with db_session() as session:
                 workspace_id = _get_or_create_default_workspace(session)
                 linked_count = link_orphaned_agents(session, workspace_id)
                 session.commit()
                 if linked_count > 0:
-                    console.print(f"[green]✓ Linked {linked_count} orphaned agents[/green]")
+                    console.print(
+                        f"[green]✓ Linked {linked_count} orphaned agents[/green]"
+                    )
                 else:
                     console.print("[green]✓ No orphaned agents to link[/green]")
         except Exception as link_error:
