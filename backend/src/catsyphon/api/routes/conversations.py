@@ -17,6 +17,8 @@ from catsyphon.api.schemas import (
     ConversationListItem,
     ConversationListResponse,
     MessageResponse,
+    PlanOperationResponse,
+    PlanResponse,
     RawLogInfo,
 )
 from catsyphon.config import settings
@@ -105,6 +107,49 @@ def _conversation_to_list_item(
     return item
 
 
+def _extract_plans_from_extra_data(extra_data: dict | None) -> list[PlanResponse]:
+    """Extract plan data from conversation's extra_data and convert to response schema."""
+    if not extra_data:
+        return []
+
+    plans_data = extra_data.get("plans", [])
+    plans = []
+
+    for plan_data in plans_data:
+        operations = [
+            PlanOperationResponse(
+                operation_type=op.get("operation_type", ""),
+                file_path=op.get("file_path", ""),
+                content=op.get("content"),
+                old_content=op.get("old_content"),
+                new_content=op.get("new_content"),
+                timestamp=(
+                    datetime.fromisoformat(op["timestamp"])
+                    if op.get("timestamp")
+                    else None
+                ),
+                message_index=op.get("message_index", 0),
+            )
+            for op in plan_data.get("operations", [])
+        ]
+
+        plans.append(
+            PlanResponse(
+                plan_file_path=plan_data.get("plan_file_path", ""),
+                initial_content=plan_data.get("initial_content"),
+                final_content=plan_data.get("final_content"),
+                status=plan_data.get("status", "active"),
+                iteration_count=plan_data.get("iteration_count", 1),
+                operations=operations,
+                entry_message_index=plan_data.get("entry_message_index"),
+                exit_message_index=plan_data.get("exit_message_index"),
+                related_agent_session_ids=plan_data.get("related_agent_session_ids", []),
+            )
+        )
+
+    return plans
+
+
 def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
     """Convert Conversation model to ConversationDetail schema."""
     # Convert to list item first
@@ -118,6 +163,9 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
     parent = None
     if hasattr(conv, 'parent_conversation') and conv.parent_conversation:
         parent = _conversation_to_list_item(conv.parent_conversation)
+
+    # Extract plan data from extra_data
+    plans = _extract_plans_from_extra_data(conv.extra_data)
 
     # Add related data
     return ConversationDetail(
@@ -136,6 +184,7 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
         ],
         children=children,
         parent=parent,
+        plans=plans,
     )
 
 

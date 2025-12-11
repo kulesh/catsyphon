@@ -83,6 +83,30 @@ def _find_parent_task_message(
     return None
 
 
+def _build_extra_data(parsed: ParsedConversation) -> dict[str, Any]:
+    """Build extra_data dictionary for a conversation.
+
+    Consolidates conversation metadata including session info and plans
+    into a single dictionary for JSONB storage.
+
+    Args:
+        parsed: The parsed conversation data
+
+    Returns:
+        Dictionary suitable for extra_data JSONB column
+    """
+    extra_data: dict[str, Any] = {
+        "session_id": parsed.session_id,
+        "git_branch": parsed.git_branch,
+        "working_directory": parsed.working_directory,
+        **parsed.metadata,
+    }
+    # Add plan data if present
+    if parsed.plans:
+        extra_data["plans"] = [plan.to_dict() for plan in parsed.plans]
+    return extra_data
+
+
 def _resolve_project_and_developer(
     session: Session,
     workspace_id: UUID,
@@ -748,12 +772,7 @@ def ingest_conversation(
                     )
                     existing_conversation.iteration_count = 1
                     existing_conversation.tags = tags or {}
-                    existing_conversation.extra_data = {
-                        "session_id": parsed.session_id,
-                        "git_branch": parsed.git_branch,
-                        "working_directory": parsed.working_directory,
-                        **parsed.metadata,
-                    }
+                    existing_conversation.extra_data = _build_extra_data(parsed)
 
                     # Use existing conversation for the rest of the ingestion
                     conversation = existing_conversation
@@ -923,12 +942,7 @@ def ingest_conversation(
                 tags=tags or {},
                 context_semantics=parsed.context_semantics,
                 agent_metadata=parsed.agent_metadata,
-                extra_data={
-                    "session_id": parsed.session_id,
-                    "git_branch": parsed.git_branch,
-                    "working_directory": parsed.working_directory,
-                    **parsed.metadata,
-                },
+                extra_data=_build_extra_data(parsed),
             )
             logger.info(
                 f"Created conversation: {conversation.id} (success={success_value})"

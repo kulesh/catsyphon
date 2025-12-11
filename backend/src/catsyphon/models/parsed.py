@@ -34,6 +34,60 @@ class CodeChange:
 
 
 @dataclass
+class PlanOperation:
+    """A single operation on a plan file."""
+
+    operation_type: str  # 'create', 'edit', 'read'
+    file_path: str
+    content: Optional[str] = None  # Full content for creates
+    old_content: Optional[str] = None  # For edits
+    new_content: Optional[str] = None  # For edits
+    timestamp: Optional[datetime] = None
+    message_index: int = 0  # Index in conversation messages
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSONB storage."""
+        return {
+            "operation_type": self.operation_type,
+            "file_path": self.file_path,
+            "content": self.content,
+            "old_content": self.old_content,
+            "new_content": self.new_content,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "message_index": self.message_index,
+        }
+
+
+@dataclass
+class PlanInfo:
+    """Extracted plan metadata from a conversation."""
+
+    plan_file_path: str
+    initial_content: Optional[str] = None  # First written version
+    final_content: Optional[str] = None  # Latest version after edits
+    status: str = "active"  # 'active', 'approved', 'abandoned'
+    iteration_count: int = 1  # Number of edits to the plan
+    operations: list[PlanOperation] = field(default_factory=list)
+    entry_message_index: Optional[int] = None  # Message where plan mode started
+    exit_message_index: Optional[int] = None  # Message where plan mode exited
+    related_agent_session_ids: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSONB storage."""
+        return {
+            "plan_file_path": self.plan_file_path,
+            "initial_content": self.initial_content,
+            "final_content": self.final_content,
+            "status": self.status,
+            "iteration_count": self.iteration_count,
+            "operations": [op.to_dict() for op in self.operations],
+            "entry_message_index": self.entry_message_index,
+            "exit_message_index": self.exit_message_index,
+            "related_agent_session_ids": self.related_agent_session_ids,
+        }
+
+
+@dataclass
 class ParsedMessage:
     """Single message in a conversation."""
 
@@ -69,6 +123,9 @@ class ParsedConversation:
     parent_session_id: Optional[str] = None  # Parent session ID for agent/tool conversations
     context_semantics: dict = field(default_factory=dict)  # Context sharing behavior
     agent_metadata: dict = field(default_factory=dict)  # Agent-specific metadata
+
+    # Plan tracking
+    plans: list[PlanInfo] = field(default_factory=list)  # Extracted plan data
 
 
 @dataclass
