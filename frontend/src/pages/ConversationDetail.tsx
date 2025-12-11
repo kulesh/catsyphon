@@ -5,13 +5,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap } from 'lucide-react';
+import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight } from 'lucide-react';
 import { getConversation, getCanonicalNarrative, tagConversation, getConversationInsights } from '@/lib/api';
 import { groupFilesByPath } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
+import { PlanViewer, PlanMarker, type PlanMarkerType } from '@/components';
 
-type Tab = 'overview' | 'insights' | 'messages' | 'canonical';
+type Tab = 'overview' | 'insights' | 'messages' | 'canonical' | 'plan';
 
 export default function ConversationDetail() {
   const { id } = useParams<{ id: string }>();
@@ -44,12 +45,14 @@ export default function ConversationDetail() {
     staleTime: 60000 * 5, // Cache for 5 minutes
   });
 
-  // Tab configuration
+  // Tab configuration - Plan tab only shown if conversation has plans
+  const hasPlan = conversation?.plans && conversation.plans.length > 0;
   const tabs = [
     { id: 'overview' as Tab, label: 'Overview', icon: Info },
     { id: 'insights' as Tab, label: 'Insights', icon: Lightbulb },
     { id: 'messages' as Tab, label: 'Messages', icon: MessageSquare },
     { id: 'canonical' as Tab, label: 'Canonical', icon: FileText },
+    ...(hasPlan ? [{ id: 'plan' as Tab, label: 'Plan', icon: ClipboardList }] : []),
   ];
 
   // Group files by path for collapsible display
@@ -393,6 +396,14 @@ export default function ConversationDetail() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Plans Section */}
+      {conversation.plans && conversation.plans.length > 0 && (
+        <PlansSection
+          plans={conversation.plans}
+          onViewPlan={() => setActiveTab('plan')}
+        />
       )}
 
       {/* Files Touched Section */}
@@ -912,11 +923,44 @@ export default function ConversationDetail() {
               No messages in this conversation
             </p>
           ) : (
-            conversation.messages.map((message) => (
+            conversation.messages.map((message) => {
+              // Determine plan markers for this message
+              const planMarkers: { type: PlanMarkerType; planIndex: number }[] = [];
+              if (conversation.plans) {
+                conversation.plans.forEach((plan, planIdx) => {
+                  if (plan.entry_message_index === message.sequence) {
+                    planMarkers.push({ type: 'entry', planIndex: planIdx });
+                  }
+                  if (plan.exit_message_index === message.sequence) {
+                    planMarkers.push({ type: plan.status === 'approved' ? 'approved' : 'abandoned', planIndex: planIdx });
+                  }
+                  if (plan.operations?.some(op => op.message_index === message.sequence)) {
+                    // Only add edit marker if this isn't the entry message (which already has create)
+                    if (plan.entry_message_index !== message.sequence) {
+                      planMarkers.push({ type: 'edit', planIndex: planIdx });
+                    }
+                  }
+                });
+              }
+
+              return (
               <div
                 key={message.id}
                 className="border border-border rounded-lg p-4 bg-background"
               >
+                {/* Plan Markers */}
+                {planMarkers.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {planMarkers.map((marker, idx) => (
+                      <PlanMarker
+                        key={idx}
+                        type={marker.type}
+                        onClick={() => setActiveTab('plan')}
+                      />
+                    ))}
+                  </div>
+                )}
+
                 {/* Message Header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
@@ -1016,7 +1060,8 @@ export default function ConversationDetail() {
                   </details>
                 )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -1057,7 +1102,107 @@ export default function ConversationDetail() {
             ) : null}
           </div>
         )}
+
+        {/* Plan Tab */}
+        {activeTab === 'plan' && conversation.plans && conversation.plans.length > 0 && (
+          <div className="bg-card border border-border rounded-lg p-6">
+            <PlanViewer
+              plans={conversation.plans}
+              onMessageClick={(messageIndex) => {
+                setActiveTab('messages');
+                // Note: Could add scroll-to-message functionality here
+              }}
+            />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Plans Section for Overview tab - shows plan summary with link to Plan tab
+ */
+function PlansSection({
+  plans,
+  onViewPlan,
+}: {
+  plans: NonNullable<import('../types/api').ConversationDetail['plans']>;
+  onViewPlan: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30';
+      case 'active':
+        return 'bg-blue-400/10 text-blue-400 border-blue-400/30';
+      case 'abandoned':
+        return 'bg-slate-400/10 text-slate-400 border-slate-400/30';
+      default:
+        return 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30';
+    }
+  };
+
+  const getBasename = (filePath: string) => {
+    const parts = filePath.split('/');
+    return parts[parts.length - 1] || filePath;
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-6 mb-6">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between mb-4 text-left"
+      >
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-cyan-400" />
+          Plans
+          <span className="text-sm font-normal text-muted-foreground">
+            ({plans.length} plan{plans.length !== 1 ? 's' : ''})
+          </span>
+        </h2>
+        <ChevronRight
+          className={`h-5 w-5 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+      </button>
+
+      {expanded && (
+        <div className="space-y-3">
+          {plans.map((plan, idx) => (
+            <div
+              key={idx}
+              className="border border-border rounded-md p-4 bg-background"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-sm truncate">
+                      {getBasename(plan.plan_file_path)}
+                    </span>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wide border ${getStatusStyle(plan.status)}`}
+                    >
+                      {plan.status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {plan.iteration_count} iteration{plan.iteration_count !== 1 ? 's' : ''} &middot;{' '}
+                    {plan.operations.length} operation{plan.operations.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={onViewPlan}
+                  className="shrink-0 px-3 py-1.5 text-xs font-medium rounded bg-cyan-400/10 text-cyan-400 hover:bg-cyan-400/20 transition-colors"
+                >
+                  View Plan
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

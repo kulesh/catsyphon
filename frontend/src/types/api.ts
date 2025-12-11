@@ -116,11 +116,36 @@ export interface RawLogInfo {
   created_at: string;
 }
 
+// ===== Plan Types =====
+
+export interface PlanOperation {
+  operation_type: string; // 'create' | 'edit' | 'read'
+  file_path: string;
+  content?: string;
+  old_content?: string;
+  new_content?: string;
+  timestamp?: string;
+  message_index: number;
+}
+
+export interface PlanResponse {
+  plan_file_path: string;
+  initial_content?: string;
+  final_content?: string;
+  status: string; // 'active' | 'approved' | 'abandoned'
+  iteration_count: number;
+  operations: PlanOperation[];
+  entry_message_index?: number;
+  exit_message_index?: number;
+  related_agent_session_ids: string[];
+}
+
 export interface ConversationDetail extends ConversationListItem {
   messages: MessageResponse[];
   epochs: EpochResponse[];
   files_touched: FileTouchedResponse[];
   raw_logs: RawLogInfo[];
+  plans: PlanResponse[];
 
   // Hierarchical relationships (Phase 2: Epic 7u2)
   children: ConversationListItem[];

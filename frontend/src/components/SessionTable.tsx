@@ -3,7 +3,7 @@
  */
 
 import { format } from 'date-fns';
-import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, ClipboardList } from 'lucide-react';
 import { StatusBadge } from './StatusBadge';
 import type { ConversationListItem, ProjectSession } from '@/types/api';
 
@@ -311,6 +311,38 @@ export const renderHelpers = {
         title="Session failed to achieve its goal"
       >
         ✗
+      </span>
+    );
+  },
+
+  /** Format plan indicator - shows if session has plans */
+  planIndicator: (session: Session) => {
+    const conv = session as ConversationListItem;
+    // Plans are stored in extra_data.plans
+    const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+
+    if (!plans || plans.length === 0) {
+      return null;
+    }
+
+    // Get the primary status (first plan's status, or approved if any are approved)
+    const hasApproved = plans.some((p) => p.status === 'approved');
+    const hasActive = plans.some((p) => p.status === 'active');
+    const status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
+
+    const statusStyles = {
+      approved: 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400',
+      active: 'bg-blue-400/10 border-blue-400/30 text-blue-400',
+      abandoned: 'bg-slate-400/10 border-slate-400/30 text-slate-400',
+    };
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[10px] uppercase tracking-wide ${statusStyles[status]}`}
+        title={`${plans.length} plan${plans.length !== 1 ? 's' : ''} (${status})`}
+      >
+        <ClipboardList className="w-3 h-3" />
+        {plans.length > 1 && <span>{plans.length}</span>}
       </span>
     );
   },
