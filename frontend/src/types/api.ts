@@ -103,6 +103,7 @@ export interface ConversationListItem {
   files_count: number;
   children_count: number;
   depth_level: number; // Hierarchy depth: 0 for parent, 1 for child
+  plan_count: number; // Number of plans in this conversation
 
   // Related objects (optional)
   project?: ProjectResponse;
@@ -176,6 +177,11 @@ export interface OverviewStats {
   total_main_conversations: number;
   total_agent_conversations: number;
   conversations_by_type: Record<string, number>;
+
+  // Plan statistics
+  total_plans: number;
+  plans_by_status: Record<string, number>; // approved, active, abandoned
+  conversations_with_plans: number;
 }
 
 export interface AgentPerformanceStats {

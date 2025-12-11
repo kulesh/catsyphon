@@ -50,6 +50,14 @@ def _get_default_workspace_id(session: Session) -> Optional[UUID]:
     return workspaces[0].id
 
 
+def _get_plan_count(conv: Conversation) -> int:
+    """Get the number of plans from conversation's extra_data."""
+    if not conv.extra_data:
+        return 0
+    plans = conv.extra_data.get("plans", [])
+    return len(plans) if isinstance(plans, list) else 0
+
+
 def _conversation_to_list_item(
     conv: Conversation,
     message_count: Optional[int] = None,
@@ -103,6 +111,9 @@ def _conversation_to_list_item(
     # Depth level for hierarchical display
     if depth_level is not None:
         item.depth_level = depth_level
+
+    # Plan count from extra_data
+    item.plan_count = _get_plan_count(conv)
 
     return item
 

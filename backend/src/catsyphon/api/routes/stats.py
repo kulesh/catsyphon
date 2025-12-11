@@ -154,6 +154,33 @@ async def get_overview_stats(
         workspace_id=workspace_id, start_date=seven_days_ago
     )
 
+    # Plan statistics (extracted from extra_data JSONB)
+    # Count conversations with plans and aggregate plan data
+    total_plans = 0
+    plans_by_status: dict[str, int] = {}
+    conversations_with_plans = 0
+
+    # Query all conversations with extra_data and filter in Python
+    # This is database-agnostic (works with SQLite and PostgreSQL)
+    convs_with_extra_data_query = (
+        session.query(Conversation.extra_data)
+        .filter(
+            Conversation.workspace_id == workspace_id,
+            Conversation.extra_data.isnot(None),
+        )
+    )
+
+    for (extra_data,) in convs_with_extra_data_query.all():
+        if not extra_data:
+            continue
+        plans = extra_data.get("plans", [])
+        if plans and isinstance(plans, list) and len(plans) > 0:
+            conversations_with_plans += 1
+            total_plans += len(plans)
+            for plan in plans:
+                status = plan.get("status", "active")
+                plans_by_status[status] = plans_by_status.get(status, 0) + 1
+
     # Success rate (workspace scoped)
     total_with_success = (
         session.query(func.count(Conversation.id))
@@ -186,4 +213,7 @@ async def get_overview_stats(
         total_main_conversations=total_main_conversations,
         total_agent_conversations=total_agent_conversations,
         conversations_by_type=conversations_by_type,
+        total_plans=total_plans,
+        plans_by_status=plans_by_status,
+        conversations_with_plans=conversations_with_plans,
     )

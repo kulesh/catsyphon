@@ -318,16 +318,41 @@ export const renderHelpers = {
   /** Format plan indicator - shows if session has plans */
   planIndicator: (session: Session) => {
     const conv = session as ConversationListItem;
-    // Plans are stored in extra_data.plans
-    const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+    // Use plan_count from API response (more efficient than extra_data lookup)
+    const planCount = conv.plan_count ?? 0;
 
-    if (!plans || plans.length === 0) {
-      return null;
+    if (planCount === 0) {
+      // Fall back to extra_data.plans for backward compatibility
+      const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+      if (!plans || plans.length === 0) {
+        return null;
+      }
+      // Use extra_data path for status detection
+      const hasApproved = plans.some((p) => p.status === 'approved');
+      const hasActive = plans.some((p) => p.status === 'active');
+      const status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
+
+      const statusStyles = {
+        approved: 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400',
+        active: 'bg-blue-400/10 border-blue-400/30 text-blue-400',
+        abandoned: 'bg-slate-400/10 border-slate-400/30 text-slate-400',
+      };
+
+      return (
+        <span
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[10px] uppercase tracking-wide ${statusStyles[status]}`}
+          title={`${plans.length} plan${plans.length !== 1 ? 's' : ''} (${status})`}
+        >
+          <ClipboardList className="w-3 h-3" />
+          {plans.length > 1 && <span>{plans.length}</span>}
+        </span>
+      );
     }
 
-    // Get the primary status (first plan's status, or approved if any are approved)
-    const hasApproved = plans.some((p) => p.status === 'approved');
-    const hasActive = plans.some((p) => p.status === 'active');
+    // Use plan_count for display, but still need extra_data for status
+    const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+    const hasApproved = plans?.some((p) => p.status === 'approved') ?? false;
+    const hasActive = plans?.some((p) => p.status === 'active') ?? false;
     const status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
 
     const statusStyles = {
@@ -339,10 +364,10 @@ export const renderHelpers = {
     return (
       <span
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[10px] uppercase tracking-wide ${statusStyles[status]}`}
-        title={`${plans.length} plan${plans.length !== 1 ? 's' : ''} (${status})`}
+        title={`${planCount} plan${planCount !== 1 ? 's' : ''} (${status})`}
       >
         <ClipboardList className="w-3 h-3" />
-        {plans.length > 1 && <span>{plans.length}</span>}
+        {planCount > 1 && <span>{planCount}</span>}
       </span>
     );
   },

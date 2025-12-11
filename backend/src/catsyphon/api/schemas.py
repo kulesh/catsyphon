@@ -297,6 +297,7 @@ class ConversationListItem(BaseModel):
     files_count: int = 0
     children_count: int = 0  # Number of child conversations (agents, etc.)
     depth_level: int = 0  # Hierarchy depth: 0 for parent, 1 for child
+    plan_count: int = 0  # Number of plans in this conversation
 
     # Related objects (optional, for joins)
     project: Optional[ProjectResponse] = None
@@ -368,6 +369,13 @@ class OverviewStats(BaseModel):
     conversations_by_type: dict[str, int] = Field(
         default_factory=dict
     )  # main, agent, mcp, etc.
+
+    # Plan statistics
+    total_plans: int = 0  # Total number of plans across all conversations
+    plans_by_status: dict[str, int] = Field(
+        default_factory=dict
+    )  # approved, active, abandoned
+    conversations_with_plans: int = 0  # Conversations that have at least one plan
 
 
 class AgentPerformanceStats(BaseModel):
