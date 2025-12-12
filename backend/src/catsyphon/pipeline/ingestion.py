@@ -13,12 +13,10 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from catsyphon.canonicalization import CanonicalType, Canonicalizer
+from catsyphon.db.connection import db_session
 from catsyphon.db.repositories import (
-    CanonicalRepository,
     ConversationRepository,
     DeveloperRepository,
     EpochRepository,
@@ -32,13 +30,10 @@ from catsyphon.exceptions import DuplicateFileError
 from catsyphon.models.db import Conversation, Epoch, FileTouched, Message, RawLog
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.incremental import (
-    ChangeType,
     IncrementalParseResult,
-    detect_file_change_type,
 )
 from catsyphon.parsers.types import ParseResult
 from catsyphon.utils.hashing import calculate_file_hash
-from catsyphon.db.connection import db_session
 
 logger = logging.getLogger(__name__)
 
@@ -158,9 +153,7 @@ def _resolve_project_and_developer(
             directory_path=working_directory, workspace_id=workspace_id
         )
         project_id = project.id
-        logger.debug(
-            f"Auto-detected project: {project.name} from {working_directory}"
-        )
+        logger.debug(f"Auto-detected project: {project.name} from {working_directory}")
     elif file_path:
         # Fallback: Try to extract project from file path
         # Claude Code logs are typically in ~/.claude/projects/-path-to-project/
@@ -606,7 +599,9 @@ def ingest_conversation(
 
     # Initialize metrics tracker and job
     metrics = stage_metrics or StageMetrics()
-    metadata_fields: dict[str, Any] = stage_metadata or {}  # Non-numeric metadata fields
+    metadata_fields: dict[str, Any] = (
+        stage_metadata or {}
+    )  # Non-numeric metadata fields
 
     _merge_metrics(metrics, metadata_fields, parse_metrics)
 
@@ -736,9 +731,14 @@ def ingest_conversation(
                     # Delete child conversations if this is a parent conversation
                     # This prevents orphaned children when re-ingesting a file that now has fewer sub-agents
                     if existing_conversation.parent_conversation_id is None:
-                        child_conversations = session.query(Conversation).filter(
-                            Conversation.parent_conversation_id == existing_conversation.id
-                        ).all()
+                        child_conversations = (
+                            session.query(Conversation)
+                            .filter(
+                                Conversation.parent_conversation_id
+                                == existing_conversation.id
+                            )
+                            .all()
+                        )
 
                         if child_conversations:
                             logger.info(
@@ -905,9 +905,7 @@ def ingest_conversation(
                     if parsed.agent_metadata is None:
                         parsed.agent_metadata = {}
                     parsed.agent_metadata["parent_message_id"] = str(parent_message_id)
-                    logger.info(
-                        f"Found spawning Task message: {parent_message_id}"
-                    )
+                    logger.info(f"Found spawning Task message: {parent_message_id}")
                 else:
                     logger.debug(
                         "No Task tool call found in parent conversation before agent start time"
@@ -1471,7 +1469,9 @@ def ingest_messages_incremental(
 
     # Initialize stage metrics tracker
     metrics = stage_metrics or StageMetrics()
-    metadata_fields: dict[str, Any] = stage_metadata or {}  # Non-numeric metadata fields
+    metadata_fields: dict[str, Any] = (
+        stage_metadata or {}
+    )  # Non-numeric metadata fields
 
     # Merge parse metrics if provided by caller
     _merge_metrics(metrics, metadata_fields, parse_metrics)
@@ -1668,7 +1668,11 @@ def ingest_messages_incremental(
             job_id=tracker.job.id,
             source_type=source_type,
             source_config_id=source_config_id,
-            file_path=Path(raw_log.file_path) if "raw_log" in locals() and raw_log and raw_log.file_path else None,
+            file_path=(
+                Path(raw_log.file_path)
+                if "raw_log" in locals() and raw_log and raw_log.file_path
+                else None
+            ),
             error_message=error_message,
             started_at=tracker.start_time,
             processing_time_ms=tracker.job.processing_time_ms or 0,

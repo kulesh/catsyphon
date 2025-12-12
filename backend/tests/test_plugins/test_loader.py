@@ -341,7 +341,7 @@ class TestPluginLoader:
         with patch("importlib.metadata.entry_points") as mock_entry_points:
             mock_entry_points.return_value = [mock_ep]
 
-            manifests = loader.discover_plugins()
+            loader.discover_plugins()
 
             # Should have both parsers, but test-parser-1 from entry point
             manifest = loader.get_manifest("test-parser-1")

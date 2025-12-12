@@ -6,8 +6,8 @@ and other components.
 """
 
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 # Force SQLite for tests so helpers that rely on the default db_session don't try to
 # reach a Postgres instance (e.g., failure tracking, daemon manager).
@@ -19,10 +19,12 @@ os.environ.setdefault(
 
 # Reload database connection module to pick up the override early
 import importlib
+
 import catsyphon.db.connection as db_connection  # type: ignore
 
 importlib.reload(db_connection)
 
+# ruff: noqa: E402 - imports must be after db_connection reload
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Generator

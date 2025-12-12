@@ -42,7 +42,9 @@ class TestE2EHierarchyIngestion:
         """
         # Find a test samples subdirectory
         if not TEST_SAMPLES_BASE.exists():
-            pytest.skip("Test samples directory not found (not included in public repo)")
+            pytest.skip(
+                "Test samples directory not found (not included in public repo)"
+            )
 
         # Look for any subdirectory with .jsonl files
         test_samples_dir = None
@@ -121,7 +123,7 @@ class TestE2EHierarchyIngestion:
         ingestion_time = time.time() - start_time
 
         # Print ingestion summary
-        print(f"\n📊 Ingestion Summary:")
+        print("\n📊 Ingestion Summary:")
         print(f"  Total files: {len(jsonl_files)}")
         print(f"  Successful: {successful_ingestions}")
         print(f"  Failed: {failed_ingestions}")
@@ -132,20 +134,30 @@ class TestE2EHierarchyIngestion:
         # Validation 1: Verify counts
         total_files = len(jsonl_files)
         assert successful_ingestions > 0, "Expected at least some successful ingestions"
-        assert successful_ingestions == total_files, f"Expected all {total_files} files to ingest successfully, got {successful_ingestions}"
-        assert len(agent_conversations) >= 2, f"Expected at least 2 agent conversations, got {len(agent_conversations)}"
-        assert len(main_conversations) >= 1, f"Expected at least 1 main conversation, got {len(main_conversations)}"
+        assert (
+            successful_ingestions == total_files
+        ), f"Expected all {total_files} files to ingest successfully, got {successful_ingestions}"
+        assert (
+            len(agent_conversations) >= 2
+        ), f"Expected at least 2 agent conversations, got {len(agent_conversations)}"
+        assert (
+            len(main_conversations) >= 1
+        ), f"Expected at least 1 main conversation, got {len(main_conversations)}"
 
         # Phase 2: Link orphaned agents
-        print(f"\n🔗 Phase 2: Linking orphaned agents...")
+        print("\n🔗 Phase 2: Linking orphaned agents...")
         linking_start = time.time()
 
         # Count orphans before linking
-        orphans_before = db_session.query(Conversation).filter(
-            Conversation.workspace_id == workspace.id,
-            Conversation.conversation_type == "agent",
-            Conversation.parent_conversation_id.is_(None),
-        ).count()
+        orphans_before = (
+            db_session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == workspace.id,
+                Conversation.conversation_type == "agent",
+                Conversation.parent_conversation_id.is_(None),
+            )
+            .count()
+        )
 
         print(f"  Orphaned agents before linking: {orphans_before}")
 
@@ -158,11 +170,15 @@ class TestE2EHierarchyIngestion:
         print(f"  Linked {linked_count} orphaned agents in {linking_time:.2f}s")
 
         # Count orphans after linking
-        orphans_after = db_session.query(Conversation).filter(
-            Conversation.workspace_id == workspace.id,
-            Conversation.conversation_type == "agent",
-            Conversation.parent_conversation_id.is_(None),
-        ).count()
+        orphans_after = (
+            db_session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == workspace.id,
+                Conversation.conversation_type == "agent",
+                Conversation.parent_conversation_id.is_(None),
+            )
+            .count()
+        )
 
         print(f"  Orphaned agents after linking: {orphans_after}")
 
@@ -171,7 +187,7 @@ class TestE2EHierarchyIngestion:
         assert orphans_after < orphans_before, "Expected fewer orphans after linking"
 
         # Phase 3: Detailed hierarchy validation
-        print(f"\n🔍 Phase 3: Validating hierarchy...")
+        print("\n🔍 Phase 3: Validating hierarchy...")
 
         # Get all conversations with relations
         all_conversations = conv_repo.get_all()
@@ -199,16 +215,20 @@ class TestE2EHierarchyIngestion:
                     assert (
                         agent.parent_conversation_id == parent.id
                     ), f"Agent {agent.id} should be linked to parent {parent.id}"
-                    print(f"  ✓ Agent {agent.extra_data.get('session_id')} → Parent {parent.extra_data.get('session_id')}")
+                    print(
+                        f"  ✓ Agent {agent.extra_data.get('session_id')} → Parent {parent.extra_data.get('session_id')}"
+                    )
                 else:
                     # Parent doesn't exist (incomplete test data)
                     assert (
                         agent.parent_conversation_id is None
                     ), f"Agent {agent.id} has parent_id but parent doesn't exist"
-                    print(f"  ⊘ Agent {agent.extra_data.get('session_id')} → Parent not found (expected for incomplete data)")
+                    print(
+                        f"  ⊘ Agent {agent.extra_data.get('session_id')} → Parent not found (expected for incomplete data)"
+                    )
 
         # Validation 3: Data integrity checks
-        print(f"\n🔬 Phase 4: Data integrity checks...")
+        print("\n🔬 Phase 4: Data integrity checks...")
 
         # Check for duplicate session_id + conversation_type combinations
         session_type_pairs = {}
@@ -222,7 +242,7 @@ class TestE2EHierarchyIngestion:
                     )
                 session_type_pairs[key] = conv.id
 
-        print(f"  ✓ No duplicate session_id + conversation_type pairs")
+        print("  ✓ No duplicate session_id + conversation_type pairs")
 
         # Check that all agents have agent_metadata
         for agent in agent_conversations:
@@ -231,19 +251,21 @@ class TestE2EHierarchyIngestion:
                 agent.agent_metadata, dict
             ), f"Agent {agent.id} agent_metadata is not a dict"
 
-        print(f"  ✓ All agents have valid agent_metadata")
+        print("  ✓ All agents have valid agent_metadata")
 
         # Check that all agents have context_semantics
         for agent in agent_conversations:
-            assert agent.context_semantics, f"Agent {agent.id} missing context_semantics"
+            assert (
+                agent.context_semantics
+            ), f"Agent {agent.id} missing context_semantics"
             assert isinstance(
                 agent.context_semantics, dict
             ), f"Agent {agent.id} context_semantics is not a dict"
 
-        print(f"  ✓ All agents have valid context_semantics")
+        print("  ✓ All agents have valid context_semantics")
 
         # Performance benchmarks
-        print(f"\n⚡ Performance Benchmarks:")
+        print("\n⚡ Performance Benchmarks:")
         print(f"  Total time: {ingestion_time + linking_time:.2f}s")
         print(f"  Ingestion time: {ingestion_time:.2f}s")
         print(f"  Linking time: {linking_time:.2f}s")
@@ -251,22 +273,34 @@ class TestE2EHierarchyIngestion:
         print(f"  Average time per file: {ingestion_time / successful_ingestions:.3f}s")
 
         # Final summary
-        print(f"\n✅ E2E Test Summary:")
+        print("\n✅ E2E Test Summary:")
         print(f"  Total conversations: {len(all_conversations)}")
-        print(f"  Main conversations: {len([c for c in all_conversations if c.conversation_type == 'main'])}")
-        print(f"  Agent conversations: {len([c for c in all_conversations if c.conversation_type == 'agent'])}")
-        print(f"  Linked agents: {len([a for a in agent_conversations if a.parent_conversation_id])}")
+        print(
+            f"  Main conversations: {len([c for c in all_conversations if c.conversation_type == 'main'])}"
+        )
+        print(
+            f"  Agent conversations: {len([c for c in all_conversations if c.conversation_type == 'agent'])}"
+        )
+        print(
+            f"  Linked agents: {len([a for a in agent_conversations if a.parent_conversation_id])}"
+        )
         print(f"  Orphaned agents: {orphans_after}")
 
         # Final assertions
         total_conversations = len(all_conversations)
-        assert total_conversations >= successful_ingestions, "Conversation count mismatch"
+        assert (
+            total_conversations >= successful_ingestions
+        ), "Conversation count mismatch"
 
-        linked_agents = len([a for a in agent_conversations if a.parent_conversation_id])
-        print(f"\n🎉 E2E test completed successfully!")
+        linked_agents = len(
+            [a for a in agent_conversations if a.parent_conversation_id]
+        )
+        print("\n🎉 E2E test completed successfully!")
         print(f"  Ingested {successful_ingestions} conversations")
         print(f"  Linked {linked_agents} agent conversations to parents")
-        print(f"  {orphans_after} orphaned agents remaining (expected for incomplete test data)")
+        print(
+            f"  {orphans_after} orphaned agents remaining (expected for incomplete test data)"
+        )
 
     def test_incremental_parsing_performance(self, db_session: Session):
         """
@@ -280,7 +314,9 @@ class TestE2EHierarchyIngestion:
         """
         # Check for test samples
         if not TEST_SAMPLES_BASE.exists():
-            pytest.skip("Test samples directory not found (not included in public repo)")
+            pytest.skip(
+                "Test samples directory not found (not included in public repo)"
+            )
 
         # Look for any subdirectory with .jsonl files
         test_samples_dir = None
@@ -294,7 +330,7 @@ class TestE2EHierarchyIngestion:
 
         # Setup
         workspace_repo = WorkspaceRepository(db_session)
-        conv_repo = ConversationRepository(db_session)
+        ConversationRepository(db_session)
         registry = get_default_registry()
 
         from catsyphon.db.repositories import OrganizationRepository
@@ -303,14 +339,17 @@ class TestE2EHierarchyIngestion:
         org = org_repo.create(name="test-org-2", slug="test-org-2")
         db_session.flush()
 
-        workspace = workspace_repo.create(
-            name="Perf Test Workspace", slug="perf-test-workspace", organization_id=org.id
+        workspace_repo.create(
+            name="Perf Test Workspace",
+            slug="perf-test-workspace",
+            organization_id=org.id,
         )
         db_session.flush()
 
         # Find a main conversation file (not agent)
         jsonl_files = [
-            f for f in test_samples_dir.glob("*.jsonl")
+            f
+            for f in test_samples_dir.glob("*.jsonl")
             if not f.name.startswith("agent-")
         ]
 
@@ -359,7 +398,7 @@ class TestE2EHierarchyIngestion:
         assert conversation2.id == conversation.id, "Should reuse same conversation"
 
         # Performance comparison
-        print(f"\n⚡ Incremental Parsing Performance:")
+        print("\n⚡ Incremental Parsing Performance:")
         print(f"  First parse (full): {first_parse_time:.3f}s")
         print(f"  Second parse (incremental): {second_parse_time:.3f}s")
 
@@ -367,6 +406,6 @@ class TestE2EHierarchyIngestion:
             speedup = first_parse_time / second_parse_time
             print(f"  Speedup: {speedup:.1f}x faster")
         else:
-            print(f"  Note: Incremental parsing may not show speedup for small files")
+            print("  Note: Incremental parsing may not show speedup for small files")
 
-        print(f"\n✅ Incremental parsing test completed")
+        print("\n✅ Incremental parsing test completed")

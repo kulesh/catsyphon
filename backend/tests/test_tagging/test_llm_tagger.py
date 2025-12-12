@@ -73,9 +73,7 @@ class TestLLMTagger:
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
         mock_response.usage = Mock(
-            prompt_tokens=150,
-            completion_tokens=50,
-            total_tokens=200
+            prompt_tokens=150, completion_tokens=50, total_tokens=200
         )
         mock_response.choices = [
             Mock(
@@ -89,7 +87,7 @@ class TestLLMTagger:
                         "problems": []
                     }"""
                 ),
-                finish_reason="stop"
+                finish_reason="stop",
             )
         ]
 
@@ -112,7 +110,7 @@ class TestLLMTagger:
         assert metrics["llm_total_tokens"] == 200
         assert metrics["llm_model"] == "gpt-4o-mini"
         assert metrics["llm_finish_reason"] == "stop"
-        assert metrics["llm_cache_hit"] == False
+        assert metrics["llm_cache_hit"] is False
         assert "llm_tagging_ms" in metrics
         assert "llm_cost_usd" in metrics
         assert "authentication" in tags.features
@@ -138,7 +136,9 @@ class TestLLMTagger:
         # Mock OpenAI response with invalid intent
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [
             Mock(
                 message=Mock(
@@ -173,7 +173,9 @@ class TestLLMTagger:
         """Test tagging with invalid outcome value."""
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [
             Mock(
                 message=Mock(
@@ -208,7 +210,9 @@ class TestLLMTagger:
         """Test tagging with invalid sentiment value."""
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [
             Mock(
                 message=Mock(
@@ -244,7 +248,9 @@ class TestLLMTagger:
         # Mock response with out-of-range sentiment score
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [
             Mock(
                 message=Mock(
@@ -279,7 +285,9 @@ class TestLLMTagger:
         """Test that features list is truncated to max 5 items."""
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [
             Mock(
                 message=Mock(
@@ -314,7 +322,9 @@ class TestLLMTagger:
         """Test that problems list is truncated to max 5 items."""
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [
             Mock(
                 message=Mock(
@@ -369,7 +379,9 @@ class TestLLMTagger:
         """Test fallback behavior when OpenAI returns empty response."""
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [Mock(message=Mock(content=None))]
 
         mock_client = Mock()
@@ -393,7 +405,9 @@ class TestLLMTagger:
         """Test fallback behavior when OpenAI returns invalid JSON."""
         mock_response = Mock()
         mock_response.model = "gpt-4o-mini"
-        mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        mock_response.usage = Mock(
+            prompt_tokens=100, completion_tokens=50, total_tokens=150
+        )
         mock_response.choices = [Mock(message=Mock(content="invalid json {{{"))]
 
         mock_client = Mock()
@@ -483,7 +497,9 @@ class TestLLMTagger:
         for intent in valid_intents:
             mock_response = Mock()
             mock_response.model = "gpt-4o-mini"
-            mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+            mock_response.usage = Mock(
+                prompt_tokens=100, completion_tokens=50, total_tokens=150
+            )
             mock_response.choices = [
                 Mock(
                     message=Mock(
@@ -519,7 +535,9 @@ class TestLLMTagger:
         for outcome in valid_outcomes:
             mock_response = Mock()
             mock_response.model = "gpt-4o-mini"
-            mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+            mock_response.usage = Mock(
+                prompt_tokens=100, completion_tokens=50, total_tokens=150
+            )
             mock_response.choices = [
                 Mock(
                     message=Mock(
@@ -555,7 +573,9 @@ class TestLLMTagger:
         for sentiment in valid_sentiments:
             mock_response = Mock()
             mock_response.model = "gpt-4o-mini"
-            mock_response.usage = Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+            mock_response.usage = Mock(
+                prompt_tokens=100, completion_tokens=50, total_tokens=150
+            )
             mock_response.choices = [
                 Mock(
                     message=Mock(

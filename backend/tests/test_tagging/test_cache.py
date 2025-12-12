@@ -71,7 +71,7 @@ class TestTagCache:
         new_cache_dir = temp_cache_dir / "new_cache"
         assert not new_cache_dir.exists()
 
-        cache = TagCache(cache_dir=new_cache_dir, ttl_days=30)
+        TagCache(cache_dir=new_cache_dir, ttl_days=30)
         assert new_cache_dir.exists()
         assert new_cache_dir.is_dir()
 

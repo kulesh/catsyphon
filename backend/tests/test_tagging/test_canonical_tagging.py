@@ -1,10 +1,9 @@
 """Tests for canonical-based tagging pipeline."""
 
-import pytest
 from datetime import datetime
 from uuid import uuid4
 
-from catsyphon.canonicalization.models import CanonicalConversation, CanonicalType
+from catsyphon.canonicalization.models import CanonicalConversation
 from catsyphon.canonicalization.version import CANONICAL_VERSION
 from catsyphon.tagging import RuleTagger
 

@@ -33,6 +33,7 @@ if settings.database_url.startswith("sqlite"):
             for column in table.columns:
                 if isinstance(column.type, postgresql.JSONB):
                     column.type = JSON()
+
 else:
     engine = create_engine(
         settings.database_url,

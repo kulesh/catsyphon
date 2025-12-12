@@ -4,6 +4,10 @@
  * Generated from: backend/src/catsyphon/api/schemas.py
  */
 
+// Using `any` for flexible JSON structures from the API is intentional.
+// These fields contain variable data that TypeScript cannot statically type.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 // ===== Base Types =====
 
 export interface ProjectBase {

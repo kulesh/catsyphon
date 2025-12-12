@@ -44,7 +44,10 @@ class TestConcurrentProcessing:
         with patch("catsyphon.watch.ingest_conversation", side_effect=mock_process):
             with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch("catsyphon.parsers.utils.is_conversational_log", return_value=True):
+                    with patch(
+                        "catsyphon.parsers.utils.is_conversational_log",
+                        return_value=True,
+                    ):
                         # Mock parser to return a valid parsed conversation
                         mock_parsed = Mock()
                         mock_parsed.session_id = "test-session-123"
@@ -53,10 +56,14 @@ class TestConcurrentProcessing:
                         mock_parsed.git_branch = None
                         mock_parsed.working_directory = None
                         mock_parsed.metadata = {}
-                        mock_parsed.messages = [Mock()]  # Add messages so file isn't skipped
+                        mock_parsed.messages = [
+                            Mock()
+                        ]  # Add messages so file isn't skipped
 
                         with patch.object(
-                            file_watcher.parser_registry, "parse", return_value=mock_parsed
+                            file_watcher.parser_registry,
+                            "parse",
+                            return_value=mock_parsed,
                         ):
                             # Launch 5 concurrent threads trying to process the same file
                             threads = []
@@ -91,7 +98,10 @@ class TestConcurrentProcessing:
         with patch("catsyphon.watch.ingest_conversation", side_effect=mock_process):
             with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch("catsyphon.parsers.utils.is_conversational_log", return_value=True):
+                    with patch(
+                        "catsyphon.parsers.utils.is_conversational_log",
+                        return_value=True,
+                    ):
                         mock_parsed = Mock()
                         mock_parsed.session_id = "test-session-123"
                         mock_parsed.start_time = None
@@ -99,10 +109,14 @@ class TestConcurrentProcessing:
                         mock_parsed.git_branch = None
                         mock_parsed.working_directory = None
                         mock_parsed.metadata = {}
-                        mock_parsed.messages = [Mock()]  # Add messages so file isn't skipped
+                        mock_parsed.messages = [
+                            Mock()
+                        ]  # Add messages so file isn't skipped
 
                         with patch.object(
-                            file_watcher.parser_registry, "parse", return_value=mock_parsed
+                            file_watcher.parser_registry,
+                            "parse",
+                            return_value=mock_parsed,
                         ):
                             # Process file 3 times sequentially
                             for _ in range(3):
@@ -132,7 +146,10 @@ class TestConcurrentProcessing:
         with patch("catsyphon.watch.ingest_conversation", side_effect=mock_process):
             with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch("catsyphon.parsers.utils.is_conversational_log", return_value=True):
+                    with patch(
+                        "catsyphon.parsers.utils.is_conversational_log",
+                        return_value=True,
+                    ):
                         mock_parsed = Mock()
                         mock_parsed.session_id = "test-session-123"
                         mock_parsed.start_time = None
@@ -140,10 +157,14 @@ class TestConcurrentProcessing:
                         mock_parsed.git_branch = None
                         mock_parsed.working_directory = None
                         mock_parsed.metadata = {}
-                        mock_parsed.messages = [Mock()]  # Add messages so file isn't skipped
+                        mock_parsed.messages = [
+                            Mock()
+                        ]  # Add messages so file isn't skipped
 
                         with patch.object(
-                            file_watcher.parser_registry, "parse", return_value=mock_parsed
+                            file_watcher.parser_registry,
+                            "parse",
+                            return_value=mock_parsed,
                         ):
                             # Launch threads for different files concurrently
                             threads = []
@@ -176,7 +197,9 @@ class TestConcurrentProcessing:
                     mock_parsed.git_branch = None
                     mock_parsed.working_directory = None
                     mock_parsed.metadata = {}
-                    mock_parsed.messages = [Mock()]  # Add messages so file isn't skipped
+                    mock_parsed.messages = [
+                        Mock()
+                    ]  # Add messages so file isn't skipped
 
                     with patch.object(
                         file_watcher.parser_registry, "parse", return_value=mock_parsed
@@ -192,7 +215,9 @@ class TestConcurrentProcessing:
         test_file = Path("/test/conversation.jsonl")
         path_str = str(test_file)
 
-        with patch("catsyphon.watch.ingest_conversation", side_effect=Exception("Test error")):
+        with patch(
+            "catsyphon.watch.ingest_conversation", side_effect=Exception("Test error")
+        ):
             with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     mock_parsed = Mock()
@@ -202,7 +227,9 @@ class TestConcurrentProcessing:
                     mock_parsed.git_branch = None
                     mock_parsed.working_directory = None
                     mock_parsed.metadata = {}
-                    mock_parsed.messages = [Mock()]  # Add messages so file isn't skipped
+                    mock_parsed.messages = [
+                        Mock()
+                    ]  # Add messages so file isn't skipped
 
                     with patch.object(
                         file_watcher.parser_registry, "parse", return_value=mock_parsed

@@ -75,7 +75,7 @@ class OrganizationRepository(BaseRepository[Organization]):
         """
         query = (
             self.session.query(Organization)
-            .filter(Organization.is_active == True)
+            .filter(Organization.is_active.is_(True))
             .offset(offset)
         )
         if limit:

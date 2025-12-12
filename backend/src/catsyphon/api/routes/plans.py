@@ -57,9 +57,7 @@ def _plan_dict_to_response(plan_data: dict[str, Any]) -> PlanResponse:
             old_content=op.get("old_content"),
             new_content=op.get("new_content"),
             timestamp=(
-                datetime.fromisoformat(op["timestamp"])
-                if op.get("timestamp")
-                else None
+                datetime.fromisoformat(op["timestamp"]) if op.get("timestamp") else None
             ),
             message_index=op.get("message_index", 0),
         )
@@ -243,9 +241,7 @@ async def get_plan_detail(
             old_content=op.get("old_content"),
             new_content=op.get("new_content"),
             timestamp=(
-                datetime.fromisoformat(op["timestamp"])
-                if op.get("timestamp")
-                else None
+                datetime.fromisoformat(op["timestamp"]) if op.get("timestamp") else None
             ),
             message_index=op.get("message_index", 0),
         )

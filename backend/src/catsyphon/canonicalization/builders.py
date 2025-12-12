@@ -1,7 +1,6 @@
 """Builders for converting conversations to narrative formats."""
 
 import logging
-from datetime import datetime
 from typing import Optional
 
 from catsyphon.canonicalization.models import CanonicalConfig, CanonicalConversation
@@ -168,7 +167,9 @@ Messages: {conversation.message_count} | Epochs: {conversation.epoch_count} | Fi
                     param_str = str(params)
 
                 success_str = "✓" if tc.get("success", True) else "✗"
-                lines.append(f"    {success_str} {tc.get('tool_name', 'unknown')}: {param_str}")
+                lines.append(
+                    f"    {success_str} {tc.get('tool_name', 'unknown')}: {param_str}"
+                )
 
         # Code changes
         if msg.code_changes and self.config.include_code_changes:
@@ -204,8 +205,16 @@ Messages: {conversation.message_count} | Epochs: {conversation.epoch_count} | Fi
 
         lines.append(f"┌─ AGENT DELEGATION: {child.conversation_id} ─┐")
         lines.append(f"│ Type: {child.conversation_type}")
-        lines.append(f"│ Messages: {child.message_count} | Duration: {duration} min" if duration else f"│ Messages: {child.message_count}")
-        lines.append(f"│ Tools: {', '.join(child.tools_used[:5])}" if child.tools_used else "│ Tools: None")
+        lines.append(
+            f"│ Messages: {child.message_count} | Duration: {duration} min"
+            if duration
+            else f"│ Messages: {child.message_count}"
+        )
+        lines.append(
+            f"│ Tools: {', '.join(child.tools_used[:5])}"
+            if child.tools_used
+            else "│ Tools: None"
+        )
         lines.append(f"│ Files: {len(child.files_touched)}")
         lines.append("│")
 
@@ -352,7 +361,9 @@ class JSONBuilder:
             "agent_version": conversation.agent_version,
             "conversation_type": conversation.conversation_type,
             "start_time": conversation.start_time.isoformat(),
-            "end_time": conversation.end_time.isoformat() if conversation.end_time else None,
+            "end_time": (
+                conversation.end_time.isoformat() if conversation.end_time else None
+            ),
             "duration_seconds": (
                 int((conversation.end_time - conversation.start_time).total_seconds())
                 if conversation.end_time and conversation.start_time
@@ -368,10 +379,26 @@ class JSONBuilder:
                 {
                     "role": sm.message.role,
                     "content": sm.message.content,
-                    "timestamp": sm.message.timestamp.isoformat() if sm.message.timestamp else None,
-                    "tool_calls": sm.message.tool_calls if self.config.include_tool_details else [],
-                    "code_changes": sm.message.code_changes if self.config.include_code_changes else [],
-                    "thinking": sm.message.thinking_content if self.config.include_thinking else None,
+                    "timestamp": (
+                        sm.message.timestamp.isoformat()
+                        if sm.message.timestamp
+                        else None
+                    ),
+                    "tool_calls": (
+                        sm.message.tool_calls
+                        if self.config.include_tool_details
+                        else []
+                    ),
+                    "code_changes": (
+                        sm.message.code_changes
+                        if self.config.include_code_changes
+                        else []
+                    ),
+                    "thinking": (
+                        sm.message.thinking_content
+                        if self.config.include_thinking
+                        else None
+                    ),
                     "priority": sm.priority,
                     "reason": sm.reason,
                 }

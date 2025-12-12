@@ -13,19 +13,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from catsyphon.analytics.cache import PROJECT_ANALYTICS_CACHE
+from catsyphon.analytics.thinking_time import (
+    aggregate_thinking_time,
+    pair_user_assistant,
+)
 from catsyphon.api.schemas import (
-    ProjectFileAggregation,
-    ProjectAnalytics,
-    ProjectSession,
-    ProjectStats,
-    SentimentTimelinePoint,
-    SentimentByAgent,
-    PairingEffectivenessPair,
-    RoleDynamicsSummary,
+    ErrorBucket,
     HandoffStats,
     ImpactMetrics,
     InfluenceFlow,
-    ErrorBucket,
+    PairingEffectivenessPair,
+    ProjectAnalytics,
+    ProjectFileAggregation,
+    ProjectSession,
+    ProjectStats,
+    RoleDynamicsSummary,
+    SentimentByAgent,
+    SentimentTimelinePoint,
     ThinkingTimeStats,
 )
 from catsyphon.db.connection import get_db
@@ -34,20 +39,16 @@ from catsyphon.db.repositories import (
     ProjectRepository,
     WorkspaceRepository,
 )
-from catsyphon.analytics.thinking_time import (
-    aggregate_thinking_time,
-    pair_user_assistant,
-)
-from catsyphon.analytics.cache import PROJECT_ANALYTICS_CACHE
-_THINKING_TIME_MAX_LATENCY_SECONDS = 2 * 60 * 60  # 2 hours
 from catsyphon.models.db import (
     Conversation,
     Developer,
-    FileTouched,
-    Message,
     Epoch,
+    FileTouched,
     IngestionJob,
+    Message,
 )
+
+_THINKING_TIME_MAX_LATENCY_SECONDS = 2 * 60 * 60  # 2 hours
 
 router = APIRouter()
 
@@ -309,8 +310,8 @@ async def get_project_analytics(
     """
     Advanced analytics for a project focused on pairing effectiveness and handoffs.
     """
-    from datetime import datetime, timedelta
     import statistics
+    from datetime import datetime, timedelta
 
     # Cache lookup
     cached = PROJECT_ANALYTICS_CACHE.get(project_id, date_range)
@@ -333,7 +334,9 @@ async def get_project_analytics(
         elif date_range == "90d":
             cutoff_date = now - timedelta(days=90)
 
-    conv_query = session.query(Conversation).filter(Conversation.project_id == project_id)
+    conv_query = session.query(Conversation).filter(
+        Conversation.project_id == project_id
+    )
     if cutoff_date:
         conv_query = conv_query.filter(Conversation.start_time >= cutoff_date)
     conversations = conv_query.all()
@@ -345,18 +348,28 @@ async def get_project_analytics(
 
     # Developers lookup
     dev_ids = {c.developer_id for c in conversations if c.developer_id}
-    dev_map = {
-        d.id: d.username
-        for d in session.query(Developer).filter(Developer.id.in_(dev_ids)).all()
-    } if dev_ids else {}
+    dev_map = (
+        {
+            d.id: d.username
+            for d in session.query(Developer).filter(Developer.id.in_(dev_ids)).all()
+        }
+        if dev_ids
+        else {}
+    )
 
     # Messages and files
-    messages = session.query(Message).filter(Message.conversation_id.in_(conv_ids)).all()
+    messages = (
+        session.query(Message).filter(Message.conversation_id.in_(conv_ids)).all()
+    )
     msgs_by_conv: dict[UUID, list[Message]] = {}
     for m in messages:
         msgs_by_conv.setdefault(m.conversation_id, []).append(m)
 
-    files = session.query(FileTouched).filter(FileTouched.conversation_id.in_(conv_ids)).all()
+    files = (
+        session.query(FileTouched)
+        .filter(FileTouched.conversation_id.in_(conv_ids))
+        .all()
+    )
     files_by_conv: dict[UUID, list[FileTouched]] = {}
     for f in files:
         files_by_conv.setdefault(f.conversation_id, []).append(f)
@@ -401,7 +414,9 @@ async def get_project_analytics(
 
         # Lines and first-change latency
         conv_files = files_by_conv.get(conv.id, [])
-        lines_changed = sum((f.lines_added or 0) + (f.lines_deleted or 0) for f in conv_files)
+        lines_changed = sum(
+            (f.lines_added or 0) + (f.lines_deleted or 0) for f in conv_files
+        )
         impact_lines_total += lines_changed
         if lines_changed > 0:
             impact_sessions += 1
@@ -422,10 +437,14 @@ async def get_project_analytics(
         assistant_msgs = sum(1 for m in conv_msgs if m.role == "assistant")
         user_msgs = sum(1 for m in conv_msgs if m.role == "user")
         total_msgs = assistant_msgs + user_msgs
-        assistant_tool_calls = sum(1 for m in conv_msgs if m.role == "assistant" and m.tool_calls)
+        assistant_tool_calls = sum(
+            1 for m in conv_msgs if m.role == "assistant" and m.tool_calls
+        )
         user_tool_calls = sum(1 for m in conv_msgs if m.role == "user" and m.tool_calls)
         assistant_ratio = assistant_msgs / total_msgs if total_msgs else 0.5
-        role = _classify_role_dynamics(assistant_ratio, assistant_tool_calls, user_tool_calls)
+        role = _classify_role_dynamics(
+            assistant_ratio, assistant_tool_calls, user_tool_calls
+        )
         role_counts[role] += 1
 
         # Thinking-time pairs
@@ -467,9 +486,9 @@ async def get_project_analytics(
         if existing:
             introducer, _ = existing
             if introducer != actor:
-                influence_counts[(introducer, actor)] = influence_counts.get(
-                    (introducer, actor), 0
-                ) + 1
+                influence_counts[(introducer, actor)] = (
+                    influence_counts.get((introducer, actor), 0) + 1
+                )
         else:
             first_touch[f.file_path] = (actor, f.timestamp)
 
@@ -492,9 +511,9 @@ async def get_project_analytics(
         conv = conversation_lookup.get(job.conversation_id)
         agent_type = conv.agent_type if conv else "unknown"
         category = _categorize_error(job.error_message)
-        error_counts[(agent_type, category)] = error_counts.get(
-            (agent_type, category), 0
-        ) + 1
+        error_counts[(agent_type, category)] = (
+            error_counts.get((agent_type, category), 0) + 1
+        )
 
     error_heatmap = [
         ErrorBucket(agent_type=a, category=c, count=count)
@@ -509,18 +528,28 @@ async def get_project_analytics(
         sessions = data["sessions"]
         success_rate = data["successes"] / sessions if sessions else None
         lines_per_hour = (
-            data["lines"] / data["duration_hours"] if data["duration_hours"] > 0 else None
+            data["lines"] / data["duration_hours"]
+            if data["duration_hours"] > 0
+            else None
         )
         avg_first_change = (
             data["first_change_minutes_total"] / data["first_change_count"]
             if data["first_change_count"] > 0
             else None
         )
-        throughput_component = min(lines_per_hour / 200.0, 1.0) if lines_per_hour else 0.0
-        latency_component = (
-            max(0.0, 1 - (avg_first_change / 60.0)) if avg_first_change is not None else 0.5
+        throughput_component = (
+            min(lines_per_hour / 200.0, 1.0) if lines_per_hour else 0.0
         )
-        score = (success_rate or 0.5) * 0.6 + throughput_component * 0.3 + latency_component * 0.1
+        latency_component = (
+            max(0.0, 1 - (avg_first_change / 60.0))
+            if avg_first_change is not None
+            else 0.5
+        )
+        score = (
+            (success_rate or 0.5) * 0.6
+            + throughput_component * 0.3
+            + latency_component * 0.1
+        )
 
         pairs.append(
             PairingEffectivenessPair(
@@ -540,9 +569,7 @@ async def get_project_analytics(
     # Handoff stats aggregate
     handoff_count = len(handoff_latencies)
     handoff_avg = sum(handoff_latencies) / handoff_count if handoff_count else None
-    handoff_success_rate = (
-        handoff_successes / handoff_count if handoff_count else None
-    )
+    handoff_success_rate = handoff_successes / handoff_count if handoff_count else None
     clarifications_avg = (
         sum(handoff_clarifications) / len(handoff_clarifications)
         if handoff_clarifications
@@ -560,7 +587,9 @@ async def get_project_analytics(
     # Sentiment by agent
     sentiment_rollup: dict[str, list[float]] = {}
     for conv in conversations:
-        sentiment = conv.tags.get("sentiment_score") if isinstance(conv.tags, dict) else None
+        sentiment = (
+            conv.tags.get("sentiment_score") if isinstance(conv.tags, dict) else None
+        )
         if sentiment is None:
             # Fallback: map sentiment label to score
             label = conv.tags.get("sentiment") if isinstance(conv.tags, dict) else None
@@ -679,20 +708,14 @@ async def get_project_insights(
     workspace_id = _get_default_workspace_id(session)
 
     if workspace_id is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Project {project_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
 
     # Get project
     project_repo = ProjectRepository(session)
     project = project_repo.get(project_id)
 
     if not project:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Project {project_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
 
     # Generate insights
     if not settings.openai_api_key and include_summary:
@@ -757,20 +780,14 @@ async def get_project_health_report(
     # Get workspace_id
     workspace_id = _get_default_workspace_id(session)
     if not workspace_id:
-        raise HTTPException(
-            status_code=404,
-            detail="No workspace found"
-        )
+        raise HTTPException(status_code=404, detail="No workspace found")
 
     # Verify project exists
     project_repo = ProjectRepository(session)
     project = project_repo.get(project_id)
 
     if not project:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Project {project_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
 
     # Generate health report
     generator = HealthReportGenerator(
@@ -837,7 +854,9 @@ async def list_project_sessions(
 
     # Developer filter (need to get developer_id from username)
     if developer:
-        dev_query = session.query(Developer.id).filter(Developer.username == developer).first()
+        dev_query = (
+            session.query(Developer.id).filter(Developer.username == developer).first()
+        )
         if dev_query:
             filters["developer_id"] = dev_query[0]
 

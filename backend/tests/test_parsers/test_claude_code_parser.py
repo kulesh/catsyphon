@@ -422,7 +422,10 @@ class TestHierarchicalConversations:
         assert len(tool_messages) > 0
 
         task_tools = [
-            tc for msg in tool_messages for tc in msg.tool_calls if tc.tool_name == "Task"
+            tc
+            for msg in tool_messages
+            for tc in msg.tool_calls
+            if tc.tool_name == "Task"
         ]
         assert len(task_tools) == 1
         assert task_tools[0].parameters["subagent_type"] == "Explore"

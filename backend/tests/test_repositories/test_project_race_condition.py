@@ -18,7 +18,7 @@ from catsyphon.db.repositories.project import ProjectRepository
 # Mark for PostgreSQL-only tests
 requires_postgresql = pytest.mark.skipif(
     True,  # Skip by default (test suite uses SQLite)
-    reason="Requires PostgreSQL for ON CONFLICT DO NOTHING support"
+    reason="Requires PostgreSQL for ON CONFLICT DO NOTHING support",
 )
 
 
@@ -35,7 +35,9 @@ class TestConcurrentProjectCreation:
         def create_project():
             try:
                 repo = ProjectRepository(db_session)
-                project = repo.get_or_create_by_directory(directory, sample_workspace.id)
+                project = repo.get_or_create_by_directory(
+                    directory, sample_workspace.id
+                )
                 db_session.flush()  # Flush to database
                 results.append(project.id)
             except Exception as e:
@@ -62,8 +64,9 @@ class TestConcurrentProjectCreation:
         # Note: sample_project fixture creates one project, so we expect 2 total
         project_directories = [p.directory_path for p in projects]
         assert directory in project_directories
-        assert sum(1 for d in project_directories if d == directory) == 1, \
-            f"Expected 1 project with directory {directory}, found: {project_directories}"
+        assert (
+            sum(1 for d in project_directories if d == directory) == 1
+        ), f"Expected 1 project with directory {directory}, found: {project_directories}"
 
     @requires_postgresql
     def test_concurrent_different_directories(self, db_session, sample_workspace):
@@ -75,7 +78,9 @@ class TestConcurrentProjectCreation:
         def create_project(directory):
             try:
                 repo = ProjectRepository(db_session)
-                project = repo.get_or_create_by_directory(directory, sample_workspace.id)
+                project = repo.get_or_create_by_directory(
+                    directory, sample_workspace.id
+                )
                 db_session.flush()
                 results[directory].append(project.id)
             except Exception as e:
@@ -118,8 +123,9 @@ class TestConcurrentProjectCreation:
             project_ids.append(project.id)
 
         # All calls should return the same project
-        assert all(pid == project1_id for pid in project_ids), \
-            f"Non-idempotent: {project_ids}"
+        assert all(
+            pid == project1_id for pid in project_ids
+        ), f"Non-idempotent: {project_ids}"
 
     def test_custom_name_preserved(self, db_session, sample_workspace):
         """Test that custom project name is preserved."""
@@ -149,8 +155,9 @@ class TestConcurrentProjectCreation:
         for directory, expected_name in test_paths:
             project = repo.get_or_create_by_directory(directory, sample_workspace.id)
             db_session.flush()
-            assert project.name == expected_name, \
-                f"Expected '{expected_name}' for {directory}, got '{project.name}'"
+            assert (
+                project.name == expected_name
+            ), f"Expected '{expected_name}' for {directory}, got '{project.name}'"
 
     @requires_postgresql
     def test_concurrent_with_custom_names(self, db_session, sample_workspace):
@@ -186,8 +193,9 @@ class TestConcurrentProjectCreation:
         project_names = [r[1] for r in results]
 
         assert len(set(project_ids)) == 1, f"Multiple projects created: {project_ids}"
-        assert all(n == custom_name for n in project_names), \
-            f"Name mismatch: {project_names}"
+        assert all(
+            n == custom_name for n in project_names
+        ), f"Name mismatch: {project_names}"
 
     @requires_postgresql
     def test_race_condition_stress_test(self, db_session, sample_workspace):
@@ -200,7 +208,9 @@ class TestConcurrentProjectCreation:
         def create_project():
             try:
                 repo = ProjectRepository(db_session)
-                project = repo.get_or_create_by_directory(directory, sample_workspace.id)
+                project = repo.get_or_create_by_directory(
+                    directory, sample_workspace.id
+                )
                 db_session.flush()
                 results.append(project.id)
             except Exception as e:
@@ -214,12 +224,15 @@ class TestConcurrentProjectCreation:
             t.join()
 
         # All threads should succeed
-        assert len(errors) == 0, f"Got {len(errors)} errors in stress test: {errors[:5]}"
+        assert (
+            len(errors) == 0
+        ), f"Got {len(errors)} errors in stress test: {errors[:5]}"
         assert len(results) == num_threads
 
         # Only one unique project should exist
-        assert len(set(results)) == 1, \
-            f"Stress test created {len(set(results))} projects instead of 1"
+        assert (
+            len(set(results)) == 1
+        ), f"Stress test created {len(set(results))} projects instead of 1"
 
 
 class TestProjectRepositoryBasics:

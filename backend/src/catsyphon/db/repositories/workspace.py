@@ -88,7 +88,7 @@ class WorkspaceRepository(BaseRepository[Workspace]):
             self.session.query(Workspace)
             .filter(
                 Workspace.organization_id == organization_id,
-                Workspace.is_active == True,
+                Workspace.is_active.is_(True),
             )
             .offset(offset)
         )

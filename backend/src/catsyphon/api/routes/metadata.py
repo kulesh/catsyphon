@@ -8,13 +8,17 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from catsyphon.api.schemas import DeveloperResponse, ProjectListItem
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import DeveloperRepository, ProjectRepository, WorkspaceRepository
+from catsyphon.db.repositories import (
+    DeveloperRepository,
+    ProjectRepository,
+    WorkspaceRepository,
+)
 from catsyphon.models.db import Conversation
-from sqlalchemy import func
 
 router = APIRouter()
 

@@ -146,12 +146,8 @@ async def ready() -> dict:
 app.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )
-app.include_router(
-    canonical.router, prefix="/conversations", tags=["canonical"]
-)
-app.include_router(
-    insights.router, prefix="/conversations", tags=["insights"]
-)
+app.include_router(canonical.router, prefix="/conversations", tags=["canonical"])
+app.include_router(insights.router, prefix="/conversations", tags=["insights"])
 app.include_router(metadata.router, prefix="", tags=["metadata"])
 app.include_router(plans.router, prefix="/plans", tags=["plans"])
 app.include_router(projects.router, prefix="/projects", tags=["projects"])

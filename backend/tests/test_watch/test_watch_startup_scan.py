@@ -137,7 +137,12 @@ class TestStartupScan:
     @patch("catsyphon.db.repositories.raw_log.RawLogRepository")
     @patch("catsyphon.db.connection.db_session")
     def test_scan_with_appended_files(
-        self, mock_db_session, mock_repo_class, mock_detect_change, temp_watch_dir, mock_raw_logs
+        self,
+        mock_db_session,
+        mock_repo_class,
+        mock_detect_change,
+        temp_watch_dir,
+        mock_raw_logs,
     ):
         """Test scan when files have been appended."""
         # Setup mocks
@@ -168,7 +173,12 @@ class TestStartupScan:
     @patch("catsyphon.db.repositories.raw_log.RawLogRepository")
     @patch("catsyphon.db.connection.db_session")
     def test_scan_with_rewritten_files(
-        self, mock_db_session, mock_repo_class, mock_detect_change, temp_watch_dir, mock_raw_logs
+        self,
+        mock_db_session,
+        mock_repo_class,
+        mock_detect_change,
+        temp_watch_dir,
+        mock_raw_logs,
     ):
         """Test scan when files have been rewritten."""
         # Setup mocks
@@ -194,7 +204,12 @@ class TestStartupScan:
     @patch("catsyphon.db.repositories.raw_log.RawLogRepository")
     @patch("catsyphon.db.connection.db_session")
     def test_scan_with_deleted_files(
-        self, mock_db_session, mock_repo_class, mock_detect_change, temp_watch_dir, mock_raw_logs
+        self,
+        mock_db_session,
+        mock_repo_class,
+        mock_detect_change,
+        temp_watch_dir,
+        mock_raw_logs,
     ):
         """Test scan gracefully skips files deleted from filesystem."""
         # Setup mocks
@@ -223,7 +238,12 @@ class TestStartupScan:
     @patch("catsyphon.db.repositories.raw_log.RawLogRepository")
     @patch("catsyphon.db.connection.db_session")
     def test_scan_with_mixed_changes(
-        self, mock_db_session, mock_repo_class, mock_detect_change, temp_watch_dir, mock_raw_logs
+        self,
+        mock_db_session,
+        mock_repo_class,
+        mock_detect_change,
+        temp_watch_dir,
+        mock_raw_logs,
     ):
         """Test scan with mix of unchanged, appended, and rewritten files."""
         # Setup mocks
@@ -251,16 +271,12 @@ class TestStartupScan:
         assert daemon.event_handler._process_file.call_count == 2
 
     @patch("catsyphon.db.connection.db_session")
-    def test_scan_handles_exceptions_gracefully(
-        self, mock_db_session, temp_watch_dir
-    ):
+    def test_scan_handles_exceptions_gracefully(self, mock_db_session, temp_watch_dir):
         """Test scan doesn't crash daemon on errors."""
         # Setup mock to raise exception
         mock_session = Mock()
         mock_db_session.return_value.__enter__.return_value = mock_session
-        mock_db_session.return_value.__enter__.side_effect = Exception(
-            "Database error"
-        )
+        mock_db_session.return_value.__enter__.side_effect = Exception("Database error")
 
         daemon = WatcherDaemon(directory=temp_watch_dir)
         daemon.event_handler = Mock()

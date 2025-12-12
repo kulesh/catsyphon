@@ -89,8 +89,8 @@ class ParserMetadata:
             True if format is supported, False otherwise
         """
         # Normalize extension
-        if not extension.startswith('.'):
-            extension = f'.{extension}'
+        if not extension.startswith("."):
+            extension = f".{extension}"
 
         return extension.lower() in self.supported_formats
 

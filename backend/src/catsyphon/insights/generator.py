@@ -8,7 +8,7 @@ from typing import Any, Optional
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from catsyphon.canonicalization import CanonicalType, Canonicalizer
+from catsyphon.canonicalization import Canonicalizer, CanonicalType
 from catsyphon.db.repositories.canonical import CanonicalRepository
 
 logger = logging.getLogger(__name__)
@@ -197,9 +197,7 @@ class InsightsGenerator:
             logger.error(f"LLM insights extraction failed: {e}")
             return {}
 
-    def _extract_quantitative_insights(
-        self, canonical, conversation
-    ) -> dict[str, Any]:
+    def _extract_quantitative_insights(self, canonical, conversation) -> dict[str, Any]:
         """Extract quantitative metrics from canonical metadata.
 
         Args:
@@ -218,8 +216,14 @@ class InsightsGenerator:
                 "token_count": canonical.token_count,
                 "has_errors": canonical.has_errors,
                 "tools_used": canonical.tools_used or [],
-                "child_conversations_count": len(canonical.children) if canonical.children else 0,
-                "duration_seconds": conversation.duration_seconds if hasattr(conversation, 'duration_seconds') else None,
+                "child_conversations_count": (
+                    len(canonical.children) if canonical.children else 0
+                ),
+                "duration_seconds": (
+                    conversation.duration_seconds
+                    if hasattr(conversation, "duration_seconds")
+                    else None
+                ),
             }
         }
 

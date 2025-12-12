@@ -71,10 +71,14 @@ class TokenCounter:
             try:
                 return len(self.encoding.encode(text))
             except Exception as e:
-                logger.warning(f"tiktoken encoding failed: {e}, falling back to estimation")
+                logger.warning(
+                    f"tiktoken encoding failed: {e}, falling back to estimation"
+                )
 
         # Fallback: character-based estimation
-        chars_per_token = self.CHARS_PER_TOKEN.get(self.model, self.CHARS_PER_TOKEN["default"])
+        chars_per_token = self.CHARS_PER_TOKEN.get(
+            self.model, self.CHARS_PER_TOKEN["default"]
+        )
         return int(len(text) / chars_per_token)
 
     def truncate_to_budget(self, text: str, token_budget: int) -> tuple[str, int]:
@@ -104,7 +108,9 @@ class TokenCounter:
                 logger.warning(f"Token-level truncation failed: {e}")
 
         # Fallback: character-based truncation
-        chars_per_token = self.CHARS_PER_TOKEN.get(self.model, self.CHARS_PER_TOKEN["default"])
+        chars_per_token = self.CHARS_PER_TOKEN.get(
+            self.model, self.CHARS_PER_TOKEN["default"]
+        )
         max_chars = int(token_budget * chars_per_token)
         truncated_text = text[:max_chars]
         return truncated_text, self.count(truncated_text)
@@ -183,5 +189,7 @@ class BudgetAllocator:
                 "spent": self.spent.get(component, 0),
                 "remaining": self.remaining(component),
             }
-            for component in set(list(self.allocations.keys()) + list(self.spent.keys()))
+            for component in set(
+                list(self.allocations.keys()) + list(self.spent.keys())
+            )
         }

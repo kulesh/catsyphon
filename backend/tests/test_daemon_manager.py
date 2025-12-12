@@ -476,7 +476,6 @@ class TestDaemonManager:
     @patch("catsyphon.daemon_manager.db_session")
     def test_stats_sync_loop(self, mock_db_session, watch_config):
         """Test stats sync background thread with Queue-based IPC."""
-        from multiprocessing import Queue
 
         # Mock database
         mock_session = Mock()

@@ -1,8 +1,8 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from catsyphon.analytics.thinking_time import (
-    pair_user_assistant,
     aggregate_thinking_time,
+    pair_user_assistant,
 )
 
 
@@ -24,8 +24,12 @@ def test_pairs_first_assistant_only():
     base = datetime(2025, 1, 1, tzinfo=timezone.utc)
     msgs = [
         DummyMessage("user", base),
-        DummyMessage("assistant", base + timedelta(seconds=3), thinking_content="thought"),
-        DummyMessage("assistant", base + timedelta(seconds=5)),  # should be ignored for pairing
+        DummyMessage(
+            "assistant", base + timedelta(seconds=3), thinking_content="thought"
+        ),
+        DummyMessage(
+            "assistant", base + timedelta(seconds=5)
+        ),  # should be ignored for pairing
     ]
     pairs = pair_user_assistant(msgs)
     assert len(pairs) == 1
@@ -38,7 +42,9 @@ def test_pairs_with_tool_calls():
     base = datetime(2025, 1, 1, tzinfo=timezone.utc)
     msgs = [
         DummyMessage("user", base),
-        DummyMessage("assistant", base + timedelta(seconds=7), tool_calls=[{"type": "tool_use"}]),
+        DummyMessage(
+            "assistant", base + timedelta(seconds=7), tool_calls=[{"type": "tool_use"}]
+        ),
     ]
     pairs = pair_user_assistant(msgs)
     assert len(pairs) == 1
@@ -53,7 +59,9 @@ def test_aggregate_percentiles_and_flags():
         DummyMessage("user", base),
         DummyMessage("assistant", base + timedelta(seconds=4), thinking_content="x"),
         DummyMessage("user", base + timedelta(seconds=10)),
-        DummyMessage("assistant", base + timedelta(seconds=18), tool_calls=[{"type": "tool_use"}]),
+        DummyMessage(
+            "assistant", base + timedelta(seconds=18), tool_calls=[{"type": "tool_use"}]
+        ),
     ]
     pairs = pair_user_assistant(msgs)
     agg = aggregate_thinking_time(pairs)

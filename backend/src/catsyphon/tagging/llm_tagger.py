@@ -243,14 +243,9 @@ class LLMTagger:
             - ConversationTags: LLM-extracted metadata
             - llm_metrics: Dict with duration_ms, tokens, cost, model, cache_hit
         """
-        request_id = ""
         try:
             # Build prompt with canonical narrative
             prompt = self._build_canonical_prompt(narrative, metadata)
-
-            # Log request (if LLM logging enabled)
-            # Note: Using narrative as pseudo-conversation for logging
-            request_id = f"canonical_{int(time.time() * 1000)}"
 
             # Call OpenAI API with timing
             start_time = time.time()

@@ -36,10 +36,16 @@ class TestListProjects:
 
         # Create additional projects
         repo.create(
-            id=uuid.uuid4(), workspace_id=sample_workspace.id, name="Project Alpha", directory_path="/path/to/alpha"
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            name="Project Alpha",
+            directory_path="/path/to/alpha",
         )
         repo.create(
-            id=uuid.uuid4(), workspace_id=sample_workspace.id, name="Project Beta", directory_path="/path/to/beta"
+            id=uuid.uuid4(),
+            workspace_id=sample_workspace.id,
+            name="Project Beta",
+            directory_path="/path/to/beta",
         )
 
         response = api_client.get("/projects")

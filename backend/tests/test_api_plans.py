@@ -1,12 +1,18 @@
 """Tests for Plan API endpoints."""
 
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.orm import Session
 
-from catsyphon.models.db import Conversation, Epoch, Message, Organization, Project, Workspace
+from catsyphon.models.db import (
+    Conversation,
+    Epoch,
+    Message,
+    Project,
+    Workspace,
+)
 
 
 @pytest.fixture

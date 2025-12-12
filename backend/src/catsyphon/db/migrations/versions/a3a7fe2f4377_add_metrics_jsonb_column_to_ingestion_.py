@@ -15,10 +15,9 @@ stage-level performance metrics:
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
-
 
 # revision identifiers, used by Alembic.
 revision: str = "a3a7fe2f4377"

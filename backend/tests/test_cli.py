@@ -311,7 +311,6 @@ class TestIngestCommand:
         self, db_session, sample_workspace
     ):
         """Test that --force flag passes update_mode='replace' to ingest_conversation."""
-        from catsyphon.pipeline.ingestion import ingest_conversation
 
         @contextmanager
         def mock_db_session():

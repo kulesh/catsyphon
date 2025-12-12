@@ -24,7 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.sql import func, text
+from sqlalchemy.sql import func
 
 
 class Base(DeclarativeBase):
@@ -250,7 +250,9 @@ class Project(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint('workspace_id', 'directory_path', name='uq_workspace_directory'),
+        UniqueConstraint(
+            "workspace_id", "directory_path", name="uq_workspace_directory"
+        ),
     )
 
     # Relationships
@@ -287,7 +289,7 @@ class Developer(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint('workspace_id', 'username', name='uq_workspace_developer'),
+        UniqueConstraint("workspace_id", "username", name="uq_workspace_developer"),
     )
 
     # Relationships
@@ -335,7 +337,11 @@ class Conversation(Base):
         index=True,
     )
     conversation_type: Mapped[str] = mapped_column(
-        Enum(ConversationType, native_enum=False, values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            ConversationType,
+            native_enum=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         server_default=ConversationType.MAIN.value,
         index=True,
@@ -925,7 +931,10 @@ class ConversationCanonical(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "conversation_id", "version", "canonical_type", name="uq_conversation_version_type"
+            "conversation_id",
+            "version",
+            "canonical_type",
+            name="uq_conversation_version_type",
         ),
     )
 

@@ -1266,7 +1266,7 @@ export default function ConversationDetail() {
           <div className="bg-card border border-border rounded-lg p-6">
             <PlanViewer
               plans={conversation.plans}
-              onMessageClick={(messageIndex) => {
+              onMessageClick={() => {
                 setActiveTab('messages');
                 // Note: Could add scroll-to-message functionality here
               }}

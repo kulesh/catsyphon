@@ -83,9 +83,7 @@ class TestPlanFilePathDetection:
         """Test that Windows-style paths are normalized."""
         parser = ClaudeCodeParser()
         # Windows paths should be normalized to forward slashes
-        assert parser._is_plan_file_path(
-            "C:\\Users\\test\\.claude\\plans\\plan.md"
-        )
+        assert parser._is_plan_file_path("C:\\Users\\test\\.claude\\plans\\plan.md")
 
 
 class TestPlanExtraction:
@@ -94,9 +92,7 @@ class TestPlanExtraction:
     @pytest.fixture
     def plan_conversation_path(self):
         """Path to the plan conversation test fixture."""
-        return (
-            Path(__file__).parent / "fixtures" / "plan_conversation.jsonl"
-        )
+        return Path(__file__).parent / "fixtures" / "plan_conversation.jsonl"
 
     def test_extract_plan_from_conversation(self, plan_conversation_path):
         """Test extracting plan data from a complete conversation."""
@@ -163,8 +159,8 @@ class TestPlanExtractionEdgeCases:
     def test_conversation_without_plans(self, tmp_path):
         """Test parsing a conversation that has no plan operations."""
         # Create a simple conversation without any plan operations
-        content = '''{"sessionId":"no-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":"Hello, how are you?"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
-{"sessionId":"no-plan-001","version":"2.0.28","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'm doing well! How can I help you today?"}]},"uuid":"msg-2","timestamp":"2025-01-15T10:00:01.000Z"}'''
+        content = """{"sessionId":"no-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":"Hello, how are you?"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
+{"sessionId":"no-plan-001","version":"2.0.28","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'm doing well! How can I help you today?"}]},"uuid":"msg-2","timestamp":"2025-01-15T10:00:01.000Z"}"""
 
         file_path = tmp_path / "no_plan.jsonl"
         file_path.write_text(content)
@@ -177,9 +173,9 @@ class TestPlanExtractionEdgeCases:
 
     def test_plan_without_exit(self, tmp_path):
         """Test plan that was created but never exited (abandoned)."""
-        content = '''{"sessionId":"abandoned-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":"<system-reminder>\\nPlan mode is active.\\ncreate your plan at /Users/test/.claude/plans/abandoned.md\\n</system-reminder>\\nHelp me plan something"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
+        content = """{"sessionId":"abandoned-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":"<system-reminder>\\nPlan mode is active.\\ncreate your plan at /Users/test/.claude/plans/abandoned.md\\n</system-reminder>\\nHelp me plan something"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
 {"sessionId":"abandoned-plan-001","version":"2.0.28","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/Users/test/.claude/plans/abandoned.md","content":"# Abandoned Plan"}}]},"uuid":"msg-2","timestamp":"2025-01-15T10:00:01.000Z"}
-{"sessionId":"abandoned-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"File written"}]},"uuid":"msg-3","timestamp":"2025-01-15T10:00:02.000Z"}'''
+{"sessionId":"abandoned-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"File written"}]},"uuid":"msg-3","timestamp":"2025-01-15T10:00:02.000Z"}"""
 
         file_path = tmp_path / "abandoned_plan.jsonl"
         file_path.write_text(content)
@@ -194,11 +190,11 @@ class TestPlanExtractionEdgeCases:
 
     def test_multiple_plans_in_conversation(self, tmp_path):
         """Test conversation with multiple different plan files."""
-        content = '''{"sessionId":"multi-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":"<system-reminder>\\nPlan mode is active.\\ncreate your plan at /Users/test/.claude/plans/plan-a.md\\n</system-reminder>\\nPlan A"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
+        content = """{"sessionId":"multi-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":"<system-reminder>\\nPlan mode is active.\\ncreate your plan at /Users/test/.claude/plans/plan-a.md\\n</system-reminder>\\nPlan A"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
 {"sessionId":"multi-plan-001","version":"2.0.28","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/Users/test/.claude/plans/plan-a.md","content":"# Plan A"}}]},"uuid":"msg-2","timestamp":"2025-01-15T10:00:01.000Z"}
 {"sessionId":"multi-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"File written"}]},"uuid":"msg-3","timestamp":"2025-01-15T10:00:02.000Z"}
 {"sessionId":"multi-plan-001","version":"2.0.28","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/Users/test/.claude/plans/plan-b.md","content":"# Plan B"}}]},"uuid":"msg-4","timestamp":"2025-01-15T10:00:03.000Z"}
-{"sessionId":"multi-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"File written"}]},"uuid":"msg-5","timestamp":"2025-01-15T10:00:04.000Z"}'''
+{"sessionId":"multi-plan-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"File written"}]},"uuid":"msg-5","timestamp":"2025-01-15T10:00:04.000Z"}"""
 
         file_path = tmp_path / "multi_plan.jsonl"
         file_path.write_text(content)
@@ -219,9 +215,9 @@ class TestPlanDataSerialization:
 
     def test_plan_info_to_dict(self, tmp_path):
         """Test that PlanInfo.to_dict() produces valid JSONB-ready dict."""
-        content = '''{"sessionId":"serialize-001","version":"2.0.28","type":"user","message":{"role":"user","content":"<system-reminder>\\nPlan mode is active.\\ncreate your plan at /Users/test/.claude/plans/serialize-test.md\\n</system-reminder>\\nTest"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
+        content = """{"sessionId":"serialize-001","version":"2.0.28","type":"user","message":{"role":"user","content":"<system-reminder>\\nPlan mode is active.\\ncreate your plan at /Users/test/.claude/plans/serialize-test.md\\n</system-reminder>\\nTest"},"uuid":"msg-1","timestamp":"2025-01-15T10:00:00.000Z","cwd":"/Users/test/project"}
 {"sessionId":"serialize-001","version":"2.0.28","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/Users/test/.claude/plans/serialize-test.md","content":"# Test Plan"}}]},"uuid":"msg-2","timestamp":"2025-01-15T10:00:01.000Z"}
-{"sessionId":"serialize-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"File written"}]},"uuid":"msg-3","timestamp":"2025-01-15T10:00:02.000Z"}'''
+{"sessionId":"serialize-001","version":"2.0.28","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"File written"}]},"uuid":"msg-3","timestamp":"2025-01-15T10:00:02.000Z"}"""
 
         file_path = tmp_path / "serialize.jsonl"
         file_path.write_text(content)

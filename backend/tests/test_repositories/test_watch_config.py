@@ -410,7 +410,6 @@ class TestWatchConfigurationSpecificMethods:
         watch_repo.deactivate(sample_watch_config.id)
         config = watch_repo.get(sample_watch_config.id)
         assert config.is_active is False
-        first_stopped = config.last_stopped_at
 
         # Activate again
         watch_repo.activate(sample_watch_config.id)

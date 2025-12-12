@@ -8,9 +8,8 @@ Create Date: 2025-11-14 22:59:26.501489
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "1cd100f1bde7"
@@ -65,12 +64,8 @@ def upgrade() -> None:
     # === Raw Logs table indexes ===
 
     # Note: idx_raw_logs_file_hash already exists (created by unique=True constraint)
-    op.create_index(
-        "idx_raw_logs_file_path", "raw_logs", ["file_path"], unique=False
-    )
-    op.create_index(
-        "idx_raw_logs_agent_type", "raw_logs", ["agent_type"], unique=False
-    )
+    op.create_index("idx_raw_logs_file_path", "raw_logs", ["file_path"], unique=False)
+    op.create_index("idx_raw_logs_agent_type", "raw_logs", ["agent_type"], unique=False)
     op.create_index(
         "idx_raw_logs_conversation", "raw_logs", ["conversation_id"], unique=False
     )

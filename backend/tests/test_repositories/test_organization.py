@@ -1,6 +1,5 @@
 """Tests for OrganizationRepository."""
 
-
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.organization import OrganizationRepository

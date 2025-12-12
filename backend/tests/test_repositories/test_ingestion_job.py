@@ -371,7 +371,7 @@ class TestIngestionJobSpecificMethods:
         """Test retrieving jobs within a date range."""
         base_time = datetime.now(UTC)
         # Jobs at different times
-        job1 = job_repo.create(
+        job_repo.create(
             source_type="watch",
             status="success",
             started_at=base_time - timedelta(days=5),
@@ -381,12 +381,12 @@ class TestIngestionJobSpecificMethods:
             status="success",
             started_at=base_time - timedelta(days=3),
         )
-        job3 = job_repo.create(
+        job_repo.create(
             source_type="cli",
             status="success",
             started_at=base_time - timedelta(days=1),
         )
-        job4 = job_repo.create(
+        job_repo.create(
             source_type="watch", status="success", started_at=base_time
         )
 
@@ -431,7 +431,7 @@ class TestIngestionJobSpecificMethods:
             status="success",
             started_at=base_time - timedelta(days=5),
         )
-        job2 = job_repo.create(
+        job_repo.create(
             source_type="upload",
             status="success",
             started_at=base_time - timedelta(days=2),

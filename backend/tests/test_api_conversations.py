@@ -11,7 +11,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories import ConversationRepository, MessageRepository
-from catsyphon.models.db import Conversation, Developer, Epoch, Message, Project, Workspace
+from catsyphon.models.db import (
+    Conversation,
+    Developer,
+    Epoch,
+    Message,
+    Project,
+    Workspace,
+)
 
 
 class TestListConversations:
@@ -763,7 +770,7 @@ class TestHierarchicalConversationAPI:
         )
 
         # Create child agents
-        child1 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now + timedelta(minutes=1),
@@ -771,7 +778,7 @@ class TestHierarchicalConversationAPI:
             conversation_type="agent",
             parent_conversation_id=parent.id,
         )
-        child2 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now + timedelta(minutes=2),
@@ -788,7 +795,9 @@ class TestHierarchicalConversationAPI:
         data = response.json()
 
         # Find parent in response
-        parent_data = next((c for c in data["items"] if c["id"] == str(parent.id)), None)
+        parent_data = next(
+            (c for c in data["items"] if c["id"] == str(parent.id)), None
+        )
         assert parent_data is not None
         assert "children_count" in parent_data
         assert parent_data["children_count"] == 2
@@ -885,7 +894,10 @@ class TestHierarchicalConversationAPI:
             extra_data={"session_id": "agent-child"},
             conversation_type="agent",
             parent_conversation_id=parent.id,
-            agent_metadata={"agent_id": "agent-child", "parent_session_id": "parent-789"},
+            agent_metadata={
+                "agent_id": "agent-child",
+                "parent_session_id": "parent-789",
+            },
         )
         db_session.commit()
 
@@ -918,19 +930,19 @@ class TestHierarchicalConversationAPI:
         now = datetime.now(UTC)
 
         # Create mixed conversations
-        main1 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now,
             conversation_type="main",
         )
-        agent1 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now + timedelta(minutes=1),
             conversation_type="agent",
         )
-        main2 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now + timedelta(minutes=2),
@@ -964,19 +976,19 @@ class TestHierarchicalConversationAPI:
         now = datetime.now(UTC)
 
         # Create mixed conversations
-        main1 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now,
             conversation_type="main",
         )
-        agent1 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now + timedelta(minutes=1),
             conversation_type="agent",
         )
-        agent2 = repo.create(
+        repo.create(
             workspace_id=sample_workspace.id,
             agent_type="claude-code",
             start_time=now + timedelta(minutes=2),
@@ -1110,7 +1122,14 @@ class TestHierarchicalConversationAPI:
 
         # Verify conversation_type field
         assert "conversation_type" in data
-        assert data["conversation_type"] in ["main", "agent", "mcp", "skill", "command", "other"]
+        assert data["conversation_type"] in [
+            "main",
+            "agent",
+            "mcp",
+            "skill",
+            "command",
+            "other",
+        ]
 
         # List conversations
         list_response = api_client.get("/conversations")

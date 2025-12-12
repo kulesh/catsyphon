@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from multiprocessing import Queue
 from pathlib import Path
-from queue import Empty
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Any, Optional, Set
 from uuid import UUID
@@ -24,9 +23,8 @@ from uuid import UUID
 if TYPE_CHECKING:
     from catsyphon.tagging.pipeline import TaggingPipeline
 
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from sqlalchemy.exc import OperationalError
-from psycopg2.errors import DeadlockDetected
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 
 from catsyphon.logging_config import setup_logging
 
@@ -40,19 +38,19 @@ else:
 
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
+from catsyphon.db.repositories.raw_log import RawLogRepository
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers.base import EmptyFileError
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import get_default_registry
-from catsyphon.db.repositories.raw_log import RawLogRepository
+from catsyphon.pipeline.ingestion import (
+    _get_or_create_default_workspace,
+    link_orphaned_agents,
+)
 from catsyphon.pipeline.orchestrator import ingest_log_file
 
 # Backwards-compatible alias for tests/older imports
 ingest_conversation = ingest_log_file
-from catsyphon.pipeline.ingestion import (
-    link_orphaned_agents,
-    _get_or_create_default_workspace,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -444,7 +442,9 @@ class FileWatcher(FileSystemEventHandler):
 
             except EmptyFileError:
                 # Empty files are common - abandoned sessions that never had content
-                logger.debug(f"Skipped {file_path.name} (empty file, likely abandoned session)")
+                logger.debug(
+                    f"Skipped {file_path.name} (empty file, likely abandoned session)"
+                )
                 with self._stats_lock:
                     self.stats.files_skipped += 1
                     self.stats.last_activity = datetime.now()

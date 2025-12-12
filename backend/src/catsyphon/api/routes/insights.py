@@ -39,8 +39,7 @@ def _get_default_workspace_id(session: Session) -> Optional[UUID]:
 def get_conversation_insights(
     conversation_id: UUID,
     force_regenerate: bool = Query(
-        default=False,
-        description="Force regeneration even if cached insights exist"
+        default=False, description="Force regeneration even if cached insights exist"
     ),
     session: Session = Depends(get_db),
 ) -> InsightsResponse:
@@ -91,21 +90,20 @@ def get_conversation_insights(
 
     if workspace_id is None:
         raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
+            status_code=404, detail=f"Conversation {conversation_id} not found"
         )
 
     conversation = conversation_repo.get_with_relations(conversation_id, workspace_id)
 
     if not conversation:
         raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
+            status_code=404, detail=f"Conversation {conversation_id} not found"
         )
 
     # Invalidate cache if force regenerate
     if force_regenerate:
         from catsyphon.db.repositories.canonical import CanonicalRepository
+
         canonical_repo = CanonicalRepository(session)
         canonical_repo.invalidate(
             conversation_id=conversation_id,
@@ -126,7 +124,7 @@ def get_conversation_insights(
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=500,
-            detail="OpenAI API key not configured. Insights generation requires AI analysis."
+            detail="OpenAI API key not configured. Insights generation requires AI analysis.",
         )
 
     insights_generator = InsightsGenerator(
@@ -135,7 +133,7 @@ def get_conversation_insights(
         max_tokens=1000,
     )
 
-    children = conversation.children if hasattr(conversation, 'children') else []
+    children = conversation.children if hasattr(conversation, "children") else []
     insights = insights_generator.generate_insights(
         conversation=conversation,
         session=session,
@@ -156,16 +154,15 @@ def get_conversation_insights(
     )
     session.commit()
 
-    return InsightsResponse(
-        conversation_id=conversation_id,
-        **insights
-    )
+    return InsightsResponse(conversation_id=conversation_id, **insights)
 
 
 @router.get("/batch-insights", response_model=dict[str, Any])
 def get_batch_insights(
     project_id: UUID = Query(..., description="Project ID to analyze"),
-    limit: int = Query(default=10, le=100, description="Number of recent conversations"),
+    limit: int = Query(
+        default=10, le=100, description="Number of recent conversations"
+    ),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
@@ -195,16 +192,16 @@ def get_batch_insights(
 
     if workspace_id is None:
         raise HTTPException(
-            status_code=404,
-            detail=f"No conversations found for project {project_id}"
+            status_code=404, detail=f"No conversations found for project {project_id}"
         )
 
-    conversations = conversation_repo.get_by_project(project_id, workspace_id, limit=limit)
+    conversations = conversation_repo.get_by_project(
+        project_id, workspace_id, limit=limit
+    )
 
     if not conversations:
         raise HTTPException(
-            status_code=404,
-            detail=f"No conversations found for project {project_id}"
+            status_code=404, detail=f"No conversations found for project {project_id}"
         )
 
     # Get insights for each conversation (using cache when available)
@@ -237,7 +234,7 @@ def get_batch_insights(
                 model="gpt-4o-mini",
             )
 
-        children = conv.children if hasattr(conv, 'children') else []
+        children = conv.children if hasattr(conv, "children") else []
         insights = insights_generator.generate_insights(
             conversation=conv,
             session=session,
@@ -259,9 +256,7 @@ def get_batch_insights(
         all_insights.append(insights)
 
     session.commit()
-    logger.info(
-        f"Batch insights: {cache_hits} cache hits, {cache_misses} cache misses"
-    )
+    logger.info(f"Batch insights: {cache_hits} cache hits, {cache_misses} cache misses")
 
     # Aggregate insights
     aggregated = _aggregate_insights(all_insights)
@@ -297,11 +292,7 @@ def _aggregate_insights(insights_list: list[dict]) -> dict[str, Any]:
         pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
 
     # Sort by frequency
-    top_patterns = sorted(
-        pattern_counts.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:10]
+    top_patterns = sorted(pattern_counts.items(), key=lambda x: x[1], reverse=True)[:10]
 
     # Average scores
     avg_collaboration = sum(
@@ -312,9 +303,9 @@ def _aggregate_insights(insights_list: list[dict]) -> dict[str, Any]:
         i.get("agent_effectiveness", 5) for i in insights_list
     ) / len(insights_list)
 
-    avg_scope_clarity = sum(
-        i.get("scope_clarity", 5) for i in insights_list
-    ) / len(insights_list)
+    avg_scope_clarity = sum(i.get("scope_clarity", 5) for i in insights_list) / len(
+        insights_list
+    )
 
     # Collect learning opportunities
     all_opportunities = []
@@ -327,9 +318,7 @@ def _aggregate_insights(insights_list: list[dict]) -> dict[str, Any]:
         opportunity_counts[opp] = opportunity_counts.get(opp, 0) + 1
 
     top_opportunities = sorted(
-        opportunity_counts.items(),
-        key=lambda x: x[1],
-        reverse=True
+        opportunity_counts.items(), key=lambda x: x[1], reverse=True
     )[:5]
 
     return {

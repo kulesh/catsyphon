@@ -119,7 +119,6 @@ def ingest(
         raise typer.Exit(1)
 
     # Collect files to process
-    from catsyphon.parsers.utils import is_conversational_log
 
     all_files = []
     if log_path.is_file():
@@ -174,7 +173,6 @@ def ingest(
                 except Exception as tag_error:
                     console.print(f"[yellow]⚠ Tagging failed:[/yellow] {tag_error}")
                     tags = None  # Continue without tags
-                    llm_metrics = None
                     tagging_duration_ms = None
 
             # Store to database (unless dry-run)
@@ -252,8 +250,8 @@ def ingest(
         try:
             from catsyphon.db.connection import db_session
             from catsyphon.pipeline.ingestion import (
-                link_orphaned_agents,
                 _get_or_create_default_workspace,
+                link_orphaned_agents,
             )
 
             with db_session() as session:

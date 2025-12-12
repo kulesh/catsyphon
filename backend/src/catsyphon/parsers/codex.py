@@ -16,12 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from catsyphon.models.parsed import ParsedConversation, ParsedMessage, ToolCall
+from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 from catsyphon.parsers.base import ParseDataError, ParseFormatError
 from catsyphon.parsers.incremental import IncrementalParseResult, calculate_partial_hash
 from catsyphon.parsers.metadata import ParserCapability, ParserMetadata
 from catsyphon.parsers.types import ProbeResult
-from catsyphon.parsers.utils import extract_text_content, parse_iso_timestamp
+from catsyphon.parsers.utils import parse_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,9 @@ class CodexParser:
                     reasons.append("response_item scaffold found")
                     confidence = max(confidence, 0.6)
 
-        return ProbeResult(can_parse=bool(reasons), confidence=confidence, reasons=reasons)
+        return ProbeResult(
+            can_parse=bool(reasons), confidence=confidence, reasons=reasons
+        )
 
     def supports_incremental(self, file_path: Path) -> bool:
         """
@@ -116,7 +118,9 @@ class CodexParser:
                     records.append(rec)
         return records
 
-    def _record_from_line(self, line: str, file_path: Optional[Path] = None) -> Optional[_CodexRecord]:
+    def _record_from_line(
+        self, line: str, file_path: Optional[Path] = None
+    ) -> Optional[_CodexRecord]:
         """Parse a single JSONL line into a _CodexRecord."""
         try:
             data = json.loads(line)
@@ -167,9 +171,9 @@ class CodexParser:
                             model=rec.payload.get("model"),
                             token_usage=rec.payload.get("token_usage")
                             or rec.payload.get("token_count"),
-                            thinking_content="\n".join(thinking_parts)
-                            if thinking_parts
-                            else None,
+                            thinking_content=(
+                                "\n".join(thinking_parts) if thinking_parts else None
+                            ),
                         )
                     )
                 elif p_type == "reasoning":
@@ -177,13 +181,17 @@ class CodexParser:
                     reasoning_texts = []
                     summary = rec.payload.get("summary") or []
                     for item in summary:
-                        if isinstance(item, dict) and item.get("type") == "summary_text":
+                        if (
+                            isinstance(item, dict)
+                            and item.get("type") == "summary_text"
+                        ):
                             reasoning_texts.append(item.get("text", ""))
                     if messages and reasoning_texts:
                         last = messages[-1]
                         existing = last.thinking_content or ""
                         joiner = "\n\n" if existing else ""
-                        last.thinking_content = f"{existing}{joiner}{'\n'.join(reasoning_texts)}"
+                        reasoning_joined = "\n".join(reasoning_texts)
+                        last.thinking_content = f"{existing}{joiner}{reasoning_joined}"
             elif rec.type == "event_msg":
                 p_type = rec.payload.get("type")
                 if p_type in {"agent_message", "agent_reasoning"}:
@@ -324,7 +332,9 @@ class CodexParser:
 
         parsed_messages = self._build_messages(new_records)
         parsed_messages.sort(key=lambda m: m.timestamp)
-        last_message_timestamp = parsed_messages[-1].timestamp if parsed_messages else None
+        last_message_timestamp = (
+            parsed_messages[-1].timestamp if parsed_messages else None
+        )
 
         partial_hash = calculate_partial_hash(file_path, last_good_offset)
 

@@ -6,8 +6,8 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import Project
@@ -175,13 +175,20 @@ class ProjectRepository(BaseRepository[Project]):
 
         # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING for atomic upsert
         # This prevents IntegrityError when multiple threads race to create same project
-        stmt = pg_insert(Project).values(
-            id=uuid.uuid4(),
-            workspace_id=workspace_id,
-            name=name,
-            directory_path=directory_path,
-        ).on_conflict_do_nothing(
-            index_elements=['workspace_id', 'directory_path']  # uq_workspace_directory constraint
+        stmt = (
+            pg_insert(Project)
+            .values(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=name,
+                directory_path=directory_path,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    "workspace_id",
+                    "directory_path",
+                ]  # uq_workspace_directory constraint
+            )
         )
 
         self.session.execute(stmt)

@@ -4,7 +4,6 @@ Tests the pre-filter that skips metadata-only files during ingestion.
 """
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -85,9 +84,7 @@ class TestIsConversationalLog:
                 f.write(json.dumps({"type": "summary", "summary": f"Line {i}"}) + "\n")
             # Then add markers on line 11
             f.write(
-                json.dumps(
-                    {"sessionId": "test", "version": "2.0.17", "type": "user"}
-                )
+                json.dumps({"sessionId": "test", "version": "2.0.17", "type": "user"})
                 + "\n"
             )
 
@@ -125,9 +122,7 @@ class TestIsConversationalLog:
             f.write("\n")  # Empty line
             f.write("   \n")  # Whitespace only
             f.write(
-                json.dumps(
-                    {"sessionId": "test", "version": "2.0.17", "type": "user"}
-                )
+                json.dumps({"sessionId": "test", "version": "2.0.17", "type": "user"})
                 + "\n"
             )
 
@@ -154,9 +149,7 @@ class TestIsConversationalLog:
             f.write(json.dumps({"type": "summary", "summary": "Overview"}) + "\n")
             # Then add conversational markers
             f.write(
-                json.dumps(
-                    {"sessionId": "test", "version": "2.0.17", "type": "user"}
-                )
+                json.dumps({"sessionId": "test", "version": "2.0.17", "type": "user"})
                 + "\n"
             )
             # More metadata
@@ -176,9 +169,7 @@ class TestIsConversationalLog:
                 f.write(json.dumps({"type": "summary", "summary": f"Line {i}"}) + "\n")
             # Add markers on line 4
             f.write(
-                json.dumps(
-                    {"sessionId": "test", "version": "2.0.17", "type": "user"}
-                )
+                json.dumps({"sessionId": "test", "version": "2.0.17", "type": "user"})
                 + "\n"
             )
 
@@ -218,7 +209,9 @@ class TestSkipTracking:
             all_jobs = repo.get_recent(limit=1000)
             jobs = [j for j in all_jobs if str(log_file) in (j.file_path or "")]
 
-            assert len(jobs) == 1, f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
+            assert (
+                len(jobs) == 1
+            ), f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
             assert jobs[0].status == "skipped"
             assert jobs[0].error_message == "Test skip reason"
             assert str(log_file) in jobs[0].file_path
@@ -250,7 +243,9 @@ class TestSkipTracking:
             all_jobs = repo.get_recent(limit=1000)
             jobs = [j for j in all_jobs if str(log_file) in (j.file_path or "")]
 
-            assert len(jobs) == 1, f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
+            assert (
+                len(jobs) == 1
+            ), f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
             assert jobs[0].created_by == "testuser"
 
 

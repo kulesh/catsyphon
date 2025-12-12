@@ -59,7 +59,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
             self.session.query(CollectorConfig)
             .filter(
                 CollectorConfig.workspace_id == workspace_id,
-                CollectorConfig.is_active == True,
+                CollectorConfig.is_active.is_(True),
             )
             .offset(offset)
         )
@@ -83,7 +83,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
             self.session.query(CollectorConfig)
             .filter(
                 CollectorConfig.api_key_prefix == api_key_prefix,
-                CollectorConfig.is_active == True,
+                CollectorConfig.is_active.is_(True),
             )
             .first()
         )
@@ -168,7 +168,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
         return (
             self.session.query(CollectorConfig)
             .filter(
-                CollectorConfig.is_active == True,
+                CollectorConfig.is_active.is_(True),
                 CollectorConfig.last_heartbeat < threshold,
             )
             .all()
@@ -216,7 +216,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
             self.session.query(CollectorConfig)
             .filter(
                 CollectorConfig.workspace_id == workspace_id,
-                CollectorConfig.is_active == True,
+                CollectorConfig.is_active.is_(True),
             )
             .count()
         )

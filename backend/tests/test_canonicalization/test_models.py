@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from catsyphon.canonicalization.models import (
     CanonicalConfig,
     CanonicalConversation,

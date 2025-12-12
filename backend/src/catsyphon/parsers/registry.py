@@ -12,9 +12,9 @@ from typing import Optional
 
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.base import ConversationParser, EmptyFileError, ParseFormatError
-from catsyphon.parsers.types import ParseResult, ProbeResult
 from catsyphon.parsers.incremental import IncrementalParser
 from catsyphon.parsers.metadata import ParserMetadata
+from catsyphon.parsers.types import ParseResult, ProbeResult
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,11 @@ class ParserRegistry:
             )
 
         # No parser could handle this file
-        attempted = "; ".join(attempts + parse_errors) if (attempts or parse_errors) else "no parsers registered"
+        attempted = (
+            "; ".join(attempts + parse_errors)
+            if (attempts or parse_errors)
+            else "no parsers registered"
+        )
         raise ParseFormatError(
             f"No parser could handle file format: {file_path}. Attempts: {attempted}"
         )
@@ -331,7 +335,9 @@ def get_default_registry() -> ParserRegistry:
                 # Accept comma- or space-separated env values
                 if isinstance(settings.parser_modules, str):
                     modules = [
-                        m.strip() for m in settings.parser_modules.split(",") if m.strip()
+                        m.strip()
+                        for m in settings.parser_modules.split(",")
+                        if m.strip()
                     ]
                 else:
                     modules = list(settings.parser_modules)
@@ -340,7 +346,11 @@ def get_default_registry() -> ParserRegistry:
                 try:
                     module = import_module(module_path)
                     factory = getattr(module, "get_parser", None)
-                    parser = factory() if callable(factory) else getattr(module, "PARSER", None)
+                    parser = (
+                        factory()
+                        if callable(factory)
+                        else getattr(module, "PARSER", None)
+                    )
                     if parser:
                         _default_registry.register(parser)
                         logger.info(f"Loaded external parser from {module_path}")

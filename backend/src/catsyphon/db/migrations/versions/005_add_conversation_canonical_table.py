@@ -5,6 +5,7 @@ Revises: a3438217bff2
 Create Date: 2025-11-19 23:20:00.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -92,8 +93,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop conversation_canonical table."""
-    op.drop_index("ix_conversation_canonical_generated_at", table_name="conversation_canonical")
-    op.drop_index("ix_conversation_canonical_canonical_type", table_name="conversation_canonical")
-    op.drop_index("ix_conversation_canonical_version", table_name="conversation_canonical")
-    op.drop_index("ix_conversation_canonical_conversation_id", table_name="conversation_canonical")
+    op.drop_index(
+        "ix_conversation_canonical_generated_at", table_name="conversation_canonical"
+    )
+    op.drop_index(
+        "ix_conversation_canonical_canonical_type", table_name="conversation_canonical"
+    )
+    op.drop_index(
+        "ix_conversation_canonical_version", table_name="conversation_canonical"
+    )
+    op.drop_index(
+        "ix_conversation_canonical_conversation_id", table_name="conversation_canonical"
+    )
     op.drop_table("conversation_canonical")

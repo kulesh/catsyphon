@@ -18,7 +18,7 @@ from catsyphon.api.schemas import (
     CanonicalResponse,
     RegenerateCanonicalRequest,
 )
-from catsyphon.canonicalization import CanonicalType, Canonicalizer
+from catsyphon.canonicalization import Canonicalizer, CanonicalType
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import CanonicalRepository, ConversationRepository
 
@@ -30,15 +30,14 @@ def get_canonical(
     conversation_id: UUID,
     canonical_type: str = Query(
         default="tagging",
-        description="Type of canonical representation (tagging, insights, export)"
+        description="Type of canonical representation (tagging, insights, export)",
     ),
     sampling_strategy: str = Query(
         default="semantic",
-        description="Sampling strategy (semantic, epoch, chronological)"
+        description="Sampling strategy (semantic, epoch, chronological)",
     ),
     force_regenerate: bool = Query(
-        default=False,
-        description="Force regeneration even if cached version exists"
+        default=False, description="Force regeneration even if cached version exists"
     ),
     session: Session = Depends(get_db),
 ) -> CanonicalResponse:
@@ -84,7 +83,7 @@ def get_canonical(
     except KeyError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid canonical_type. Must be one of: tagging, insights, export"
+            detail="Invalid canonical_type. Must be one of: tagging, insights, export",
         )
 
     # Validate sampling strategy
@@ -92,7 +91,7 @@ def get_canonical(
     if sampling_strategy not in valid_strategies:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}"
+            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
         )
 
     # Get conversation
@@ -101,16 +100,14 @@ def get_canonical(
 
     if not conversation:
         raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
+            status_code=404, detail=f"Conversation {conversation_id} not found"
         )
 
     # Get or generate canonical
     try:
         canonical_repo = CanonicalRepository(session)
         canonicalizer = Canonicalizer(
-            canonical_type=canonical_type_enum,
-            sampling_strategy=sampling_strategy
+            canonical_type=canonical_type_enum, sampling_strategy=sampling_strategy
         )
 
         # Force regeneration if requested
@@ -122,7 +119,7 @@ def get_canonical(
             canonical_type=canonical_type_enum,
             canonicalizer=canonicalizer,
             regeneration_threshold_tokens=2000,
-            children=conversation.children if hasattr(conversation, 'children') else [],
+            children=conversation.children if hasattr(conversation, "children") else [],
         )
 
         # Build response
@@ -152,24 +149,29 @@ def get_canonical(
     except Exception as e:
         # Log the error and return a 500 with useful info
         import logging
+
         logger = logging.getLogger(__name__)
-        logger.error(f"Error generating canonical for conversation {conversation_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error generating canonical for conversation {conversation_id}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate canonical representation: {str(e)}"
+            detail=f"Failed to generate canonical representation: {str(e)}",
         )
 
 
-@router.get("/{conversation_id}/canonical/narrative", response_model=CanonicalNarrativeResponse)
+@router.get(
+    "/{conversation_id}/canonical/narrative", response_model=CanonicalNarrativeResponse
+)
 def get_canonical_narrative(
     conversation_id: UUID,
     canonical_type: str = Query(
-        default="tagging",
-        description="Type of canonical representation"
+        default="tagging", description="Type of canonical representation"
     ),
     sampling_strategy: str = Query(
         default="semantic",
-        description="Sampling strategy (semantic, epoch, chronological)"
+        description="Sampling strategy (semantic, epoch, chronological)",
     ),
     session: Session = Depends(get_db),
 ) -> CanonicalNarrativeResponse:
@@ -199,7 +201,7 @@ def get_canonical_narrative(
     except KeyError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid canonical_type. Must be one of: tagging, insights, export"
+            detail="Invalid canonical_type. Must be one of: tagging, insights, export",
         )
 
     # Validate sampling strategy
@@ -207,7 +209,7 @@ def get_canonical_narrative(
     if sampling_strategy not in valid_strategies:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}"
+            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
         )
 
     # Get conversation
@@ -216,22 +218,20 @@ def get_canonical_narrative(
 
     if not conversation:
         raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
+            status_code=404, detail=f"Conversation {conversation_id} not found"
         )
 
     # Get or generate canonical
     canonical_repo = CanonicalRepository(session)
     canonicalizer = Canonicalizer(
-        canonical_type=canonical_type_enum,
-        sampling_strategy=sampling_strategy
+        canonical_type=canonical_type_enum, sampling_strategy=sampling_strategy
     )
 
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
         canonical_type=canonical_type_enum,  # Fixed: use enum, not string
         canonicalizer=canonicalizer,
-        children=conversation.children if hasattr(conversation, 'children') else [],
+        children=conversation.children if hasattr(conversation, "children") else [],
     )
 
     return CanonicalNarrativeResponse(
@@ -242,7 +242,9 @@ def get_canonical_narrative(
     )
 
 
-@router.post("/{conversation_id}/canonical/regenerate", response_model=CanonicalResponse)
+@router.post(
+    "/{conversation_id}/canonical/regenerate", response_model=CanonicalResponse
+)
 def regenerate_canonical(
     conversation_id: UUID,
     request: RegenerateCanonicalRequest,
@@ -275,7 +277,7 @@ def regenerate_canonical(
     except KeyError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid canonical_type. Must be one of: tagging, insights, export"
+            detail="Invalid canonical_type. Must be one of: tagging, insights, export",
         )
 
     # Validate sampling strategy
@@ -283,7 +285,7 @@ def regenerate_canonical(
     if request.sampling_strategy not in valid_strategies:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}"
+            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
         )
 
     # Get conversation
@@ -292,8 +294,7 @@ def regenerate_canonical(
 
     if not conversation:
         raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
+            status_code=404, detail=f"Conversation {conversation_id} not found"
         )
 
     # Invalidate cache
@@ -305,14 +306,13 @@ def regenerate_canonical(
 
     # Generate fresh canonical
     canonicalizer = Canonicalizer(
-        canonical_type=canonical_type_enum,
-        sampling_strategy=request.sampling_strategy
+        canonical_type=canonical_type_enum, sampling_strategy=request.sampling_strategy
     )
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
         canonical_type=canonical_type_enum,  # Fixed: use enum, not string
         canonicalizer=canonicalizer,
-        children=conversation.children if hasattr(conversation, 'children') else [],
+        children=conversation.children if hasattr(conversation, "children") else [],
     )
 
     # Build response
@@ -346,7 +346,7 @@ def delete_canonical(
     conversation_id: UUID,
     canonical_type: Optional[str] = Query(
         default=None,
-        description="Specific canonical type to delete, or all if not specified"
+        description="Specific canonical type to delete, or all if not specified",
     ),
     session: Session = Depends(get_db),
 ) -> dict:
@@ -374,8 +374,7 @@ def delete_canonical(
 
     if not conversation:
         raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
+            status_code=404, detail=f"Conversation {conversation_id} not found"
         )
 
     # Delete canonical(s)

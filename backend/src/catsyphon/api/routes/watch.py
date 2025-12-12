@@ -128,7 +128,7 @@ async def create_watch_config(
     if workspace_id is None:
         raise HTTPException(
             status_code=500,
-            detail="No workspace found. Please create a workspace first."
+            detail="No workspace found. Please create a workspace first.",
         )
 
     # Check if directory already exists in this workspace
@@ -291,7 +291,9 @@ async def start_watching(
         daemon_manager.start_daemon(updated_config)
         logger.info(f"Started daemon for config {config_id}")
     except Exception as e:
-        logger.error(f"Failed to start daemon for config {config_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to start daemon for config {config_id}: {e}", exc_info=True
+        )
 
         # Rollback - mark as inactive
         try:
@@ -357,7 +359,9 @@ async def stop_watching(
         daemon_manager.stop_daemon(config_id, save_stats=True)
         logger.info(f"Stopped daemon for config {config_id}")
     except Exception as e:
-        logger.error(f"Failed to stop daemon for config {config_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to stop daemon for config {config_id}: {e}", exc_info=True
+        )
         # Continue anyway - mark as inactive in DB
 
     # Mark as inactive in database

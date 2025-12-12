@@ -22,8 +22,8 @@ from catsyphon.models.parsed import (
     ParsedMessage,
     ToolCall,
 )
-from catsyphon.pipeline.ingestion import ingest_conversation, link_orphaned_agents
 from catsyphon.parsers.types import ParseResult
+from catsyphon.pipeline.ingestion import ingest_conversation, link_orphaned_agents
 
 
 class TestBasicIngestion:
@@ -679,7 +679,7 @@ class TestConversationUpdates:
 
         conv1 = ingest_conversation(db_session, parsed1)
         original_id = conv1.id
-        original_message_count = len(conv1.messages)
+        len(conv1.messages)
         db_session.commit()
 
         # Try to ingest again with skip mode (default)
@@ -974,7 +974,7 @@ class TestConversationUpdates:
             ],
         )
 
-        conv1 = ingest_conversation(db_session, parsed1)
+        ingest_conversation(db_session, parsed1)
         db_session.commit()
 
         # Try to update with append mode
@@ -1059,7 +1059,9 @@ class TestConversationUpdates:
 class TestHierarchicalConversationIngestion:
     """Tests for hierarchical conversation ingestion (agents and parent-child linking)."""
 
-    def test_ingest_agent_links_to_existing_parent(self, db_session: Session, sample_workspace):
+    def test_ingest_agent_links_to_existing_parent(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that agent conversation links to existing parent during ingestion."""
         parent_session_id = "parent-session-123"
         agent_id = "agent-456"
@@ -1125,7 +1127,9 @@ class TestHierarchicalConversationIngestion:
         assert len(parent_conv.children) == 1
         assert parent_conv.children[0].id == agent_conv.id
 
-    def test_ingest_agent_before_parent_creates_orphan(self, db_session: Session, sample_workspace):
+    def test_ingest_agent_before_parent_creates_orphan(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that agent ingested before parent becomes orphaned."""
         parent_session_id = "parent-session-789"
         agent_id = "agent-orphan"
@@ -1161,7 +1165,9 @@ class TestHierarchicalConversationIngestion:
         assert agent_conv.parent_conversation_id is None
         assert agent_conv.agent_metadata["parent_session_id"] == parent_session_id
 
-    def test_ingest_parent_after_agent_links_orphans(self, db_session: Session, sample_workspace):
+    def test_ingest_parent_after_agent_links_orphans(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that ingesting parent after agent links orphaned agents."""
         parent_session_id = "parent-session-link"
         agent_id = "agent-link"
@@ -1222,7 +1228,9 @@ class TestHierarchicalConversationIngestion:
         db_session.refresh(agent_conv)
         assert agent_conv.parent_conversation_id == parent_conv.id
 
-    def test_link_orphaned_agents_finds_and_links(self, db_session: Session, sample_workspace):
+    def test_link_orphaned_agents_finds_and_links(
+        self, db_session: Session, sample_workspace
+    ):
         """Test link_orphaned_agents function finds and links orphaned agents."""
         now = datetime.now(UTC)
 
@@ -1286,7 +1294,9 @@ class TestHierarchicalConversationIngestion:
         agents = [c for c in all_convs if c.conversation_type == "agent"]
         assert all(a.parent_conversation_id is not None for a in agents)
 
-    def test_link_orphaned_agents_skips_already_linked(self, db_session: Session, sample_workspace):
+    def test_link_orphaned_agents_skips_already_linked(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that link_orphaned_agents skips already linked agents."""
         parent_session_id = "parent-existing"
         now = datetime.now(UTC)
@@ -1344,7 +1354,9 @@ class TestHierarchicalConversationIngestion:
         # Should not link anything
         assert linked_count == 0
 
-    def test_link_orphaned_agents_handles_missing_parent(self, db_session: Session, sample_workspace):
+    def test_link_orphaned_agents_handles_missing_parent(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that link_orphaned_agents handles agents with non-existent parents."""
         now = datetime.now(UTC)
 
@@ -1383,7 +1395,9 @@ class TestHierarchicalConversationIngestion:
         db_session.refresh(agent_conv)
         assert agent_conv.parent_conversation_id is None
 
-    def test_ingest_duplicate_main_and_agent_different_types(self, db_session: Session, sample_workspace):
+    def test_ingest_duplicate_main_and_agent_different_types(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that same session_id with different conversation_type creates separate records."""
         session_id = "ambiguous-session"
         now = datetime.now(UTC)
@@ -1439,10 +1453,14 @@ class TestHierarchicalConversationIngestion:
         # Verify both exist in database
         conv_repo = ConversationRepository(db_session)
         all_convs = conv_repo.get_all()
-        session_convs = [c for c in all_convs if c.extra_data.get("session_id") == session_id]
+        session_convs = [
+            c for c in all_convs if c.extra_data.get("session_id") == session_id
+        ]
         assert len(session_convs) == 2
 
-    def test_update_mode_replace_deletes_children(self, db_session: Session, sample_workspace):
+    def test_update_mode_replace_deletes_children(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that replace mode on parent deletes existing children.
 
         This ensures children_count stays in sync when re-ingesting files with --force.
@@ -1524,7 +1542,9 @@ class TestHierarchicalConversationIngestion:
                 ),
             ],
         )
-        parent_conv_v2 = ingest_conversation(db_session, parent_parsed_v2, update_mode="replace")
+        parent_conv_v2 = ingest_conversation(
+            db_session, parent_parsed_v2, update_mode="replace"
+        )
         db_session.commit()
 
         # Parent ID should be same
@@ -1535,5 +1555,7 @@ class TestHierarchicalConversationIngestion:
         assert len(parent_conv_v2.children) == 0
 
         # Old child should no longer exist in database
-        old_child = db_session.query(Conversation).filter_by(id=original_agent_id).first()
+        old_child = (
+            db_session.query(Conversation).filter_by(id=original_agent_id).first()
+        )
         assert old_child is None

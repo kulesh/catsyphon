@@ -6,7 +6,6 @@ Aggregates conversation insights across a project to provide:
 - LLM-generated narrative summary
 """
 
-import json
 import logging
 import time
 from collections import Counter, defaultdict
@@ -122,8 +121,7 @@ class ProjectInsightsGenerator:
         # Filter by date if applicable
         if date_filter:
             conversations = [
-                c for c in conversations
-                if c.start_time and c.start_time >= date_filter
+                c for c in conversations if c.start_time and c.start_time >= date_filter
             ]
 
         if not conversations:
@@ -131,7 +129,9 @@ class ProjectInsightsGenerator:
 
         # If force_regenerate, invalidate all cached insights for these conversations
         if force_regenerate:
-            logger.info(f"Force regenerating insights for {len(conversations)} conversations")
+            logger.info(
+                f"Force regenerating insights for {len(conversations)} conversations"
+            )
             for conv in conversations:
                 insights_repo.invalidate(conversation_id=conv.id)
 
@@ -146,7 +146,9 @@ class ProjectInsightsGenerator:
         latest_conversation_at: Optional[datetime] = None
         for conv in conversations:
             conv_time = conv.end_time or conv.start_time
-            if conv_time and (latest_conversation_at is None or conv_time > latest_conversation_at):
+            if conv_time and (
+                latest_conversation_at is None or conv_time > latest_conversation_at
+            ):
                 latest_conversation_at = conv_time
 
         # Lazy-initialized insights generator for on-demand generation
@@ -165,10 +167,12 @@ class ProjectInsightsGenerator:
                 if newest_insight_at is None or insight_time > newest_insight_at:
                     newest_insight_at = insight_time
 
-                all_insights.append({
-                    "insights": cached.to_response_dict(),
-                    "conversation": conv,
-                })
+                all_insights.append(
+                    {
+                        "insights": cached.to_response_dict(),
+                        "conversation": conv,
+                    }
+                )
             else:
                 # Generate insights on-demand
                 if conv_insights_generator is None:
@@ -199,17 +203,21 @@ class ProjectInsightsGenerator:
                     if newest_insight_at is None or insight_time > newest_insight_at:
                         newest_insight_at = insight_time
 
-                    all_insights.append({
-                        "insights": generated,
-                        "conversation": conv,
-                    })
+                    all_insights.append(
+                        {
+                            "insights": generated,
+                            "conversation": conv,
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to generate insights for {conv.id}: {e}")
                     insights_failed += 1
-                    all_insights.append({
-                        "insights": None,
-                        "conversation": conv,
-                    })
+                    all_insights.append(
+                        {
+                            "insights": None,
+                            "conversation": conv,
+                        }
+                    )
 
         # Separate conversations with insights from those without
         with_insights = [i for i in all_insights if i["insights"]]
@@ -253,41 +261,40 @@ class ProjectInsightsGenerator:
             "date_range": date_range,
             "conversations_analyzed": total_conversations,
             "conversations_with_insights": conversations_with_insights,
-
             # Pattern Aggregation
             "top_workflow_patterns": patterns["workflow"],
             "top_learning_opportunities": patterns["learning"],
             "top_anti_patterns": patterns["anti_patterns"],
             "common_technical_debt": patterns["tech_debt"],
-
             # Temporal Trends
             "collaboration_trend": trends["collaboration"],
             "effectiveness_trend": trends["effectiveness"],
             "scope_clarity_trend": trends["clarity"],
-
             # Averages
             "avg_collaboration_quality": averages["collaboration"],
             "avg_agent_effectiveness": averages["effectiveness"],
             "avg_scope_clarity": averages["clarity"],
-
             # Stats
             "total_messages": stats["total_messages"],
             "total_tool_calls": stats["total_tool_calls"],
             "success_rate": stats["success_rate"],
-
             # Summary
             "summary": summary,
-
             # Metadata
             "generated_at": time.time(),
-
             # Cache metadata (for freshness indicators)
             "insights_cached": insights_cached,
             "insights_generated": insights_generated,
             "insights_failed": insights_failed,
-            "oldest_insight_at": oldest_insight_at.isoformat() if oldest_insight_at else None,
-            "newest_insight_at": newest_insight_at.isoformat() if newest_insight_at else None,
-            "latest_conversation_at": latest_conversation_at.isoformat() if latest_conversation_at else None,
+            "oldest_insight_at": (
+                oldest_insight_at.isoformat() if oldest_insight_at else None
+            ),
+            "newest_insight_at": (
+                newest_insight_at.isoformat() if newest_insight_at else None
+            ),
+            "latest_conversation_at": (
+                latest_conversation_at.isoformat() if latest_conversation_at else None
+            ),
         }
 
     def _parse_date_range(self, date_range: str) -> Optional[datetime]:
@@ -298,9 +305,7 @@ class ProjectInsightsGenerator:
         days = {"7d": 7, "30d": 30, "90d": 90}.get(date_range, 30)
         return datetime.now().astimezone() - timedelta(days=days)
 
-    def _aggregate_patterns(
-        self, insights_list: list[dict]
-    ) -> dict[str, list[dict]]:
+    def _aggregate_patterns(self, insights_list: list[dict]) -> dict[str, list[dict]]:
         """Aggregate patterns from multiple conversations."""
         workflow_counter: Counter = Counter()
         learning_counter: Counter = Counter()
@@ -358,17 +363,17 @@ class ProjectInsightsGenerator:
             "tech_debt": to_frequency_list(tech_debt_counter),
         }
 
-    def _compute_trends(
-        self, insights_list: list[dict]
-    ) -> dict[str, list[dict]]:
+    def _compute_trends(self, insights_list: list[dict]) -> dict[str, list[dict]]:
         """Compute temporal trends grouped by week."""
         # Group by week
-        weekly_data: dict[str, dict] = defaultdict(lambda: {
-            "collaboration": [],
-            "effectiveness": [],
-            "clarity": [],
-            "count": 0,
-        })
+        weekly_data: dict[str, dict] = defaultdict(
+            lambda: {
+                "collaboration": [],
+                "effectiveness": [],
+                "clarity": [],
+                "count": 0,
+            }
+        )
 
         for item in insights_list:
             insights = item["insights"]
@@ -387,9 +392,7 @@ class ProjectInsightsGenerator:
             weekly_data[week_key]["effectiveness"].append(
                 insights.get("agent_effectiveness", 5)
             )
-            weekly_data[week_key]["clarity"].append(
-                insights.get("scope_clarity", 5)
-            )
+            weekly_data[week_key]["clarity"].append(insights.get("scope_clarity", 5))
             weekly_data[week_key]["count"] += 1
 
         # Convert to trend points
@@ -398,11 +401,13 @@ class ProjectInsightsGenerator:
             for week, data in sorted(weekly_data.items()):
                 values = data[metric]
                 if values:
-                    points.append({
-                        "date": week,
-                        "avg_score": round(sum(values) / len(values), 2),
-                        "count": data["count"],
-                    })
+                    points.append(
+                        {
+                            "date": week,
+                            "avg_score": round(sum(values) / len(values), 2),
+                            "count": data["count"],
+                        }
+                    )
             return points
 
         return {
@@ -411,9 +416,7 @@ class ProjectInsightsGenerator:
             "clarity": to_trend_points("clarity"),
         }
 
-    def _compute_averages(
-        self, insights_list: list[dict]
-    ) -> dict[str, float]:
+    def _compute_averages(self, insights_list: list[dict]) -> dict[str, float]:
         """Compute average scores across all insights."""
         collab = []
         effect = []
@@ -437,9 +440,7 @@ class ProjectInsightsGenerator:
             "clarity": safe_avg(clarity),
         }
 
-    def _compute_stats(
-        self, insights_list: list[dict]
-    ) -> dict[str, Any]:
+    def _compute_stats(self, insights_list: list[dict]) -> dict[str, Any]:
         """Compute quantitative statistics."""
         total_messages = 0
         total_tool_calls = 0
@@ -484,20 +485,29 @@ class ProjectInsightsGenerator:
         """Generate LLM-powered narrative summary."""
         try:
             # Format patterns for prompt
-            workflow_str = "\n".join(
-                f"- {p['pattern']} ({p['count']} sessions, {p['percentage']}%)"
-                for p in patterns["workflow"][:5]
-            ) or "- No patterns detected"
+            workflow_str = (
+                "\n".join(
+                    f"- {p['pattern']} ({p['count']} sessions, {p['percentage']}%)"
+                    for p in patterns["workflow"][:5]
+                )
+                or "- No patterns detected"
+            )
 
-            learning_str = "\n".join(
-                f"- {p['pattern']} ({p['count']} sessions)"
-                for p in patterns["learning"][:5]
-            ) or "- No opportunities detected"
+            learning_str = (
+                "\n".join(
+                    f"- {p['pattern']} ({p['count']} sessions)"
+                    for p in patterns["learning"][:5]
+                )
+                or "- No opportunities detected"
+            )
 
-            anti_str = "\n".join(
-                f"- {p['pattern']} ({p['count']} sessions)"
-                for p in patterns["anti_patterns"][:5]
-            ) or "- No anti-patterns detected"
+            anti_str = (
+                "\n".join(
+                    f"- {p['pattern']} ({p['count']} sessions)"
+                    for p in patterns["anti_patterns"][:5]
+                )
+                or "- No anti-patterns detected"
+            )
 
             # Determine trend directions
             def trend_direction(trend_data: list) -> str:
@@ -515,7 +525,8 @@ class ProjectInsightsGenerator:
             prompt = PROJECT_SUMMARY_PROMPT.format(
                 project_name=project_name,
                 date_range=date_range,
-                session_count=stats.get("total_messages", 0) // 50 or 1,  # Rough estimate
+                session_count=stats.get("total_messages", 0) // 50
+                or 1,  # Rough estimate
                 workflow_patterns=workflow_str,
                 learning_opportunities=learning_str,
                 anti_patterns=anti_str,
@@ -526,7 +537,9 @@ class ProjectInsightsGenerator:
                 clarity_trend=trend_direction(trends["clarity"]),
                 avg_clarity=averages["clarity"],
                 total_messages=stats["total_messages"],
-                success_rate=f"{stats['success_rate']}%" if stats["success_rate"] else "N/A",
+                success_rate=(
+                    f"{stats['success_rate']}%" if stats["success_rate"] else "N/A"
+                ),
             )
 
             response = self.client.chat.completions.create(
@@ -548,9 +561,7 @@ class ProjectInsightsGenerator:
             logger.error(f"Failed to generate project summary: {e}")
             return None
 
-    def _empty_response(
-        self, project_id: UUID, date_range: str
-    ) -> dict[str, Any]:
+    def _empty_response(self, project_id: UUID, date_range: str) -> dict[str, Any]:
         """Return empty response when no conversations found."""
         return {
             "project_id": str(project_id),

@@ -6,16 +6,13 @@ API endpoint metrics exposure, and performance overhead.
 """
 
 import time
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.ingestion_job import IngestionJobRepository
-from catsyphon.models.db import Conversation, IngestionJob, WatchConfiguration
 from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 from catsyphon.pipeline.ingestion import StageMetrics, ingest_conversation
 
@@ -182,7 +179,9 @@ class TestIngestConversationMetrics:
         assert isinstance(job.metrics, dict)
         assert len(job.metrics) > 0
 
-    def test_metrics_includes_required_stages(self, db_session: Session, tmp_path: Path):
+    def test_metrics_includes_required_stages(
+        self, db_session: Session, tmp_path: Path
+    ):
         """Test that metrics include deduplication and database operation stages."""
         log_file = tmp_path / "test2.jsonl"
         log_file.write_text('{"test": "data"}')
@@ -311,11 +310,11 @@ class TestIngestConversationMetrics:
         )
 
         # First ingestion
-        conversation1 = ingest_conversation(db_session, parsed, file_path=log_file)
+        ingest_conversation(db_session, parsed, file_path=log_file)
         db_session.commit()
 
         # Second ingestion of same file
-        conversation2 = ingest_conversation(db_session, parsed, file_path=log_file)
+        ingest_conversation(db_session, parsed, file_path=log_file)
         db_session.commit()
 
         # Get all jobs
@@ -353,7 +352,7 @@ class TestIngestConversationMetrics:
         )
 
         # First ingestion
-        conversation1 = ingest_conversation(db_session, parsed1, file_path=log_file)
+        ingest_conversation(db_session, parsed1, file_path=log_file)
         db_session.commit()
 
         # Append to file (modify content)
@@ -380,7 +379,7 @@ class TestIngestConversationMetrics:
         )
 
         # Second ingestion (should be incremental if supported)
-        conversation2 = ingest_conversation(
+        ingest_conversation(
             db_session, parsed2, file_path=log_file, update_mode="replace"
         )
         db_session.commit()
@@ -615,9 +614,7 @@ class TestIngestionJobAPIMetrics:
 class TestMetricsPerformanceOverhead:
     """Performance tests to ensure metrics tracking has minimal overhead."""
 
-    def test_metrics_overhead_minimal(
-        self, db_session: Session, tmp_path: Path
-    ):
+    def test_metrics_overhead_minimal(self, db_session: Session, tmp_path: Path):
         """Test that metrics tracking has minimal overhead."""
         log_file = tmp_path / "perf_test.jsonl"
         log_file.write_text('{"test": "performance"}')
@@ -705,9 +702,7 @@ class TestMetricsPerformanceOverhead:
             assert f"stage_{i}" in metrics.stages
             assert metrics.stages[f"stage_{i}"] > 0
 
-    def test_metrics_do_not_block_ingestion(
-        self, db_session: Session, tmp_path: Path
-    ):
+    def test_metrics_do_not_block_ingestion(self, db_session: Session, tmp_path: Path):
         """Test that metrics errors don't prevent ingestion from completing."""
         log_file = tmp_path / "robust_test.jsonl"
         log_file.write_text('{"test": "robustness"}')

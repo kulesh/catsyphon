@@ -1,5 +1,5 @@
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, UTC
 
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.metadata import ParserMetadata
