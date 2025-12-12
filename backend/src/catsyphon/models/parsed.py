@@ -100,6 +100,8 @@ class ParsedMessage:
     model: Optional[str] = None  # Claude model used (for assistant messages)
     token_usage: Optional[dict] = None  # Token usage statistics
     thinking_content: Optional[str] = None  # Extended thinking blocks (Claude)
+    stop_reason: Optional[str] = None  # Why generation stopped (end_turn, max_tokens, tool_use)
+    thinking_metadata: Optional[dict] = None  # Thinking level and settings
 
 
 @dataclass
@@ -126,6 +128,9 @@ class ParsedConversation:
 
     # Plan tracking
     plans: list[PlanInfo] = field(default_factory=list)  # Extracted plan data
+
+    # Session identification
+    slug: Optional[str] = None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
 
 
 @dataclass

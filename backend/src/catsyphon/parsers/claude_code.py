@@ -213,6 +213,7 @@ class ClaudeCodeParser:
         cwd = None
         is_sidechain = False
         agent_id = None
+        slug = None
 
         for msg in raw_messages[:10]:  # Check first 10 messages
             if "sessionId" in msg:
@@ -222,6 +223,7 @@ class ClaudeCodeParser:
                 cwd = msg.get("cwd")
                 is_sidechain = msg.get("isSidechain", False)
                 agent_id = msg.get("agentId")
+                slug = msg.get("slug")
                 break
 
         # For metadata-only files, extract session_id from filename if not found in content
@@ -321,6 +323,7 @@ class ClaudeCodeParser:
             context_semantics=context_semantics,
             agent_metadata=agent_metadata,
             plans=plans,
+            slug=slug,
         )
 
     def supports_incremental(self, file_path: Path) -> bool:
@@ -620,11 +623,20 @@ class ClaudeCodeParser:
 
         # Extract thinking content (assistant messages only)
         thinking_content = None
+        thinking_metadata = None
         if role == "assistant":
             thinking_content = extract_thinking_content(content)
+            # Extract thinking metadata (level, disabled, triggers)
+            raw_thinking_meta = msg_data.get("thinkingMetadata")
+            if raw_thinking_meta:
+                thinking_metadata = {
+                    "level": raw_thinking_meta.get("level"),  # "high", "normal", "low"
+                    "disabled": raw_thinking_meta.get("disabled", False),
+                }
 
-        # Extract model info (assistant messages only)
+        # Extract model info and stop_reason (assistant messages only)
         model = message.get("model")
+        stop_reason = message.get("stop_reason")  # end_turn, max_tokens, tool_use
 
         # Extract tool calls (assistant messages only)
         tool_calls = []
@@ -658,6 +670,8 @@ class ClaudeCodeParser:
             token_usage=token_usage,
             thinking_content=thinking_content,
             code_changes=code_changes,
+            stop_reason=stop_reason,
+            thinking_metadata=thinking_metadata,
         )
 
     def _extract_tool_call(
