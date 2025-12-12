@@ -373,8 +373,10 @@ export const renderHelpers = {
   /** Format plan indicator - shows if session has plans */
   planIndicator: (session: Session) => {
     const conv = session as ConversationListItem;
-    // Use plan_count from API response (more efficient than extra_data lookup)
-    const planCount = conv.plan_count ?? 0;
+    const projSession = session as ProjectSession;
+
+    // Use plan_count from API response
+    const planCount = conv.plan_count ?? projSession.plan_count ?? 0;
 
     if (planCount === 0) {
       // Fall back to extra_data.plans for backward compatibility
@@ -404,11 +406,16 @@ export const renderHelpers = {
       );
     }
 
-    // Use plan_count for display, but still need extra_data for status
-    const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
-    const hasApproved = plans?.some((p) => p.status === 'approved') ?? false;
-    const hasActive = plans?.some((p) => p.status === 'active') ?? false;
-    const status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
+    // Determine status: prefer plan_status from ProjectSession, fall back to extra_data
+    let status: 'approved' | 'active' | 'abandoned' = 'abandoned';
+    if (projSession.plan_status) {
+      status = projSession.plan_status;
+    } else {
+      const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+      const hasApproved = plans?.some((p) => p.status === 'approved') ?? false;
+      const hasActive = plans?.some((p) => p.status === 'active') ?? false;
+      status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
+    }
 
     const statusStyles = {
       approved: 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400',

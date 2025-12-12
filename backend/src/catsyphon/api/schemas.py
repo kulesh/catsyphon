@@ -180,6 +180,10 @@ class ProjectSession(BaseModel):
     depth_level: int = 0
     parent_conversation_id: Optional[UUID] = None
 
+    # Plan fields
+    plan_count: int = 0
+    plan_status: Optional[str] = None  # 'approved', 'active', or 'abandoned'
+
 
 class ProjectFileAggregation(BaseModel):
     """Aggregated file modification data across project sessions."""

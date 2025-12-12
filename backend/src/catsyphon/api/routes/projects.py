@@ -896,6 +896,19 @@ async def list_project_sessions(
         if conv.end_time and conv.start_time:
             duration_seconds = int((conv.end_time - conv.start_time).total_seconds())
 
+        # Get plan count and status from extra_data
+        plan_count = 0
+        plan_status = None
+        if conv.extra_data:
+            plans = conv.extra_data.get("plans", [])
+            if isinstance(plans, list):
+                plan_count = len(plans)
+                if plan_count > 0:
+                    # Determine status: approved > active > abandoned
+                    has_approved = any(p.get("status") == "approved" for p in plans)
+                    has_active = any(p.get("status") == "active" for p in plans)
+                    plan_status = "approved" if has_approved else "active" if has_active else "abandoned"
+
         sessions.append(
             ProjectSession(
                 id=conv.id,
@@ -911,6 +924,8 @@ async def list_project_sessions(
                 children_count=child_count,
                 depth_level=depth,
                 parent_conversation_id=conv.parent_conversation_id,
+                plan_count=plan_count,
+                plan_status=plan_status,
             )
         )
 

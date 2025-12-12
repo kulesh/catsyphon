@@ -539,6 +539,10 @@ export interface ProjectSession {
   children_count: number;
   depth_level: number;
   parent_conversation_id: string | null;
+
+  // Plan fields
+  plan_count: number;
+  plan_status: 'approved' | 'active' | 'abandoned' | null;
 }
 
 export interface ProjectFileAggregation {

@@ -1926,6 +1926,12 @@ function SessionsTab({ projectId }: { projectId: string }) {
       render: (session) => renderHelpers.status(session, 'observatory'),
     },
     {
+      id: 'plan',
+      label: 'Plan',
+      align: 'center' as const,
+      render: renderHelpers.planIndicator,
+    },
+    {
       id: 'messages',
       label: 'Messages',
       align: 'right' as const,
