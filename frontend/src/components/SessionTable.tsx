@@ -315,6 +315,61 @@ export const renderHelpers = {
     );
   },
 
+  /** Format session slug (human-readable session name) */
+  slug: (session: Session) => {
+    const conv = session as ConversationListItem;
+    if (!conv.slug) {
+      return <span className="font-mono text-xs text-muted-foreground/50">---</span>;
+    }
+    return (
+      <span className="font-mono text-xs text-foreground/90" title={`Session: ${conv.slug}`}>
+        {conv.slug}
+      </span>
+    );
+  },
+
+  /** Format git branch badge */
+  gitBranch: (session: Session) => {
+    const conv = session as ConversationListItem;
+    if (!conv.git_branch) {
+      return null;
+    }
+    return (
+      <span
+        className="inline-flex items-center px-1.5 py-0.5 rounded bg-orange-400/10 border border-orange-400/30 text-[10px] font-mono text-orange-400 max-w-[100px] truncate"
+        title={`Git branch: ${conv.git_branch}`}
+      >
+        {conv.git_branch}
+      </span>
+    );
+  },
+
+  /** Format token count */
+  tokenCount: (session: Session) => {
+    const conv = session as ConversationListItem;
+    if (!conv.total_tokens || conv.total_tokens === 0) {
+      return <span className="font-mono text-xs text-muted-foreground/50">---</span>;
+    }
+    // Format with K/M suffix for readability
+    const formatTokens = (tokens: number): string => {
+      if (tokens >= 1_000_000) {
+        return `${(tokens / 1_000_000).toFixed(1)}M`;
+      }
+      if (tokens >= 1_000) {
+        return `${(tokens / 1_000).toFixed(1)}K`;
+      }
+      return tokens.toString();
+    };
+    return (
+      <span
+        className="font-mono text-xs text-foreground/90"
+        title={`${conv.total_tokens.toLocaleString()} total tokens`}
+      >
+        {formatTokens(conv.total_tokens)}
+      </span>
+    );
+  },
+
   /** Format plan indicator - shows if session has plans */
   planIndicator: (session: Session) => {
     const conv = session as ConversationListItem;

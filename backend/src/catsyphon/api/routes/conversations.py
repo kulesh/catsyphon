@@ -115,7 +115,25 @@ def _conversation_to_list_item(
     # Plan count from extra_data
     item.plan_count = _get_plan_count(conv)
 
+    # Extract additional fields from extra_data
+    if conv.extra_data:
+        item.slug = conv.extra_data.get("slug")
+        item.git_branch = conv.extra_data.get("git_branch")
+
     return item
+
+
+def _message_to_response(message) -> MessageResponse:
+    """Convert Message model to MessageResponse with extra_data fields extracted."""
+    response = MessageResponse.model_validate(message)
+
+    # Extract additional fields from extra_data
+    if message.extra_data:
+        response.model = message.extra_data.get("model")
+        response.token_usage = message.extra_data.get("token_usage")
+        response.stop_reason = message.extra_data.get("stop_reason")
+
+    return response
 
 
 def _extract_plans_from_extra_data(extra_data: dict | None) -> list[PlanResponse]:
@@ -178,10 +196,27 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
     # Extract plan data from extra_data
     plans = _extract_plans_from_extra_data(conv.extra_data)
 
+    # Extract summaries and compaction_events from extra_data
+    summaries = []
+    compaction_events = []
+    if conv.extra_data:
+        summaries = conv.extra_data.get("summaries", [])
+        compaction_events = conv.extra_data.get("compaction_events", [])
+
+    # Calculate total tokens from messages
+    total_tokens = 0
+    messages_response = []
+    for m in (conv.messages or []):
+        msg_response = _message_to_response(m)
+        messages_response.append(msg_response)
+        if msg_response.token_usage:
+            total_tokens += msg_response.token_usage.get("input_tokens", 0)
+            total_tokens += msg_response.token_usage.get("output_tokens", 0)
+
     # Add related data
-    return ConversationDetail(
+    detail = ConversationDetail(
         **base.model_dump(),
-        messages=[MessageResponse.model_validate(m) for m in (conv.messages or [])],
+        messages=messages_response,
         epochs=conv.epochs or [],
         files_touched=conv.files_touched or [],
         raw_logs=[
@@ -196,7 +231,15 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
         children=children,
         parent=parent,
         plans=plans,
+        summaries=summaries,
+        compaction_events=compaction_events,
     )
+
+    # Set total_tokens if we calculated any
+    if total_tokens > 0:
+        detail.total_tokens = total_tokens
+
+    return detail
 
 
 @router.get("", response_model=ConversationListResponse)

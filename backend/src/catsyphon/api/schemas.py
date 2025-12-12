@@ -228,6 +228,11 @@ class MessageResponse(BaseModel):
     entities: dict[str, Any] = Field(default_factory=dict)
     extra_data: dict[str, Any] = Field(default_factory=dict)
 
+    # Extracted from extra_data for convenience
+    model: Optional[str] = None  # Claude model used (e.g., "claude-opus-4-5")
+    token_usage: Optional[dict[str, Any]] = None  # {input_tokens, output_tokens, cache_*}
+    stop_reason: Optional[str] = None  # end_turn, max_tokens, tool_use
+
     class Config:
         from_attributes = True
 
@@ -299,6 +304,11 @@ class ConversationListItem(BaseModel):
     depth_level: int = 0  # Hierarchy depth: 0 for parent, 1 for child
     plan_count: int = 0  # Number of plans in this conversation
 
+    # Extracted from extra_data for convenience
+    slug: Optional[str] = None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
+    git_branch: Optional[str] = None  # Git branch active during session
+    total_tokens: Optional[int] = None  # Sum of all message token usage
+
     # Related objects (optional, for joins)
     project: Optional[ProjectResponse] = None
     developer: Optional[DeveloperResponse] = None
@@ -333,6 +343,16 @@ class ConversationDetail(ConversationListItem):
 
     # Plan data (extracted from extra_data["plans"])
     plans: list["PlanResponse"] = Field(default_factory=list)
+
+    # Extracted from extra_data for convenience
+    summaries: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Auto-generated session checkpoints [{text, leaf_uuid}]",
+    )
+    compaction_events: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Context compaction events [{timestamp, trigger, pre_tokens}]",
+    )
 
     class Config:
         from_attributes = True

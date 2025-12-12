@@ -141,7 +141,22 @@ export default function ConversationDetail() {
       {/* Header with auto-refresh indicator */}
       <div className="mb-6">
         <div className="flex items-start justify-between mb-2">
-          <h1 className="text-3xl font-bold">Conversation Detail</h1>
+          <div>
+            <h1 className="text-3xl font-bold">
+              {conversation.slug || 'Conversation Detail'}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-muted-foreground font-mono">{conversation.id}</p>
+              {conversation.git_branch && (
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded bg-orange-400/10 border border-orange-400/30 text-xs font-mono text-orange-400"
+                  title={`Git branch: ${conversation.git_branch}`}
+                >
+                  {conversation.git_branch}
+                </span>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             {isFetching && (
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -178,7 +193,6 @@ export default function ConversationDetail() {
             </span>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground font-mono">{conversation.id}</p>
       </div>
 
       {/* Tagging Error Display */}
@@ -330,7 +344,7 @@ export default function ConversationDetail() {
 
         {/* Stats Row */}
         <div className="mt-6 pt-6 border-t border-border">
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-4 gap-4 text-center">
             <div>
               <p className="text-2xl font-bold">{conversation.message_count}</p>
               <p className="text-sm text-muted-foreground">Messages</p>
@@ -342,6 +356,18 @@ export default function ConversationDetail() {
             <div>
               <p className="text-2xl font-bold">{conversation.files_count}</p>
               <p className="text-sm text-muted-foreground">Files</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">
+                {conversation.total_tokens
+                  ? conversation.total_tokens >= 1_000_000
+                    ? `${(conversation.total_tokens / 1_000_000).toFixed(1)}M`
+                    : conversation.total_tokens >= 1_000
+                      ? `${(conversation.total_tokens / 1_000).toFixed(1)}K`
+                      : conversation.total_tokens.toString()
+                  : '---'}
+              </p>
+              <p className="text-sm text-muted-foreground">Tokens</p>
             </div>
           </div>
         </div>
@@ -404,6 +430,109 @@ export default function ConversationDetail() {
           plans={conversation.plans}
           onViewPlan={() => setActiveTab('plan')}
         />
+      )}
+
+      {/* Session Summaries Section */}
+      {conversation.summaries && conversation.summaries.length > 0 && (
+        <div className="bg-card border border-border rounded-lg p-6 mb-6">
+          <details className="group" open>
+            <summary className="cursor-pointer list-none flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Lightbulb className="h-5 w-5 text-amber-400" />
+                Session Summaries
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({conversation.summaries.length} checkpoint{conversation.summaries.length !== 1 ? 's' : ''})
+                </span>
+              </h2>
+              <span className="text-muted-foreground group-open:rotate-180 transition-transform">
+                ▼
+              </span>
+            </summary>
+            <div className="space-y-3">
+              {conversation.summaries.map((summary, idx) => (
+                <div
+                  key={idx}
+                  className="border border-border rounded-md p-4 bg-background"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wide ${
+                        summary.summary_type === 'auto'
+                          ? 'bg-blue-400/10 text-blue-400 border border-blue-400/30'
+                          : 'bg-purple-400/10 text-purple-400 border border-purple-400/30'
+                      }`}
+                    >
+                      {summary.summary_type}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {summary.num_exchanges} exchange{summary.num_exchanges !== 1 ? 's' : ''}
+                    </span>
+                    {summary.timestamp && (
+                      <span className="text-xs text-muted-foreground">
+                        • {format(new Date(summary.timestamp), 'PPp')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground/90 leading-relaxed">
+                    {summary.summary}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* Compaction Events Section */}
+      {conversation.compaction_events && conversation.compaction_events.length > 0 && (
+        <div className="bg-card border border-border rounded-lg p-6 mb-6">
+          <details className="group">
+            <summary className="cursor-pointer list-none flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Zap className="h-5 w-5 text-cyan-400" />
+                Context Compactions
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({conversation.compaction_events.length} event{conversation.compaction_events.length !== 1 ? 's' : ''})
+                </span>
+              </h2>
+              <span className="text-muted-foreground group-open:rotate-180 transition-transform">
+                ▼
+              </span>
+            </summary>
+            <div className="space-y-2">
+              {conversation.compaction_events.map((event, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between border border-border rounded-md p-3 bg-background"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-mono text-muted-foreground">
+                      Message #{event.message_index}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(event.timestamp), 'PPp')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    {event.pre_tokens && (
+                      <span className="text-muted-foreground">
+                        <span className="font-medium text-foreground">{(event.pre_tokens / 1000).toFixed(1)}K</span> tokens before
+                      </span>
+                    )}
+                    {event.post_tokens && (
+                      <>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="text-emerald-400">
+                          <span className="font-medium">{(event.post_tokens / 1000).toFixed(1)}K</span> after
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
       )}
 
       {/* Files Touched Section */}
@@ -978,10 +1107,39 @@ export default function ConversationDetail() {
                     >
                       {message.role}
                     </span>
+                    {/* Model badge for assistant messages */}
+                    {message.model && message.role === 'assistant' && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded bg-violet-400/10 border border-violet-400/30 text-[10px] font-mono text-violet-400"
+                        title={`Model: ${message.model}`}
+                      >
+                        {message.model.replace('claude-', '').replace('-20', ' ')}
+                      </span>
+                    )}
+                    {/* Truncation warning */}
+                    {message.stop_reason === 'max_tokens' && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded bg-rose-400/10 border border-rose-400/30 text-[10px] font-mono text-rose-400"
+                        title="Response was truncated due to token limit"
+                      >
+                        ⚠ TRUNCATED
+                      </span>
+                    )}
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {format(new Date(message.timestamp), 'PPp')}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {/* Token usage */}
+                    {message.token_usage && (
+                      <span
+                        className="text-xs font-mono text-muted-foreground"
+                        title={`Input: ${message.token_usage.input_tokens?.toLocaleString() ?? 0}, Output: ${message.token_usage.output_tokens?.toLocaleString() ?? 0}`}
+                      >
+                        {((message.token_usage.input_tokens ?? 0) + (message.token_usage.output_tokens ?? 0)).toLocaleString()} tokens
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(message.timestamp), 'PPp')}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Message Content */}

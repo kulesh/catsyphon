@@ -48,6 +48,18 @@ export interface MessageResponse {
   code_changes: Array<Record<string, any>>;
   entities: Record<string, any>;
   extra_data: Record<string, any>;
+
+  // Extracted from extra_data for convenience
+  model: string | null;  // Claude model used (e.g., "claude-opus-4-5")
+  token_usage: TokenUsage | null;  // Token usage breakdown
+  stop_reason: string | null;  // end_turn, max_tokens, tool_use
+}
+
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens?: number;
+  cache_read_tokens?: number;
 }
 
 export interface EpochResponse {
@@ -105,6 +117,11 @@ export interface ConversationListItem {
   depth_level: number; // Hierarchy depth: 0 for parent, 1 for child
   plan_count: number; // Number of plans in this conversation
 
+  // Extracted from extra_data for convenience
+  slug: string | null; // Human-readable session name (e.g., "sprightly-dancing-liskov")
+  git_branch: string | null; // Git branch active during session
+  total_tokens: number | null; // Sum of all message token usage
+
   // Related objects (optional)
   project?: ProjectResponse;
   developer?: DeveloperResponse;
@@ -151,6 +168,27 @@ export interface ConversationDetail extends ConversationListItem {
   // Hierarchical relationships (Phase 2: Epic 7u2)
   children: ConversationListItem[];
   parent: ConversationListItem | null;
+
+  // Session context from extra_data
+  summaries: SummaryInfo[]; // Auto-generated session checkpoints
+  compaction_events: CompactionEvent[]; // Context compaction markers
+}
+
+// Summary info from Claude Code session summaries
+export interface SummaryInfo {
+  summary_type: string; // "auto" or "manual"
+  summary: string;
+  last_user_message_id: string;
+  num_exchanges: number;
+  timestamp?: string;
+}
+
+// Compaction event tracking context window management
+export interface CompactionEvent {
+  message_index: number;
+  timestamp: string;
+  pre_tokens?: number;
+  post_tokens?: number;
 }
 
 export interface ConversationListResponse {
