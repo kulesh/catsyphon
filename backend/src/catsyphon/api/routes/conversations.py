@@ -17,6 +17,8 @@ from catsyphon.api.schemas import (
     ConversationListItem,
     ConversationListResponse,
     MessageResponse,
+    PlanOperationResponse,
+    PlanResponse,
     RawLogInfo,
 )
 from catsyphon.config import settings
@@ -46,6 +48,14 @@ def _get_default_workspace_id(session: Session) -> Optional[UUID]:
         return None
 
     return workspaces[0].id
+
+
+def _get_plan_count(conv: Conversation) -> int:
+    """Get the number of plans from conversation's extra_data."""
+    if not conv.extra_data:
+        return 0
+    plans = conv.extra_data.get("plans", [])
+    return len(plans) if isinstance(plans, list) else 0
 
 
 def _conversation_to_list_item(
@@ -102,7 +112,71 @@ def _conversation_to_list_item(
     if depth_level is not None:
         item.depth_level = depth_level
 
+    # Plan count from extra_data
+    item.plan_count = _get_plan_count(conv)
+
+    # Extract additional fields from extra_data
+    if conv.extra_data:
+        item.slug = conv.extra_data.get("slug")
+        item.git_branch = conv.extra_data.get("git_branch")
+
     return item
+
+
+def _message_to_response(message) -> MessageResponse:
+    """Convert Message model to MessageResponse with extra_data fields extracted."""
+    response = MessageResponse.model_validate(message)
+
+    # Extract additional fields from extra_data
+    if message.extra_data:
+        response.model = message.extra_data.get("model")
+        response.token_usage = message.extra_data.get("token_usage")
+        response.stop_reason = message.extra_data.get("stop_reason")
+
+    return response
+
+
+def _extract_plans_from_extra_data(extra_data: dict | None) -> list[PlanResponse]:
+    """Extract plan data from conversation's extra_data and convert to response schema."""
+    if not extra_data:
+        return []
+
+    plans_data = extra_data.get("plans", [])
+    plans = []
+
+    for plan_data in plans_data:
+        operations = [
+            PlanOperationResponse(
+                operation_type=op.get("operation_type", ""),
+                file_path=op.get("file_path", ""),
+                content=op.get("content"),
+                old_content=op.get("old_content"),
+                new_content=op.get("new_content"),
+                timestamp=(
+                    datetime.fromisoformat(op["timestamp"])
+                    if op.get("timestamp")
+                    else None
+                ),
+                message_index=op.get("message_index", 0),
+            )
+            for op in plan_data.get("operations", [])
+        ]
+
+        plans.append(
+            PlanResponse(
+                plan_file_path=plan_data.get("plan_file_path", ""),
+                initial_content=plan_data.get("initial_content"),
+                final_content=plan_data.get("final_content"),
+                status=plan_data.get("status", "active"),
+                iteration_count=plan_data.get("iteration_count", 1),
+                operations=operations,
+                entry_message_index=plan_data.get("entry_message_index"),
+                exit_message_index=plan_data.get("exit_message_index"),
+                related_agent_session_ids=plan_data.get("related_agent_session_ids", []),
+            )
+        )
+
+    return plans
 
 
 def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
@@ -119,10 +193,30 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
     if hasattr(conv, 'parent_conversation') and conv.parent_conversation:
         parent = _conversation_to_list_item(conv.parent_conversation)
 
+    # Extract plan data from extra_data
+    plans = _extract_plans_from_extra_data(conv.extra_data)
+
+    # Extract summaries and compaction_events from extra_data
+    summaries = []
+    compaction_events = []
+    if conv.extra_data:
+        summaries = conv.extra_data.get("summaries", [])
+        compaction_events = conv.extra_data.get("compaction_events", [])
+
+    # Calculate total tokens from messages
+    total_tokens = 0
+    messages_response = []
+    for m in (conv.messages or []):
+        msg_response = _message_to_response(m)
+        messages_response.append(msg_response)
+        if msg_response.token_usage:
+            total_tokens += msg_response.token_usage.get("input_tokens", 0)
+            total_tokens += msg_response.token_usage.get("output_tokens", 0)
+
     # Add related data
-    return ConversationDetail(
+    detail = ConversationDetail(
         **base.model_dump(),
-        messages=[MessageResponse.model_validate(m) for m in (conv.messages or [])],
+        messages=messages_response,
         epochs=conv.epochs or [],
         files_touched=conv.files_touched or [],
         raw_logs=[
@@ -136,7 +230,16 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
         ],
         children=children,
         parent=parent,
+        plans=plans,
+        summaries=summaries,
+        compaction_events=compaction_events,
     )
+
+    # Set total_tokens if we calculated any
+    if total_tokens > 0:
+        detail.total_tokens = total_tokens
+
+    return detail
 
 
 @router.get("", response_model=ConversationListResponse)

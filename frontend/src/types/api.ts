@@ -48,6 +48,18 @@ export interface MessageResponse {
   code_changes: Array<Record<string, any>>;
   entities: Record<string, any>;
   extra_data: Record<string, any>;
+
+  // Extracted from extra_data for convenience
+  model: string | null;  // Claude model used (e.g., "claude-opus-4-5")
+  token_usage: TokenUsage | null;  // Token usage breakdown
+  stop_reason: string | null;  // end_turn, max_tokens, tool_use
+}
+
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens?: number;
+  cache_read_tokens?: number;
 }
 
 export interface EpochResponse {
@@ -103,6 +115,12 @@ export interface ConversationListItem {
   files_count: number;
   children_count: number;
   depth_level: number; // Hierarchy depth: 0 for parent, 1 for child
+  plan_count: number; // Number of plans in this conversation
+
+  // Extracted from extra_data for convenience
+  slug: string | null; // Human-readable session name (e.g., "sprightly-dancing-liskov")
+  git_branch: string | null; // Git branch active during session
+  total_tokens: number | null; // Sum of all message token usage
 
   // Related objects (optional)
   project?: ProjectResponse;
@@ -116,15 +134,61 @@ export interface RawLogInfo {
   created_at: string;
 }
 
+// ===== Plan Types =====
+
+export interface PlanOperation {
+  operation_type: string; // 'create' | 'edit' | 'read'
+  file_path: string;
+  content?: string;
+  old_content?: string;
+  new_content?: string;
+  timestamp?: string;
+  message_index: number;
+}
+
+export interface PlanResponse {
+  plan_file_path: string;
+  initial_content?: string;
+  final_content?: string;
+  status: string; // 'active' | 'approved' | 'abandoned'
+  iteration_count: number;
+  operations: PlanOperation[];
+  entry_message_index?: number;
+  exit_message_index?: number;
+  related_agent_session_ids: string[];
+}
+
 export interface ConversationDetail extends ConversationListItem {
   messages: MessageResponse[];
   epochs: EpochResponse[];
   files_touched: FileTouchedResponse[];
   raw_logs: RawLogInfo[];
+  plans: PlanResponse[];
 
   // Hierarchical relationships (Phase 2: Epic 7u2)
   children: ConversationListItem[];
   parent: ConversationListItem | null;
+
+  // Session context from extra_data
+  summaries: SummaryInfo[]; // Auto-generated session checkpoints
+  compaction_events: CompactionEvent[]; // Context compaction markers
+}
+
+// Summary info from Claude Code session summaries
+export interface SummaryInfo {
+  summary_type: string; // "auto" or "manual"
+  summary: string;
+  last_user_message_id: string;
+  num_exchanges: number;
+  timestamp?: string;
+}
+
+// Compaction event tracking context window management
+export interface CompactionEvent {
+  message_index: number;
+  timestamp: string;
+  pre_tokens?: number;
+  post_tokens?: number;
 }
 
 export interface ConversationListResponse {
@@ -151,6 +215,11 @@ export interface OverviewStats {
   total_main_conversations: number;
   total_agent_conversations: number;
   conversations_by_type: Record<string, number>;
+
+  // Plan statistics
+  total_plans: number;
+  plans_by_status: Record<string, number>; // approved, active, abandoned
+  conversations_with_plans: number;
 }
 
 export interface AgentPerformanceStats {

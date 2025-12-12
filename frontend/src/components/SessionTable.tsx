@@ -3,7 +3,7 @@
  */
 
 import { format } from 'date-fns';
-import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, ClipboardList } from 'lucide-react';
 import { StatusBadge } from './StatusBadge';
 import type { ConversationListItem, ProjectSession } from '@/types/api';
 
@@ -311,6 +311,118 @@ export const renderHelpers = {
         title="Session failed to achieve its goal"
       >
         ✗
+      </span>
+    );
+  },
+
+  /** Format session slug (human-readable session name) */
+  slug: (session: Session) => {
+    const conv = session as ConversationListItem;
+    if (!conv.slug) {
+      return <span className="font-mono text-xs text-muted-foreground/50">---</span>;
+    }
+    return (
+      <span className="font-mono text-xs text-foreground/90" title={`Session: ${conv.slug}`}>
+        {conv.slug}
+      </span>
+    );
+  },
+
+  /** Format git branch badge */
+  gitBranch: (session: Session) => {
+    const conv = session as ConversationListItem;
+    if (!conv.git_branch) {
+      return null;
+    }
+    return (
+      <span
+        className="inline-flex items-center px-1.5 py-0.5 rounded bg-orange-400/10 border border-orange-400/30 text-[10px] font-mono text-orange-400 max-w-[100px] truncate"
+        title={`Git branch: ${conv.git_branch}`}
+      >
+        {conv.git_branch}
+      </span>
+    );
+  },
+
+  /** Format token count */
+  tokenCount: (session: Session) => {
+    const conv = session as ConversationListItem;
+    if (!conv.total_tokens || conv.total_tokens === 0) {
+      return <span className="font-mono text-xs text-muted-foreground/50">---</span>;
+    }
+    // Format with K/M suffix for readability
+    const formatTokens = (tokens: number): string => {
+      if (tokens >= 1_000_000) {
+        return `${(tokens / 1_000_000).toFixed(1)}M`;
+      }
+      if (tokens >= 1_000) {
+        return `${(tokens / 1_000).toFixed(1)}K`;
+      }
+      return tokens.toString();
+    };
+    return (
+      <span
+        className="font-mono text-xs text-foreground/90"
+        title={`${conv.total_tokens.toLocaleString()} total tokens`}
+      >
+        {formatTokens(conv.total_tokens)}
+      </span>
+    );
+  },
+
+  /** Format plan indicator - shows if session has plans */
+  planIndicator: (session: Session) => {
+    const conv = session as ConversationListItem;
+    // Use plan_count from API response (more efficient than extra_data lookup)
+    const planCount = conv.plan_count ?? 0;
+
+    if (planCount === 0) {
+      // Fall back to extra_data.plans for backward compatibility
+      const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+      if (!plans || plans.length === 0) {
+        return null;
+      }
+      // Use extra_data path for status detection
+      const hasApproved = plans.some((p) => p.status === 'approved');
+      const hasActive = plans.some((p) => p.status === 'active');
+      const status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
+
+      const statusStyles = {
+        approved: 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400',
+        active: 'bg-blue-400/10 border-blue-400/30 text-blue-400',
+        abandoned: 'bg-slate-400/10 border-slate-400/30 text-slate-400',
+      };
+
+      return (
+        <span
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[10px] uppercase tracking-wide ${statusStyles[status]}`}
+          title={`${plans.length} plan${plans.length !== 1 ? 's' : ''} (${status})`}
+        >
+          <ClipboardList className="w-3 h-3" />
+          {plans.length > 1 && <span>{plans.length}</span>}
+        </span>
+      );
+    }
+
+    // Use plan_count for display, but still need extra_data for status
+    const plans = conv.extra_data?.plans as Array<{ status?: string }> | undefined;
+    const hasApproved = plans?.some((p) => p.status === 'approved') ?? false;
+    const hasActive = plans?.some((p) => p.status === 'active') ?? false;
+    const status = hasApproved ? 'approved' : hasActive ? 'active' : 'abandoned';
+
+    const statusStyles = {
+      approved: 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400',
+      active: 'bg-blue-400/10 border-blue-400/30 text-blue-400',
+      abandoned: 'bg-slate-400/10 border-slate-400/30 text-slate-400',
+    };
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[10px] uppercase tracking-wide ${statusStyles[status]}`}
+        title={`${planCount} plan${planCount !== 1 ? 's' : ''} (${status})`}
+      >
+        <ClipboardList className="w-3 h-3" />
+        {planCount > 1 && <span>{planCount}</span>}
       </span>
     );
   },

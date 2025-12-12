@@ -30,6 +30,16 @@ class ParseDataError(ParserError):
     pass
 
 
+class EmptyFileError(ParserError):
+    """Raised when a log file is empty (0 bytes).
+
+    This is a special case that allows downstream code to handle
+    empty files gracefully (e.g., skip them without treating as failures).
+    """
+
+    pass
+
+
 class ConversationParser(Protocol):
     """
     Protocol for conversation log parsers.

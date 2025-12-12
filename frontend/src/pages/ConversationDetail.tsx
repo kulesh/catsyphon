@@ -5,13 +5,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap } from 'lucide-react';
+import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight } from 'lucide-react';
 import { getConversation, getCanonicalNarrative, tagConversation, getConversationInsights } from '@/lib/api';
 import { groupFilesByPath } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
+import { PlanViewer, PlanMarker, type PlanMarkerType } from '@/components';
 
-type Tab = 'overview' | 'insights' | 'messages' | 'canonical';
+type Tab = 'overview' | 'insights' | 'messages' | 'canonical' | 'plan';
 
 export default function ConversationDetail() {
   const { id } = useParams<{ id: string }>();
@@ -44,12 +45,14 @@ export default function ConversationDetail() {
     staleTime: 60000 * 5, // Cache for 5 minutes
   });
 
-  // Tab configuration
+  // Tab configuration - Plan tab only shown if conversation has plans
+  const hasPlan = conversation?.plans && conversation.plans.length > 0;
   const tabs = [
     { id: 'overview' as Tab, label: 'Overview', icon: Info },
     { id: 'insights' as Tab, label: 'Insights', icon: Lightbulb },
     { id: 'messages' as Tab, label: 'Messages', icon: MessageSquare },
     { id: 'canonical' as Tab, label: 'Canonical', icon: FileText },
+    ...(hasPlan ? [{ id: 'plan' as Tab, label: 'Plan', icon: ClipboardList }] : []),
   ];
 
   // Group files by path for collapsible display
@@ -138,7 +141,22 @@ export default function ConversationDetail() {
       {/* Header with auto-refresh indicator */}
       <div className="mb-6">
         <div className="flex items-start justify-between mb-2">
-          <h1 className="text-3xl font-bold">Conversation Detail</h1>
+          <div>
+            <h1 className="text-3xl font-bold">
+              {conversation.slug || 'Conversation Detail'}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-muted-foreground font-mono">{conversation.id}</p>
+              {conversation.git_branch && (
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded bg-orange-400/10 border border-orange-400/30 text-xs font-mono text-orange-400"
+                  title={`Git branch: ${conversation.git_branch}`}
+                >
+                  {conversation.git_branch}
+                </span>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             {isFetching && (
               <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -175,7 +193,6 @@ export default function ConversationDetail() {
             </span>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground font-mono">{conversation.id}</p>
       </div>
 
       {/* Tagging Error Display */}
@@ -327,7 +344,7 @@ export default function ConversationDetail() {
 
         {/* Stats Row */}
         <div className="mt-6 pt-6 border-t border-border">
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-4 gap-4 text-center">
             <div>
               <p className="text-2xl font-bold">{conversation.message_count}</p>
               <p className="text-sm text-muted-foreground">Messages</p>
@@ -339,6 +356,18 @@ export default function ConversationDetail() {
             <div>
               <p className="text-2xl font-bold">{conversation.files_count}</p>
               <p className="text-sm text-muted-foreground">Files</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">
+                {conversation.total_tokens
+                  ? conversation.total_tokens >= 1_000_000
+                    ? `${(conversation.total_tokens / 1_000_000).toFixed(1)}M`
+                    : conversation.total_tokens >= 1_000
+                      ? `${(conversation.total_tokens / 1_000).toFixed(1)}K`
+                      : conversation.total_tokens.toString()
+                  : '---'}
+              </p>
+              <p className="text-sm text-muted-foreground">Tokens</p>
             </div>
           </div>
         </div>
@@ -392,6 +421,117 @@ export default function ConversationDetail() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Plans Section */}
+      {conversation.plans && conversation.plans.length > 0 && (
+        <PlansSection
+          plans={conversation.plans}
+          onViewPlan={() => setActiveTab('plan')}
+        />
+      )}
+
+      {/* Session Summaries Section */}
+      {conversation.summaries && conversation.summaries.length > 0 && (
+        <div className="bg-card border border-border rounded-lg p-6 mb-6">
+          <details className="group" open>
+            <summary className="cursor-pointer list-none flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Lightbulb className="h-5 w-5 text-amber-400" />
+                Session Summaries
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({conversation.summaries.length} checkpoint{conversation.summaries.length !== 1 ? 's' : ''})
+                </span>
+              </h2>
+              <span className="text-muted-foreground group-open:rotate-180 transition-transform">
+                ▼
+              </span>
+            </summary>
+            <div className="space-y-3">
+              {conversation.summaries.map((summary, idx) => (
+                <div
+                  key={idx}
+                  className="border border-border rounded-md p-4 bg-background"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wide ${
+                        summary.summary_type === 'auto'
+                          ? 'bg-blue-400/10 text-blue-400 border border-blue-400/30'
+                          : 'bg-purple-400/10 text-purple-400 border border-purple-400/30'
+                      }`}
+                    >
+                      {summary.summary_type}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {summary.num_exchanges} exchange{summary.num_exchanges !== 1 ? 's' : ''}
+                    </span>
+                    {summary.timestamp && (
+                      <span className="text-xs text-muted-foreground">
+                        • {format(new Date(summary.timestamp), 'PPp')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground/90 leading-relaxed">
+                    {summary.summary}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* Compaction Events Section */}
+      {conversation.compaction_events && conversation.compaction_events.length > 0 && (
+        <div className="bg-card border border-border rounded-lg p-6 mb-6">
+          <details className="group">
+            <summary className="cursor-pointer list-none flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Zap className="h-5 w-5 text-cyan-400" />
+                Context Compactions
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({conversation.compaction_events.length} event{conversation.compaction_events.length !== 1 ? 's' : ''})
+                </span>
+              </h2>
+              <span className="text-muted-foreground group-open:rotate-180 transition-transform">
+                ▼
+              </span>
+            </summary>
+            <div className="space-y-2">
+              {conversation.compaction_events.map((event, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between border border-border rounded-md p-3 bg-background"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-mono text-muted-foreground">
+                      Message #{event.message_index}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(event.timestamp), 'PPp')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    {event.pre_tokens && (
+                      <span className="text-muted-foreground">
+                        <span className="font-medium text-foreground">{(event.pre_tokens / 1000).toFixed(1)}K</span> tokens before
+                      </span>
+                    )}
+                    {event.post_tokens && (
+                      <>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="text-emerald-400">
+                          <span className="font-medium">{(event.post_tokens / 1000).toFixed(1)}K</span> after
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
         </div>
       )}
 
@@ -912,11 +1052,44 @@ export default function ConversationDetail() {
               No messages in this conversation
             </p>
           ) : (
-            conversation.messages.map((message) => (
+            conversation.messages.map((message) => {
+              // Determine plan markers for this message
+              const planMarkers: { type: PlanMarkerType; planIndex: number }[] = [];
+              if (conversation.plans) {
+                conversation.plans.forEach((plan, planIdx) => {
+                  if (plan.entry_message_index === message.sequence) {
+                    planMarkers.push({ type: 'entry', planIndex: planIdx });
+                  }
+                  if (plan.exit_message_index === message.sequence) {
+                    planMarkers.push({ type: plan.status === 'approved' ? 'approved' : 'abandoned', planIndex: planIdx });
+                  }
+                  if (plan.operations?.some(op => op.message_index === message.sequence)) {
+                    // Only add edit marker if this isn't the entry message (which already has create)
+                    if (plan.entry_message_index !== message.sequence) {
+                      planMarkers.push({ type: 'edit', planIndex: planIdx });
+                    }
+                  }
+                });
+              }
+
+              return (
               <div
                 key={message.id}
                 className="border border-border rounded-lg p-4 bg-background"
               >
+                {/* Plan Markers */}
+                {planMarkers.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {planMarkers.map((marker, idx) => (
+                      <PlanMarker
+                        key={idx}
+                        type={marker.type}
+                        onClick={() => setActiveTab('plan')}
+                      />
+                    ))}
+                  </div>
+                )}
+
                 {/* Message Header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
@@ -934,10 +1107,39 @@ export default function ConversationDetail() {
                     >
                       {message.role}
                     </span>
+                    {/* Model badge for assistant messages */}
+                    {message.model && message.role === 'assistant' && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded bg-violet-400/10 border border-violet-400/30 text-[10px] font-mono text-violet-400"
+                        title={`Model: ${message.model}`}
+                      >
+                        {message.model.replace('claude-', '').replace('-20', ' ')}
+                      </span>
+                    )}
+                    {/* Truncation warning */}
+                    {message.stop_reason === 'max_tokens' && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded bg-rose-400/10 border border-rose-400/30 text-[10px] font-mono text-rose-400"
+                        title="Response was truncated due to token limit"
+                      >
+                        ⚠ TRUNCATED
+                      </span>
+                    )}
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {format(new Date(message.timestamp), 'PPp')}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {/* Token usage */}
+                    {message.token_usage && (
+                      <span
+                        className="text-xs font-mono text-muted-foreground"
+                        title={`Input: ${message.token_usage.input_tokens?.toLocaleString() ?? 0}, Output: ${message.token_usage.output_tokens?.toLocaleString() ?? 0}`}
+                      >
+                        {((message.token_usage.input_tokens ?? 0) + (message.token_usage.output_tokens ?? 0)).toLocaleString()} tokens
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(message.timestamp), 'PPp')}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Message Content */}
@@ -1016,7 +1218,8 @@ export default function ConversationDetail() {
                   </details>
                 )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -1057,7 +1260,107 @@ export default function ConversationDetail() {
             ) : null}
           </div>
         )}
+
+        {/* Plan Tab */}
+        {activeTab === 'plan' && conversation.plans && conversation.plans.length > 0 && (
+          <div className="bg-card border border-border rounded-lg p-6">
+            <PlanViewer
+              plans={conversation.plans}
+              onMessageClick={(messageIndex) => {
+                setActiveTab('messages');
+                // Note: Could add scroll-to-message functionality here
+              }}
+            />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Plans Section for Overview tab - shows plan summary with link to Plan tab
+ */
+function PlansSection({
+  plans,
+  onViewPlan,
+}: {
+  plans: NonNullable<import('../types/api').ConversationDetail['plans']>;
+  onViewPlan: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30';
+      case 'active':
+        return 'bg-blue-400/10 text-blue-400 border-blue-400/30';
+      case 'abandoned':
+        return 'bg-slate-400/10 text-slate-400 border-slate-400/30';
+      default:
+        return 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30';
+    }
+  };
+
+  const getBasename = (filePath: string) => {
+    const parts = filePath.split('/');
+    return parts[parts.length - 1] || filePath;
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-6 mb-6">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between mb-4 text-left"
+      >
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-cyan-400" />
+          Plans
+          <span className="text-sm font-normal text-muted-foreground">
+            ({plans.length} plan{plans.length !== 1 ? 's' : ''})
+          </span>
+        </h2>
+        <ChevronRight
+          className={`h-5 w-5 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+      </button>
+
+      {expanded && (
+        <div className="space-y-3">
+          {plans.map((plan, idx) => (
+            <div
+              key={idx}
+              className="border border-border rounded-md p-4 bg-background"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-sm truncate">
+                      {getBasename(plan.plan_file_path)}
+                    </span>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wide border ${getStatusStyle(plan.status)}`}
+                    >
+                      {plan.status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {plan.iteration_count} iteration{plan.iteration_count !== 1 ? 's' : ''} &middot;{' '}
+                    {plan.operations.length} operation{plan.operations.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={onViewPlan}
+                  className="shrink-0 px-3 py-1.5 text-xs font-medium rounded bg-cyan-400/10 text-cyan-400 hover:bg-cyan-400/20 transition-colors"
+                >
+                  View Plan
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

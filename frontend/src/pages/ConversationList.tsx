@@ -120,9 +120,14 @@ export default function ConversationList() {
       render: (session) => renderHelpers.startTime(session, 'observatory'),
     },
     {
-      id: 'last_activity',
-      label: 'Last Activity',
-      render: renderHelpers.lastActivity,
+      id: 'slug',
+      label: 'Session',
+      render: renderHelpers.slug,
+    },
+    {
+      id: 'git_branch',
+      label: 'Branch',
+      render: renderHelpers.gitBranch,
     },
     {
       id: 'project',
@@ -143,6 +148,18 @@ export default function ConversationList() {
       id: 'status',
       label: 'Status',
       render: (session) => renderHelpers.status(session, 'observatory'),
+    },
+    {
+      id: 'plan',
+      label: 'Plan',
+      align: 'center' as const,
+      render: renderHelpers.planIndicator,
+    },
+    {
+      id: 'tokens',
+      label: 'Tokens',
+      align: 'right' as const,
+      render: renderHelpers.tokenCount,
     },
     {
       id: 'messages',

@@ -41,6 +41,7 @@ else:
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
 from catsyphon.exceptions import DuplicateFileError
+from catsyphon.parsers.base import EmptyFileError
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import get_default_registry
 from catsyphon.db.repositories.raw_log import RawLogRepository
@@ -437,6 +438,13 @@ class FileWatcher(FileSystemEventHandler):
 
             except DuplicateFileError:
                 logger.debug(f"Skipped {file_path.name} (duplicate detected)")
+                with self._stats_lock:
+                    self.stats.files_skipped += 1
+                    self.stats.last_activity = datetime.now()
+
+            except EmptyFileError:
+                # Empty files are common - abandoned sessions that never had content
+                logger.debug(f"Skipped {file_path.name} (empty file, likely abandoned session)")
                 with self._stats_lock:
                     self.stats.files_skipped += 1
                     self.stats.last_activity = datetime.now()

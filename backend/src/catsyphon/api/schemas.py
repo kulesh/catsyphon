@@ -228,6 +228,11 @@ class MessageResponse(BaseModel):
     entities: dict[str, Any] = Field(default_factory=dict)
     extra_data: dict[str, Any] = Field(default_factory=dict)
 
+    # Extracted from extra_data for convenience
+    model: Optional[str] = None  # Claude model used (e.g., "claude-opus-4-5")
+    token_usage: Optional[dict[str, Any]] = None  # {input_tokens, output_tokens, cache_*}
+    stop_reason: Optional[str] = None  # end_turn, max_tokens, tool_use
+
     class Config:
         from_attributes = True
 
@@ -297,6 +302,12 @@ class ConversationListItem(BaseModel):
     files_count: int = 0
     children_count: int = 0  # Number of child conversations (agents, etc.)
     depth_level: int = 0  # Hierarchy depth: 0 for parent, 1 for child
+    plan_count: int = 0  # Number of plans in this conversation
+
+    # Extracted from extra_data for convenience
+    slug: Optional[str] = None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
+    git_branch: Optional[str] = None  # Git branch active during session
+    total_tokens: Optional[int] = None  # Sum of all message token usage
 
     # Related objects (optional, for joins)
     project: Optional[ProjectResponse] = None
@@ -329,6 +340,19 @@ class ConversationDetail(ConversationListItem):
     # Hierarchical relationships (Phase 2: Epic 7u2)
     children: list["ConversationListItem"] = Field(default_factory=list)
     parent: Optional["ConversationListItem"] = None
+
+    # Plan data (extracted from extra_data["plans"])
+    plans: list["PlanResponse"] = Field(default_factory=list)
+
+    # Extracted from extra_data for convenience
+    summaries: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Auto-generated session checkpoints [{text, leaf_uuid}]",
+    )
+    compaction_events: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Context compaction events [{timestamp, trigger, pre_tokens}]",
+    )
 
     class Config:
         from_attributes = True
@@ -365,6 +389,13 @@ class OverviewStats(BaseModel):
     conversations_by_type: dict[str, int] = Field(
         default_factory=dict
     )  # main, agent, mcp, etc.
+
+    # Plan statistics
+    total_plans: int = 0  # Total number of plans across all conversations
+    plans_by_status: dict[str, int] = Field(
+        default_factory=dict
+    )  # approved, active, abandoned
+    conversations_with_plans: int = 0  # Conversations that have at least one plan
 
 
 class AgentPerformanceStats(BaseModel):
@@ -923,6 +954,92 @@ class HealthReportRecommendation(BaseModel):
     advice: str
     evidence: str
     filter_link: Optional[str] = None
+
+
+# ===== Plan Schemas =====
+
+
+class PlanOperationResponse(BaseModel):
+    """Response schema for a single plan operation."""
+
+    operation_type: str = Field(..., description="Operation type: create, edit, read")
+    file_path: str = Field(..., description="Path to the plan file")
+    content: Optional[str] = Field(
+        None, description="Full content for create operations"
+    )
+    old_content: Optional[str] = Field(None, description="Old content for edit operations")
+    new_content: Optional[str] = Field(None, description="New content for edit operations")
+    timestamp: Optional[datetime] = Field(None, description="When the operation occurred")
+    message_index: int = Field(
+        0, description="Index of the message containing this operation"
+    )
+
+
+class PlanResponse(BaseModel):
+    """Response schema for extracted plan data."""
+
+    plan_file_path: str = Field(..., description="Path to the plan file")
+    initial_content: Optional[str] = Field(
+        None, description="First version of the plan content"
+    )
+    final_content: Optional[str] = Field(
+        None, description="Latest version after all edits"
+    )
+    status: str = Field(
+        "active", description="Plan status: active, approved, abandoned"
+    )
+    iteration_count: int = Field(1, description="Number of edits to the plan")
+    operations: list[PlanOperationResponse] = Field(
+        default_factory=list, description="List of operations on this plan"
+    )
+    entry_message_index: Optional[int] = Field(
+        None, description="Message index where plan mode started"
+    )
+    exit_message_index: Optional[int] = Field(
+        None, description="Message index where plan mode exited"
+    )
+    related_agent_session_ids: list[str] = Field(
+        default_factory=list, description="Session IDs of related Plan agents"
+    )
+
+
+class PlanListItem(BaseModel):
+    """Lightweight plan info for list view."""
+
+    plan_file_path: str
+    status: str
+    iteration_count: int
+    conversation_id: UUID
+    conversation_start_time: datetime
+    project_id: Optional[UUID] = None
+    project_name: Optional[str] = None
+
+
+class PlanListResponse(BaseModel):
+    """Paginated list of plans."""
+
+    items: list[PlanListItem]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class PlanDetailResponse(PlanResponse):
+    """Detailed plan view with full content and conversation context."""
+
+    conversation_id: UUID
+    conversation_start_time: datetime
+    project_id: Optional[UUID] = None
+    project_name: Optional[str] = None
+
+    # Execution tracking (future enhancement)
+    executed_steps: list[dict[str, Any]] = Field(
+        default_factory=list, description="Plan steps matched to execution"
+    )
+    execution_progress: Optional[float] = Field(
+        None, description="Execution progress 0.0 to 1.0"
+    )
 
 
 class HealthReportResponse(BaseModel):
