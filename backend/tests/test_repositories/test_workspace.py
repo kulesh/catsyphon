@@ -1,6 +1,5 @@
 """Tests for WorkspaceRepository."""
 
-
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.workspace import WorkspaceRepository

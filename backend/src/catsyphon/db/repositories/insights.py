@@ -178,9 +178,7 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
             Number of records deleted
         """
         now = datetime.now().astimezone()
-        stmt = select(ConversationInsights).where(
-            ConversationInsights.expires_at < now
-        )
+        stmt = select(ConversationInsights).where(ConversationInsights.expires_at < now)
 
         result = self.session.execute(stmt)
         expired = result.scalars().all()
@@ -218,9 +216,7 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
         # Make both datetimes timezone-aware for comparison
         now = datetime.now().astimezone()
         if project_last_activity.tzinfo is None:
-            project_last_activity = project_last_activity.replace(
-                tzinfo=now.tzinfo
-            )
+            project_last_activity = project_last_activity.replace(tzinfo=now.tzinfo)
 
         days_since_activity = (now - project_last_activity).days
 

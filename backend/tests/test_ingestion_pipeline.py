@@ -54,7 +54,7 @@ def test_auto_detect_reuses_existing_project(db_session: Session):
     """Test that subsequent ingestions reuse the same project."""
     from catsyphon.db.repositories.project import ProjectRepository
 
-    project_repo = ProjectRepository(db_session)
+    ProjectRepository(db_session)
 
     # First ingestion
     parsed1 = ParsedConversation(
@@ -167,8 +167,8 @@ def test_ingestion_failure_tracking(db_session: Session, tmp_path):
     updates the ingestion_job record with status='failed', error_message, and
     processing_time_ms when an exception occurs during ingestion.
     """
-    from pathlib import Path
     from unittest.mock import patch
+
     from catsyphon.db.repositories.ingestion_job import IngestionJobRepository
 
     ingestion_repo = IngestionJobRepository(db_session)
@@ -195,7 +195,9 @@ def test_ingestion_failure_tracking(db_session: Session, tmp_path):
     )
 
     # Mock ConversationRepository.create to raise an exception
-    with patch("catsyphon.pipeline.ingestion.ConversationRepository") as mock_repo_class:
+    with patch(
+        "catsyphon.pipeline.ingestion.ConversationRepository"
+    ) as mock_repo_class:
         mock_repo = mock_repo_class.return_value
         mock_repo.create.side_effect = ValueError("Simulated database failure")
 

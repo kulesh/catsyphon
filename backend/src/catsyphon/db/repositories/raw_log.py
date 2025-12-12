@@ -243,7 +243,7 @@ class RawLogRepository(BaseRepository[RawLog]):
         file_hash = calculate_content_hash(raw_content)
 
         # Calculate content size in bytes
-        content_size = len(raw_content.encode('utf-8'))
+        content_size = len(raw_content.encode("utf-8"))
 
         return self.create(
             conversation_id=conversation_id,

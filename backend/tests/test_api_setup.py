@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 class TestSetupStatus:
     """Tests for GET /setup/status endpoint."""
 
-    def test_needs_onboarding_when_no_workspace(self, api_client: TestClient, db_session):
+    def test_needs_onboarding_when_no_workspace(
+        self, api_client: TestClient, db_session
+    ):
         """Test that needs_onboarding is true when no workspace exists."""
         response = api_client.get("/setup/status")
 
@@ -51,7 +53,9 @@ class TestOrganizationEndpoints:
         assert "id" in data
         assert "created_at" in data
 
-    def test_create_organization_with_custom_slug(self, api_client: TestClient, db_session):
+    def test_create_organization_with_custom_slug(
+        self, api_client: TestClient, db_session
+    ):
         """Test creating an organization with custom slug."""
         response = api_client.post(
             "/setup/organizations",
@@ -63,7 +67,9 @@ class TestOrganizationEndpoints:
         assert data["name"] == "Test Company"
         assert data["slug"] == "custom-slug"
 
-    def test_create_organization_duplicate_slug(self, api_client: TestClient, db_session):
+    def test_create_organization_duplicate_slug(
+        self, api_client: TestClient, db_session
+    ):
         """Test that creating org with duplicate slug fails."""
         # Create first organization
         api_client.post(
@@ -127,7 +133,9 @@ class TestOrganizationEndpoints:
 class TestWorkspaceEndpoints:
     """Tests for workspace CRUD endpoints."""
 
-    def test_create_workspace_success(self, api_client: TestClient, sample_organization):
+    def test_create_workspace_success(
+        self, api_client: TestClient, sample_organization
+    ):
         """Test creating a workspace with auto-generated slug."""
         response = api_client.post(
             "/setup/workspaces",
@@ -266,7 +274,9 @@ class TestSlugGeneration:
         assert response.status_code == 201
         assert response.json()["slug"] == "test-company"
 
-    def test_slug_generation_special_characters(self, api_client: TestClient, db_session):
+    def test_slug_generation_special_characters(
+        self, api_client: TestClient, db_session
+    ):
         """Test slug generation removes special characters."""
         response = api_client.post(
             "/setup/organizations",

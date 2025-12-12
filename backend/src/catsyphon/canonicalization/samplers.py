@@ -314,7 +314,6 @@ class EpochSampler:
                 total_tokens += sm.estimated_tokens
 
         # Sample middle epochs if budget allows
-        remaining_budget = token_budget - total_tokens
         middle_epochs = sorted_epochs[1:-1] if len(sorted_epochs) > 2 else []
 
         for epoch in middle_epochs:

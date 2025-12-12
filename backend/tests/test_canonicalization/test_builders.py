@@ -2,8 +2,6 @@
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from catsyphon.canonicalization.builders import PlayFormatBuilder
 from catsyphon.canonicalization.models import (
     CanonicalConfig,
@@ -151,9 +149,7 @@ class TestPlayFormatBuilder:
         # Also verify the child narrative content is present
         assert "Child narrative content here" in narrative
 
-    def test_child_inserted_at_correct_position(
-        self, test_session, sample_workspace
-    ):
+    def test_child_inserted_at_correct_position(self, test_session, sample_workspace):
         """Test that children are inserted after the chronologically correct message."""
         base_time = datetime(2024, 11, 22, 14, 0, 0)
 
@@ -247,13 +243,11 @@ class TestPlayFormatBuilder:
         msg_after_pos = narrative.find("Message after child")
 
         # Assert correct ordering
-        assert msg_before_pos < child_pos < msg_after_pos, (
-            "Child should be inserted between the two messages chronologically"
-        )
+        assert (
+            msg_before_pos < child_pos < msg_after_pos
+        ), "Child should be inserted between the two messages chronologically"
 
-    def test_multiple_children_all_inserted_once(
-        self, test_session, sample_workspace
-    ):
+    def test_multiple_children_all_inserted_once(self, test_session, sample_workspace):
         """Test that multiple children are each inserted exactly once."""
         base_time = datetime(2024, 11, 22, 15, 0, 0)
 
@@ -328,8 +322,7 @@ class TestPlayFormatBuilder:
             children.append(child)
 
         sampled_messages = [
-            SampledMessage(msg, 1000, "chronological", 10)
-            for msg in messages
+            SampledMessage(msg, 1000, "chronological", 10) for msg in messages
         ]
 
         config = CanonicalConfig.for_type(CanonicalType.TAGGING)
@@ -344,9 +337,9 @@ class TestPlayFormatBuilder:
         # Assert each child appears exactly once
         for i in range(3):
             child_count = narrative.count(f"AGENT DELEGATION: child-id-{i}")
-            assert child_count == 1, (
-                f"Child {i} should appear exactly once, found {child_count} times"
-            )
+            assert (
+                child_count == 1
+            ), f"Child {i} should appear exactly once, found {child_count} times"
 
     def test_child_before_any_message_not_inserted(
         self, test_session, sample_workspace
@@ -542,13 +535,11 @@ class TestPlayFormatBuilder:
         msg2_pos = narrative.find("Done")
         for i in range(3):
             child_pos = narrative.find(f"AGENT DELEGATION: child-same-point-{i}")
-            assert msg1_pos < child_pos < msg2_pos, (
-                f"Child {i} should appear between msg1 and msg2"
-            )
+            assert (
+                msg1_pos < child_pos < msg2_pos
+            ), f"Child {i} should appear between msg1 and msg2"
 
-    def test_exact_parent_message_id_match(
-        self, test_session, sample_workspace
-    ):
+    def test_exact_parent_message_id_match(self, test_session, sample_workspace):
         """Test that child with parent_message_id is inserted after exact message."""
         base_time = datetime(2025, 11, 22, 10, 0, 0)
 
@@ -641,11 +632,24 @@ class TestPlayFormatBuilder:
 
         # Create sampled messages for the builder
         sampled_messages = [
-            SampledMessage(message=msg1, priority=1000, reason="chronological", estimated_tokens=10),
-            SampledMessage(message=msg2, priority=1000, reason="chronological", estimated_tokens=10),
-            SampledMessage(message=target_message, priority=1000, reason="chronological", estimated_tokens=10),
-            SampledMessage(message=msg4, priority=1000, reason="chronological", estimated_tokens=10),
-            SampledMessage(message=msg5, priority=1000, reason="chronological", estimated_tokens=10),
+            SampledMessage(
+                message=msg1, priority=1000, reason="chronological", estimated_tokens=10
+            ),
+            SampledMessage(
+                message=msg2, priority=1000, reason="chronological", estimated_tokens=10
+            ),
+            SampledMessage(
+                message=target_message,
+                priority=1000,
+                reason="chronological",
+                estimated_tokens=10,
+            ),
+            SampledMessage(
+                message=msg4, priority=1000, reason="chronological", estimated_tokens=10
+            ),
+            SampledMessage(
+                message=msg5, priority=1000, reason="chronological", estimated_tokens=10
+            ),
         ]
 
         # Build narrative with exact ID matching
@@ -742,14 +746,22 @@ class TestPlayFormatBuilder:
             tool_calls_count=1,
             narrative="Child narrative content",
             token_count=50,
-            agent_metadata={"parent_message_id": "00000000-0000-0000-0000-000000000000"},  # Invalid ID
+            agent_metadata={
+                "parent_message_id": "00000000-0000-0000-0000-000000000000"
+            },  # Invalid ID
         )
 
         # Create sampled messages for the builder
         sampled_messages = [
-            SampledMessage(message=msg1, priority=1000, reason="chronological", estimated_tokens=10),
-            SampledMessage(message=msg2, priority=1000, reason="chronological", estimated_tokens=10),
-            SampledMessage(message=msg3, priority=1000, reason="chronological", estimated_tokens=10),
+            SampledMessage(
+                message=msg1, priority=1000, reason="chronological", estimated_tokens=10
+            ),
+            SampledMessage(
+                message=msg2, priority=1000, reason="chronological", estimated_tokens=10
+            ),
+            SampledMessage(
+                message=msg3, priority=1000, reason="chronological", estimated_tokens=10
+            ),
         ]
 
         # Build narrative - should use timestamp fallback

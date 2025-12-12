@@ -96,7 +96,7 @@ class TestDebouncing:
         """Test that events separated by debounce period are both processed."""
         file_path = Path("/test/conversation.jsonl")
 
-        with patch.object(file_watcher, "_process_file") as mock_process:
+        with patch.object(file_watcher, "_process_file"):
             # First event
             file_watcher._handle_file_event(file_path)
             time.sleep(0.15)  # Wait longer than debounce_seconds (0.1)

@@ -107,9 +107,11 @@ def aggregate_thinking_time(
         )
 
     latencies = sorted(
-        min(p.latency_seconds, max_latency_seconds)
-        if max_latency_seconds is not None
-        else p.latency_seconds
+        (
+            min(p.latency_seconds, max_latency_seconds)
+            if max_latency_seconds is not None
+            else p.latency_seconds
+        )
         for p in pairs
     )
     thinking_count = sum(1 for p in pairs if p.has_thinking)

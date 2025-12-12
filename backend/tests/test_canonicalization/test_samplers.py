@@ -1,18 +1,15 @@
 """Tests for message sampling strategies."""
 
-import pytest
 from datetime import datetime
 
 from catsyphon.canonicalization.models import CanonicalConfig
 from catsyphon.canonicalization.samplers import (
     ChronologicalSampler,
-    EpochSampler,
     SampledMessage,
     SemanticSampler,
 )
 from catsyphon.canonicalization.tokens import TokenCounter
-from catsyphon.models.db import Epoch, Message
-
+from catsyphon.models.db import Message
 
 # ===== ChronologicalSampler Tests =====
 
@@ -34,11 +31,7 @@ def test_chronological_sampler_single_message(sample_message):
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=[sample_message],
-        epochs=[],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=[sample_message], epochs=[], token_budget=1000)
 
     assert len(result) == 1
     assert result[0].message == sample_message
@@ -48,9 +41,7 @@ def test_chronological_sampler_single_message(sample_message):
 
 
 def test_chronological_sampler_multiple_messages(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with multiple messages."""
     # Create multiple messages with different sequence numbers
@@ -72,11 +63,7 @@ def test_chronological_sampler_multiple_messages(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should include all messages
     assert len(result) == 10
@@ -93,9 +80,7 @@ def test_chronological_sampler_multiple_messages(
 
 
 def test_chronological_sampler_chronological_ordering(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test that ChronologicalSampler maintains chronological order."""
     # Create messages in non-sequential order
@@ -119,11 +104,7 @@ def test_chronological_sampler_chronological_ordering(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should be sorted by sequence despite input order
     assert len(result) == 10
@@ -132,9 +113,7 @@ def test_chronological_sampler_chronological_ordering(
 
 
 def test_chronological_sampler_ignores_budget(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test that ChronologicalSampler ignores token budget."""
     # Create messages that will exceed budget
@@ -144,7 +123,8 @@ def test_chronological_sampler_ignores_budget(
             conversation_id=sample_conversation.id,
             epoch_id=sample_epoch.id,
             role="assistant",
-            content="This is a longer message with more content that will consume more tokens " * 10,
+            content="This is a longer message with more content that will consume more tokens "
+            * 10,
             timestamp=datetime.now(),
             sequence=i,
         )
@@ -158,9 +138,7 @@ def test_chronological_sampler_ignores_budget(
 
     # Use small budget
     result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=100  # Very small budget
+        messages=messages, epochs=[sample_epoch], token_budget=100  # Very small budget
     )
 
     # Should still include all messages despite small budget
@@ -172,9 +150,7 @@ def test_chronological_sampler_ignores_budget(
 
 
 def test_chronological_sampler_with_tool_calls(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with messages containing tool calls."""
     messages = []
@@ -198,11 +174,7 @@ def test_chronological_sampler_with_tool_calls(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should include all messages with tool calls
     assert len(result) == 5
@@ -212,9 +184,7 @@ def test_chronological_sampler_with_tool_calls(
 
 
 def test_chronological_sampler_with_thinking_content(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with messages containing thinking content."""
     messages = []
@@ -236,11 +206,7 @@ def test_chronological_sampler_with_thinking_content(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should include all messages with thinking content
     assert len(result) == 5
@@ -250,9 +216,7 @@ def test_chronological_sampler_with_thinking_content(
 
 
 def test_chronological_sampler_with_code_changes(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with messages containing code changes."""
     messages = []
@@ -280,11 +244,7 @@ def test_chronological_sampler_with_code_changes(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should include all messages with code changes
     assert len(result) == 5
@@ -294,9 +254,7 @@ def test_chronological_sampler_with_code_changes(
 
 
 def test_chronological_sampler_mixed_message_types(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with mixed message types."""
     messages = []
@@ -353,11 +311,7 @@ def test_chronological_sampler_mixed_message_types(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should include all messages regardless of type
     assert len(result) == 4
@@ -373,9 +327,7 @@ def test_chronological_sampler_mixed_message_types(
 
 
 def test_chronological_vs_semantic_coverage(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test that ChronologicalSampler includes more messages than SemanticSampler."""
     # Create many messages with longer content to exceed budget
@@ -385,7 +337,8 @@ def test_chronological_vs_semantic_coverage(
             conversation_id=sample_conversation.id,
             epoch_id=sample_epoch.id,
             role="assistant",
-            content=f"This is a longer regular message number {i} with more content " * 20,  # Much longer
+            content=f"This is a longer regular message number {i} with more content "
+            * 20,  # Much longer
             timestamp=datetime.now(),
             sequence=i,
         )
@@ -402,15 +355,11 @@ def test_chronological_vs_semantic_coverage(
     budget = 2000  # Smaller budget to force semantic to exclude messages
 
     chronological_result = chronological_sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=budget
+        messages=messages, epochs=[sample_epoch], token_budget=budget
     )
 
     semantic_result = semantic_sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=budget
+        messages=messages, epochs=[sample_epoch], token_budget=budget
     )
 
     # Chronological should include all messages
@@ -427,9 +376,7 @@ def test_chronological_vs_semantic_coverage(
 
 
 def test_chronological_sampler_token_estimation(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test that ChronologicalSampler correctly estimates tokens."""
     # Create messages with known content lengths
@@ -452,9 +399,7 @@ def test_chronological_sampler_token_estimation(
     sampler = ChronologicalSampler(config, token_counter)
 
     result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=10000
+        messages=messages, epochs=[sample_epoch], token_budget=10000
     )
 
     # All messages should have similar token estimates
@@ -471,9 +416,7 @@ def test_chronological_sampler_token_estimation(
 
 
 def test_chronological_sampler_with_empty_content(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with messages that have empty content."""
     messages = []
@@ -495,11 +438,7 @@ def test_chronological_sampler_with_empty_content(
     sampler = ChronologicalSampler(config, token_counter)
 
     # Should not crash with empty content
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     assert len(result) == 5
     for sm in result:
@@ -509,9 +448,7 @@ def test_chronological_sampler_with_empty_content(
 
 
 def test_chronological_sampler_with_very_long_messages(
-    test_session,
-    sample_conversation,
-    sample_epoch
+    test_session, sample_conversation, sample_epoch
 ):
     """Test ChronologicalSampler with very long messages."""
     messages = []
@@ -532,11 +469,7 @@ def test_chronological_sampler_with_very_long_messages(
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=messages,
-        epochs=[sample_epoch],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=messages, epochs=[sample_epoch], token_budget=1000)
 
     # Should include all messages even if very long
     assert len(result) == 5
@@ -555,15 +488,11 @@ def test_chronological_sampler_returns_sampled_message_objects(sample_message):
     token_counter = TokenCounter(model="gpt-4o-mini")
     sampler = ChronologicalSampler(config, token_counter)
 
-    result = sampler.sample(
-        messages=[sample_message],
-        epochs=[],
-        token_budget=1000
-    )
+    result = sampler.sample(messages=[sample_message], epochs=[], token_budget=1000)
 
     assert len(result) == 1
     assert isinstance(result[0], SampledMessage)
-    assert hasattr(result[0], 'message')
-    assert hasattr(result[0], 'priority')
-    assert hasattr(result[0], 'reason')
-    assert hasattr(result[0], 'estimated_tokens')
+    assert hasattr(result[0], "message")
+    assert hasattr(result[0], "priority")
+    assert hasattr(result[0], "reason")
+    assert hasattr(result[0], "estimated_tokens")

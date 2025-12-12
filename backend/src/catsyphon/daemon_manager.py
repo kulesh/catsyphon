@@ -10,8 +10,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from multiprocessing import Process, Queue
-from queue import Empty
 from pathlib import Path
+from queue import Empty
 from threading import Event, Lock, Thread
 from typing import Any, Dict, Optional
 from uuid import UUID
@@ -102,7 +102,9 @@ class DaemonManager:
             health_check_interval: How often to check daemon health (seconds)
         """
         self._daemons: Dict[UUID, DaemonEntry] = {}
-        self._stats_queues: Dict[UUID, "Queue[dict[str, Any]]"] = {}  # config_id -> stats queue
+        self._stats_queues: Dict[UUID, "Queue[dict[str, Any]]"] = (
+            {}
+        )  # config_id -> stats queue
         self._lock = Lock()
         self._shutdown_event = Event()
         self._stats_sync_interval = stats_sync_interval
@@ -343,7 +345,8 @@ class DaemonManager:
                             break  # Queue is empty
                 except Exception as e:
                     logger.error(
-                        f"Failed to drain stats queue for {config_id}: {e}", exc_info=True
+                        f"Failed to drain stats queue for {config_id}: {e}",
+                        exc_info=True,
                     )
 
         # Clear PID from database
@@ -405,7 +408,9 @@ class DaemonManager:
 
         logger.info("✓ DaemonManager shut down")
 
-    def _format_daemon_status(self, entry: DaemonEntry, config_id: UUID) -> dict[str, Any]:
+    def _format_daemon_status(
+        self, entry: DaemonEntry, config_id: UUID
+    ) -> dict[str, Any]:
         """
         Format daemon status dictionary (lock-free helper).
 
@@ -645,7 +650,9 @@ class DaemonManager:
         except Exception as e:
             logger.error(f"Error checking health for {config_id}: {e}", exc_info=True)
 
-    def _save_daemon_stats(self, config_id: UUID, stats_snapshot: dict[str, Any]) -> None:
+    def _save_daemon_stats(
+        self, config_id: UUID, stats_snapshot: dict[str, Any]
+    ) -> None:
         """
         Save daemon stats snapshot to database.
 
@@ -660,6 +667,4 @@ class DaemonManager:
                 session.commit()
                 logger.debug(f"Saved stats for config {config_id}: {stats_snapshot}")
         except Exception as e:
-            logger.error(
-                f"Failed to save stats for {config_id}: {e}", exc_info=True
-            )
+            logger.error(f"Failed to save stats for {config_id}: {e}", exc_info=True)

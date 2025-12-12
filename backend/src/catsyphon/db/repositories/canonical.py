@@ -9,12 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from catsyphon.canonicalization import (
-    CanonicalConfig,
     CanonicalConversation,
-    CanonicalType,
     Canonicalizer,
+    CanonicalType,
 )
-from catsyphon.canonicalization.tokens import TokenCounter
 from catsyphon.canonicalization.version import CANONICAL_VERSION
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import ConversationCanonical

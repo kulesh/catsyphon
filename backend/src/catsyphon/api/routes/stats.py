@@ -87,8 +87,10 @@ async def get_overview_stats(
     # Total messages (requires custom query if date filtered)
     if start_date or end_date:
         # Count messages in conversations within date range
-        query = session.query(func.count(Message.id)).join(Conversation).filter(
-            Conversation.workspace_id == workspace_id
+        query = (
+            session.query(func.count(Message.id))
+            .join(Conversation)
+            .filter(Conversation.workspace_id == workspace_id)
         )
         if start_date:
             query = query.filter(Conversation.start_time >= start_date)
@@ -162,12 +164,9 @@ async def get_overview_stats(
 
     # Query all conversations with extra_data and filter in Python
     # This is database-agnostic (works with SQLite and PostgreSQL)
-    convs_with_extra_data_query = (
-        session.query(Conversation.extra_data)
-        .filter(
-            Conversation.workspace_id == workspace_id,
-            Conversation.extra_data.isnot(None),
-        )
+    convs_with_extra_data_query = session.query(Conversation.extra_data).filter(
+        Conversation.workspace_id == workspace_id,
+        Conversation.extra_data.isnot(None),
     )
 
     for (extra_data,) in convs_with_extra_data_query.all():

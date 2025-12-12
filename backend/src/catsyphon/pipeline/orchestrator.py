@@ -19,7 +19,11 @@ from catsyphon.models.db import Conversation
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import ParserRegistry
 from catsyphon.parsers.types import ParseResult
-from catsyphon.pipeline.ingestion import IngestionJobTracker, StageMetrics, ingest_messages_incremental
+from catsyphon.pipeline.ingestion import (
+    IngestionJobTracker,
+    StageMetrics,
+    ingest_messages_incremental,
+)
 
 
 @dataclass
@@ -182,7 +186,11 @@ def ingest_log_file(
                     "parse_method": "incremental",
                     "parse_change_type": change_type.value,
                     "parse_messages_count": len(inc_result.new_messages),
-                    "parser_name": parser_meta.name if parser_meta else type(incremental_parser).__name__.lower(),
+                    "parser_name": (
+                        parser_meta.name
+                        if parser_meta
+                        else type(incremental_parser).__name__.lower()
+                    ),
                     "parser_version": parser_meta.version if parser_meta else None,
                     "parse_duration_ms": parse_duration_ms,
                 }
@@ -234,10 +242,7 @@ def ingest_log_file(
 
     # Skip metadata-only files (e.g., file-history-snapshot logs with no conversation messages)
     parsed_conv = parse_result.conversation
-    if (
-        parsed_conv.conversation_type == "metadata"
-        and len(parsed_conv.messages) == 0
-    ):
+    if parsed_conv.conversation_type == "metadata" and len(parsed_conv.messages) == 0:
         reason = (
             f"Metadata-only file with no conversation messages "
             f"(type={parsed_conv.conversation_type}, messages=0)"

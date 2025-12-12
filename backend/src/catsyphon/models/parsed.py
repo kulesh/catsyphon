@@ -100,7 +100,9 @@ class ParsedMessage:
     model: Optional[str] = None  # Claude model used (for assistant messages)
     token_usage: Optional[dict] = None  # Token usage statistics
     thinking_content: Optional[str] = None  # Extended thinking blocks (Claude)
-    stop_reason: Optional[str] = None  # Why generation stopped (end_turn, max_tokens, tool_use)
+    stop_reason: Optional[str] = (
+        None  # Why generation stopped (end_turn, max_tokens, tool_use)
+    )
     thinking_metadata: Optional[dict] = None  # Thinking level and settings
 
 
@@ -121,8 +123,12 @@ class ParsedConversation:
     code_changes: list[CodeChange] = field(default_factory=list)  # Code modifications
 
     # Hierarchy fields (Phase 2: Epic 7u2)
-    conversation_type: str = "main"  # 'main', 'agent', 'mcp', 'skill', 'command', 'other'
-    parent_session_id: Optional[str] = None  # Parent session ID for agent/tool conversations
+    conversation_type: str = (
+        "main"  # 'main', 'agent', 'mcp', 'skill', 'command', 'other'
+    )
+    parent_session_id: Optional[str] = (
+        None  # Parent session ID for agent/tool conversations
+    )
     context_semantics: dict = field(default_factory=dict)  # Context sharing behavior
     agent_metadata: dict = field(default_factory=dict)  # Agent-specific metadata
 
@@ -130,7 +136,9 @@ class ParsedConversation:
     plans: list[PlanInfo] = field(default_factory=list)  # Extracted plan data
 
     # Session identification
-    slug: Optional[str] = None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
+    slug: Optional[str] = (
+        None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
+    )
 
     # Summaries (auto-generated session checkpoints)
     summaries: list[dict] = field(default_factory=list)

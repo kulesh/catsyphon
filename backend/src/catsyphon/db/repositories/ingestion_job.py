@@ -575,9 +575,9 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             if parse_method:
                 parse_methods[parse_method] = parse_methods.get(parse_method, 0) + 1
             if change_type:
-                change_type_counts[change_type] = change_type_counts.get(
-                    change_type, 0
-                ) + 1
+                change_type_counts[change_type] = (
+                    change_type_counts.get(change_type, 0) + 1
+                )
             if warning_count is not None:
                 warning_counts.append(warning_count)
                 if warning_count > 0:

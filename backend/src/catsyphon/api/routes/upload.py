@@ -11,12 +11,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from catsyphon.api.schemas import UploadResponse, UploadResult
-from catsyphon.db.connection import get_db
+from catsyphon.db.connection import db_session, get_db
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers import get_default_registry
-from catsyphon.parsers.utils import is_conversational_log
-from catsyphon.pipeline.failure_tracking import track_skip
-from catsyphon.pipeline.ingestion import link_orphaned_agents, _get_or_create_default_workspace
+from catsyphon.pipeline.ingestion import (
+    _get_or_create_default_workspace,
+    link_orphaned_agents,
+)
 
 router = APIRouter()
 
@@ -107,10 +108,24 @@ async def upload_conversation_logs(
                             UploadResult(
                                 filename=uploaded_file.filename,
                                 status="duplicate",
-                                conversation_id=db_conversation.id if db_conversation else None,
-                                message_count=db_conversation.message_count if db_conversation else None,
-                                epoch_count=len(db_conversation.epochs) if db_conversation else None,
-                                files_count=len(db_conversation.files_touched) if db_conversation else None,
+                                conversation_id=(
+                                    db_conversation.id if db_conversation else None
+                                ),
+                                message_count=(
+                                    db_conversation.message_count
+                                    if db_conversation
+                                    else None
+                                ),
+                                epoch_count=(
+                                    len(db_conversation.epochs)
+                                    if db_conversation
+                                    else None
+                                ),
+                                files_count=(
+                                    len(db_conversation.files_touched)
+                                    if db_conversation
+                                    else None
+                                ),
                             )
                         )
                         success_count += 1  # Duplicates are not treated as errors
@@ -183,7 +198,7 @@ async def upload_conversation_logs(
 
             track_failure(
                 error=e,
-                file_path=temp_path if 'temp_path' in locals() else None,
+                file_path=temp_path if "temp_path" in locals() else None,
                 source_type="upload",
             )
 

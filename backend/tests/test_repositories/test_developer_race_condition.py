@@ -18,7 +18,7 @@ from catsyphon.db.repositories.developer import DeveloperRepository
 # Mark for PostgreSQL-only tests
 requires_postgresql = pytest.mark.skipif(
     True,  # Skip by default (test suite uses SQLite)
-    reason="Requires PostgreSQL for ON CONFLICT DO NOTHING support"
+    reason="Requires PostgreSQL for ON CONFLICT DO NOTHING support",
 )
 
 
@@ -61,8 +61,9 @@ class TestConcurrentDeveloperCreation:
         developers = repo.get_by_workspace(sample_workspace.id)
         developer_usernames = [d.username for d in developers]
         assert username in developer_usernames
-        assert sum(1 for u in developer_usernames if u == username) == 1, \
-            f"Expected 1 developer with username {username}, found: {developer_usernames}"
+        assert (
+            sum(1 for u in developer_usernames if u == username) == 1
+        ), f"Expected 1 developer with username {username}, found: {developer_usernames}"
 
     @requires_postgresql
     def test_concurrent_different_usernames(self, db_session, sample_workspace):
@@ -117,8 +118,9 @@ class TestConcurrentDeveloperCreation:
             developer_ids.append(developer.id)
 
         # All calls should return the same developer
-        assert all(did == developer1_id for did in developer_ids), \
-            f"Non-idempotent: {developer_ids}"
+        assert all(
+            did == developer1_id for did in developer_ids
+        ), f"Non-idempotent: {developer_ids}"
 
     def test_custom_email_preserved(self, db_session, sample_workspace):
         """Test that custom email is preserved."""
@@ -182,9 +184,12 @@ class TestConcurrentDeveloperCreation:
         developer_ids = [r[0] for r in results]
         developer_emails = [r[1] for r in results]
 
-        assert len(set(developer_ids)) == 1, f"Multiple developers created: {developer_ids}"
-        assert all(e == custom_email for e in developer_emails), \
-            f"Email mismatch: {developer_emails}"
+        assert (
+            len(set(developer_ids)) == 1
+        ), f"Multiple developers created: {developer_ids}"
+        assert all(
+            e == custom_email for e in developer_emails
+        ), f"Email mismatch: {developer_emails}"
 
     @requires_postgresql
     def test_race_condition_stress_test(self, db_session, sample_workspace):
@@ -204,19 +209,24 @@ class TestConcurrentDeveloperCreation:
                 errors.append(e)
 
         # Spawn many concurrent threads
-        threads = [threading.Thread(target=create_developer) for _ in range(num_threads)]
+        threads = [
+            threading.Thread(target=create_developer) for _ in range(num_threads)
+        ]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
         # All threads should succeed
-        assert len(errors) == 0, f"Got {len(errors)} errors in stress test: {errors[:5]}"
+        assert (
+            len(errors) == 0
+        ), f"Got {len(errors)} errors in stress test: {errors[:5]}"
         assert len(results) == num_threads
 
         # Only one unique developer should exist
-        assert len(set(results)) == 1, \
-            f"Stress test created {len(set(results))} developers instead of 1"
+        assert (
+            len(set(results)) == 1
+        ), f"Stress test created {len(set(results))} developers instead of 1"
 
 
 class TestDeveloperRepositoryBasics:

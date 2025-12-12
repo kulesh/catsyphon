@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from catsyphon.db.repositories import ConversationRepository, DeveloperRepository, ProjectRepository
+from catsyphon.db.repositories import (
+    ConversationRepository,
+)
 from catsyphon.models.db import Conversation
 
 
@@ -70,7 +72,9 @@ class TestConversationRepositoryBasics:
 class TestHierarchicalConversationRepository:
     """Tests for hierarchical conversation queries."""
 
-    def test_get_with_relations_loads_children(self, db_session: Session, sample_workspace):
+    def test_get_with_relations_loads_children(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that get_with_relations loads children conversations."""
         repo = ConversationRepository(db_session)
         now = datetime.now(UTC)
@@ -113,7 +117,9 @@ class TestHierarchicalConversationRepository:
         assert len(parent_with_relations.children) == 2
         assert {c.id for c in parent_with_relations.children} == {child1.id, child2.id}
 
-    def test_get_with_relations_loads_parent(self, db_session: Session, sample_workspace):
+    def test_get_with_relations_loads_parent(
+        self, db_session: Session, sample_workspace
+    ):
         """Test that get_with_relations loads parent conversation."""
         repo = ConversationRepository(db_session)
         now = datetime.now(UTC)
@@ -136,7 +142,10 @@ class TestHierarchicalConversationRepository:
             extra_data={"session_id": "agent-child"},
             conversation_type="agent",
             parent_conversation_id=parent.id,
-            agent_metadata={"agent_id": "agent-child", "parent_session_id": "parent-456"},
+            agent_metadata={
+                "agent_id": "agent-child",
+                "parent_session_id": "parent-456",
+            },
         )
         db_session.flush()
 
@@ -175,10 +184,14 @@ class TestHierarchicalConversationRepository:
 
         # Query by conversation_type
         # Note: Using raw SQLAlchemy query since get_by_filters may not support this yet
-        main_convs = db_session.query(Conversation).filter(
-            Conversation.workspace_id == sample_workspace.id,
-            Conversation.conversation_type == "main"
-        ).all()
+        main_convs = (
+            db_session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == sample_workspace.id,
+                Conversation.conversation_type == "main",
+            )
+            .all()
+        )
 
         assert len(main_convs) >= 2
         assert all(c.conversation_type == "main" for c in main_convs)
@@ -186,7 +199,9 @@ class TestHierarchicalConversationRepository:
         assert main2.id in [c.id for c in main_convs]
         assert agent1.id not in [c.id for c in main_convs]
 
-    def test_get_by_conversation_type_agent(self, db_session: Session, sample_workspace):
+    def test_get_by_conversation_type_agent(
+        self, db_session: Session, sample_workspace
+    ):
         """Test filtering conversations by conversation_type='agent'."""
         repo = ConversationRepository(db_session)
         now = datetime.now(UTC)
@@ -213,10 +228,14 @@ class TestHierarchicalConversationRepository:
         db_session.flush()
 
         # Query by conversation_type
-        agent_convs = db_session.query(Conversation).filter(
-            Conversation.workspace_id == sample_workspace.id,
-            Conversation.conversation_type == "agent"
-        ).all()
+        agent_convs = (
+            db_session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == sample_workspace.id,
+                Conversation.conversation_type == "agent",
+            )
+            .all()
+        )
 
         assert len(agent_convs) >= 2
         assert all(c.conversation_type == "agent" for c in agent_convs)
@@ -256,9 +275,11 @@ class TestHierarchicalConversationRepository:
         db_session.flush()
 
         # Query children by parent ID
-        children = db_session.query(Conversation).filter(
-            Conversation.parent_conversation_id == parent.id
-        ).all()
+        children = (
+            db_session.query(Conversation)
+            .filter(Conversation.parent_conversation_id == parent.id)
+            .all()
+        )
 
         assert len(children) == 2
         assert {c.id for c in children} == {child1.id, child2.id}
@@ -305,11 +326,15 @@ class TestHierarchicalConversationRepository:
         db_session.flush()
 
         # Query orphaned agents
-        orphans = db_session.query(Conversation).filter(
-            Conversation.workspace_id == sample_workspace.id,
-            Conversation.conversation_type == "agent",
-            Conversation.parent_conversation_id.is_(None)
-        ).all()
+        orphans = (
+            db_session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == sample_workspace.id,
+                Conversation.conversation_type == "agent",
+                Conversation.parent_conversation_id.is_(None),
+            )
+            .all()
+        )
 
         assert len(orphans) >= 2
         assert orphan1.id in [o.id for o in orphans]
@@ -318,7 +343,10 @@ class TestHierarchicalConversationRepository:
 
     def test_workspace_isolation_hierarchy(self, db_session: Session):
         """Test that workspace isolation prevents cross-workspace parent linking."""
-        from catsyphon.db.repositories import WorkspaceRepository, OrganizationRepository
+        from catsyphon.db.repositories import (
+            OrganizationRepository,
+            WorkspaceRepository,
+        )
 
         org_repo = OrganizationRepository(db_session)
         workspace_repo = WorkspaceRepository(db_session)
@@ -330,12 +358,16 @@ class TestHierarchicalConversationRepository:
         db_session.flush()
 
         # Create two workspaces
-        workspace1 = workspace_repo.create(name="workspace-1", slug="workspace-1", organization_id=org.id)
-        workspace2 = workspace_repo.create(name="workspace-2", slug="workspace-2", organization_id=org.id)
+        workspace1 = workspace_repo.create(
+            name="workspace-1", slug="workspace-1", organization_id=org.id
+        )
+        workspace2 = workspace_repo.create(
+            name="workspace-2", slug="workspace-2", organization_id=org.id
+        )
         db_session.flush()
 
         # Create parent in workspace 1
-        parent_ws1 = conv_repo.create(
+        conv_repo.create(
             workspace_id=workspace1.id,
             agent_type="claude-code",
             start_time=now,
@@ -356,14 +388,18 @@ class TestHierarchicalConversationRepository:
         db_session.flush()
 
         # Query parent in workspace 2 (should not find parent from workspace 1)
-        from sqlalchemy.dialects.postgresql import JSONB
-        from sqlalchemy import cast, String
+        from sqlalchemy import String, cast
 
         # Use JSON path query for SQLite compatibility
-        parent_in_ws2_query = db_session.query(Conversation).filter(
-            Conversation.workspace_id == workspace2.id,
-            cast(Conversation.extra_data["session_id"], String) == "shared-session-id"
-        ).all()
+        parent_in_ws2_query = (
+            db_session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == workspace2.id,
+                cast(Conversation.extra_data["session_id"], String)
+                == "shared-session-id",
+            )
+            .all()
+        )
 
         # Should not find parent from workspace 1
         assert len(parent_in_ws2_query) == 0
@@ -371,7 +407,9 @@ class TestHierarchicalConversationRepository:
         # Verify agent remains orphaned (cannot link to parent in different workspace)
         assert agent_ws2.parent_conversation_id is None
 
-    def test_get_by_session_id_with_lowercase_conversation_type(self, db_session: Session, sample_workspace):
+    def test_get_by_session_id_with_lowercase_conversation_type(
+        self, db_session: Session, sample_workspace
+    ):
         """
         Regression test for bug where get_by_session_id() failed to find conversations
         with lowercase conversation_type values.
@@ -398,16 +436,20 @@ class TestHierarchicalConversationRepository:
         found = repo.get_by_session_id(
             session_id="test-parent-session-123",
             workspace_id=sample_workspace.id,
-            conversation_type="main"  # Pass lowercase
+            conversation_type="main",  # Pass lowercase
         )
 
         # Should find the main conversation
-        assert found is not None, "get_by_session_id should find conversation with lowercase conversation_type"
+        assert (
+            found is not None
+        ), "get_by_session_id should find conversation with lowercase conversation_type"
         assert found.id == main_conv.id
         assert found.conversation_type == "main"
         assert found.extra_data["session_id"] == "test-parent-session-123"
 
-    def test_get_by_session_id_finds_main_not_agent(self, db_session: Session, sample_workspace):
+    def test_get_by_session_id_finds_main_not_agent(
+        self, db_session: Session, sample_workspace
+    ):
         """
         Test that get_by_session_id correctly filters by conversation_type to find
         only the main conversation when both main and agent share similar session IDs.
@@ -439,7 +481,7 @@ class TestHierarchicalConversationRepository:
         found = repo.get_by_session_id(
             session_id="shared-session-abc",
             workspace_id=sample_workspace.id,
-            conversation_type="main"
+            conversation_type="main",
         )
 
         # Should find main conversation, not the agent

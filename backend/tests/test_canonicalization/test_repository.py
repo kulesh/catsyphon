@@ -1,13 +1,10 @@
 """Integration tests for CanonicalRepository."""
 
-import pytest
 from datetime import datetime
 from uuid import uuid4
 
-from catsyphon.canonicalization import CanonicalType, Canonicalizer
 from catsyphon.canonicalization.version import CANONICAL_VERSION
 from catsyphon.db.repositories.canonical import CanonicalRepository
-from catsyphon.models.db import Conversation, ConversationCanonical, Epoch, Message, Workspace, Organization
 
 
 def test_get_cached_returns_none_when_no_cache(test_session):

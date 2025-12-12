@@ -230,7 +230,9 @@ class MessageResponse(BaseModel):
 
     # Extracted from extra_data for convenience
     model: Optional[str] = None  # Claude model used (e.g., "claude-opus-4-5")
-    token_usage: Optional[dict[str, Any]] = None  # {input_tokens, output_tokens, cache_*}
+    token_usage: Optional[dict[str, Any]] = (
+        None  # {input_tokens, output_tokens, cache_*}
+    )
     stop_reason: Optional[str] = None  # end_turn, max_tokens, tool_use
 
     class Config:
@@ -305,7 +307,9 @@ class ConversationListItem(BaseModel):
     plan_count: int = 0  # Number of plans in this conversation
 
     # Extracted from extra_data for convenience
-    slug: Optional[str] = None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
+    slug: Optional[str] = (
+        None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
+    )
     git_branch: Optional[str] = None  # Git branch active during session
     total_tokens: Optional[int] = None  # Sum of all message token usage
 
@@ -528,7 +532,7 @@ class IngestionJobResponse(BaseModel):
     messages_added: int
     ingest_mode: Optional[str] = Field(
         default=None,
-        description="Ingestion mode used for this job (replace/append/skip)"
+        description="Ingestion mode used for this job (replace/append/skip)",
     )
     metrics: dict[str, Any] = Field(
         default_factory=dict,
@@ -549,7 +553,9 @@ class IngestionJobResponse(BaseModel):
         Pull ingest_mode from metrics if not present on the model.
         """
         if isinstance(values, dict):
-            if values.get("ingest_mode") is None and isinstance(values.get("metrics"), dict):
+            if values.get("ingest_mode") is None and isinstance(
+                values.get("metrics"), dict
+            ):
                 metrics = values.get("metrics") or {}
                 if "ingest_mode" in metrics:
                     values["ingest_mode"] = metrics["ingest_mode"]
@@ -967,9 +973,15 @@ class PlanOperationResponse(BaseModel):
     content: Optional[str] = Field(
         None, description="Full content for create operations"
     )
-    old_content: Optional[str] = Field(None, description="Old content for edit operations")
-    new_content: Optional[str] = Field(None, description="New content for edit operations")
-    timestamp: Optional[datetime] = Field(None, description="When the operation occurred")
+    old_content: Optional[str] = Field(
+        None, description="Old content for edit operations"
+    )
+    new_content: Optional[str] = Field(
+        None, description="New content for edit operations"
+    )
+    timestamp: Optional[datetime] = Field(
+        None, description="When the operation occurred"
+    )
     message_index: int = Field(
         0, description="Index of the message containing this operation"
     )
@@ -1047,7 +1059,9 @@ class HealthReportResponse(BaseModel):
 
     # Hero section
     score: float = Field(..., description="Overall health score (0-1)")
-    label: str = Field(..., description="Quality label (Excellent/Good/Developing/Needs Attention)")
+    label: str = Field(
+        ..., description="Quality label (Excellent/Good/Developing/Needs Attention)"
+    )
     summary: str = Field(..., description="Plain English summary")
 
     # Diagnosis
@@ -1065,4 +1079,6 @@ class HealthReportResponse(BaseModel):
     # Metadata
     sessions_analyzed: int = 0
     generated_at: float = Field(..., description="Unix timestamp of generation")
-    cached: bool = Field(default=False, description="Whether this was served from cache")
+    cached: bool = Field(
+        default=False, description="Whether this was served from cache"
+    )

@@ -218,8 +218,7 @@ def check_openai_configuration() -> None:
         return
 
     try:
-        from openai import OpenAI
-        from openai import AuthenticationError, APIError
+        from openai import APIError, AuthenticationError, OpenAI
 
         client = OpenAI(api_key=settings.openai_api_key)
 
@@ -305,7 +304,7 @@ def check_cache_directory() -> None:
     except OSError as e:
         raise StartupCheckError(
             f"Failed to create cache directory: {cache_dir}\n" f"Error: {str(e)}",
-            f"Check filesystem and parent directory permissions",
+            "Check filesystem and parent directory permissions",
         ) from e
     except Exception as e:
         raise StartupCheckError(

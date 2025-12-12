@@ -84,9 +84,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         )
 
         if conversation_type:
-            query = query.filter(
-                Conversation.conversation_type == conversation_type
-            )
+            query = query.filter(Conversation.conversation_type == conversation_type)
 
         # Deterministic ordering: MAIN conversations first, then by creation time
         return query.order_by(
@@ -528,10 +526,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         # First, build query for parent conversations only
         # Calculate children_count dynamically using subquery
-        ChildConv = aliased(Conversation)
+        child_conv = aliased(Conversation)
         children_count_subq = (
-            select(func.count(ChildConv.id))
-            .where(ChildConv.parent_conversation_id == Conversation.id)
+            select(func.count(child_conv.id))
+            .where(child_conv.parent_conversation_id == Conversation.id)
             .scalar_subquery()
         )
 
@@ -557,9 +555,13 @@ class ConversationRepository(BaseRepository[Conversation]):
         if project_id:
             parent_query = parent_query.filter(Conversation.project_id == project_id)
         if developer_id:
-            parent_query = parent_query.filter(Conversation.developer_id == developer_id)
+            parent_query = parent_query.filter(
+                Conversation.developer_id == developer_id
+            )
         if agent_type:
-            parent_query = parent_query.filter(Conversation.agent_type.ilike(f"%{agent_type}%"))
+            parent_query = parent_query.filter(
+                Conversation.agent_type.ilike(f"%{agent_type}%")
+            )
         if status:
             parent_query = parent_query.filter(Conversation.status == status)
         if success is not None:
@@ -569,7 +571,9 @@ class ConversationRepository(BaseRepository[Conversation]):
         if end_date:
             parent_query = parent_query.filter(Conversation.start_time <= end_date)
         if collector_id:
-            parent_query = parent_query.filter(Conversation.collector_id == collector_id)
+            parent_query = parent_query.filter(
+                Conversation.collector_id == collector_id
+            )
 
         # Order parents
         order_col = getattr(Conversation, order_by, Conversation.start_time)
@@ -592,10 +596,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         parent_ids = [p[0].id for p in parents]
 
         # For children, calculate children_count dynamically (usually 0 for leaf nodes)
-        ChildConv2 = aliased(Conversation)
+        child_conv2 = aliased(Conversation)
         children_count_subq2 = (
-            select(func.count(ChildConv2.id))
-            .where(ChildConv2.parent_conversation_id == Conversation.id)
+            select(func.count(child_conv2.id))
+            .where(child_conv2.parent_conversation_id == Conversation.id)
             .scalar_subquery()
         )
 

@@ -214,9 +214,9 @@ class TestIncrementalParserFinding:
         log_file = FIXTURES_DIR / "minimal_conversation.jsonl"
         parser = registry.find_incremental_parser(log_file)
 
-        assert parser is not None, (
-            "Default registry should find incremental parser for .jsonl files"
-        )
+        assert (
+            parser is not None
+        ), "Default registry should find incremental parser for .jsonl files"
         assert hasattr(parser, "parse_incremental")
         assert hasattr(parser, "supports_incremental")
 

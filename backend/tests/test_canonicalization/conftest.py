@@ -1,11 +1,19 @@
 """Pytest fixtures for canonicalization tests."""
 
-import pytest
 from datetime import datetime
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
 
-from catsyphon.models.db import Base, Conversation, Epoch, Message, Organization, Workspace
+import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+
+from catsyphon.models.db import (
+    Base,
+    Conversation,
+    Epoch,
+    Message,
+    Organization,
+    Workspace,
+)
 
 
 @pytest.fixture(scope="session")
@@ -38,12 +46,12 @@ def test_engine():
 @pytest.fixture(scope="function")
 def test_session(test_engine):
     """Create test session with rollback."""
-    SessionLocal = sessionmaker(
+    session_local = sessionmaker(
         bind=test_engine,
         expire_on_commit=False,
     )
 
-    session = SessionLocal()
+    session = session_local()
     try:
         yield session
         session.rollback()

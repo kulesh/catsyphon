@@ -15,4 +15,15 @@ from catsyphon.api.routes import (
     watch,
 )
 
-__all__ = ["canonical", "conversations", "ingestion", "insights", "metadata", "projects", "setup", "stats", "upload", "watch"]
+__all__ = [
+    "canonical",
+    "conversations",
+    "ingestion",
+    "insights",
+    "metadata",
+    "projects",
+    "setup",
+    "stats",
+    "upload",
+    "watch",
+]

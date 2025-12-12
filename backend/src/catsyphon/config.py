@@ -8,8 +8,8 @@ Loads configuration from environment variables.
 import os
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def get_xdg_cache_dir() -> str:
@@ -113,7 +113,9 @@ class Settings(BaseSettings):
 
     # Tagging
     tagging_enabled: bool = False  # Enable LLM tagging by default (opt-in via flag)
-    tagging_cache_dir: str = f"{get_xdg_cache_dir()}/tags"  # XDG-compliant cache directory
+    tagging_cache_dir: str = (
+        f"{get_xdg_cache_dir()}/tags"  # XDG-compliant cache directory
+    )
     tagging_cache_ttl_days: int = 30  # Cache time-to-live in days
     tagging_enable_cache: bool = True  # Enable caching (reduces OpenAI costs)
 
@@ -141,7 +143,9 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
-    log_dir: str = ""  # XDG-compliant log directory (defaults to XDG state dir if empty)
+    log_dir: str = (
+        ""  # XDG-compliant log directory (defaults to XDG state dir if empty)
+    )
     log_format: str = "standard"  # standard or json
     log_console_enabled: bool = True  # Enable console (stdout/stderr) logging
     log_file_enabled: bool = True  # Enable file-based logging

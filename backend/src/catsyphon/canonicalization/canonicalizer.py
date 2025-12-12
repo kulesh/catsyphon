@@ -114,6 +114,7 @@ class Canonicalizer:
             if self.sampling_strategy == "chronological":
                 # Unlimited budget for children when using chronological
                 import sys
+
                 budget_per_child = sys.maxsize
             else:
                 child_budget = self.budget_allocator.remaining("children")
@@ -156,7 +157,9 @@ class Canonicalizer:
 
         # Count tool calls
         tool_calls_count = sum(
-            len(sm.message.tool_calls) for sm in sampled_messages if sm.message.tool_calls
+            len(sm.message.tool_calls)
+            for sm in sampled_messages
+            if sm.message.tool_calls
         )
 
         # Calculate duration
@@ -246,11 +249,15 @@ class Canonicalizer:
             self.budget_allocator.allocate("children", 0.0)
 
         # Main messages: Remainder
-        remaining_percentage = 1.0 - 0.10 - (
-            self.budget_allocator.allocations.get("children", 0)
-            / self.config.token_budget
-            if self.config.token_budget > 0
-            else 0
+        remaining_percentage = (
+            1.0
+            - 0.10
+            - (
+                self.budget_allocator.allocations.get("children", 0)
+                / self.config.token_budget
+                if self.config.token_budget > 0
+                else 0
+            )
         )
         self.budget_allocator.allocate("main_messages", remaining_percentage)
 

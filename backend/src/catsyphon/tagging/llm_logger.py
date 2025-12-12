@@ -8,10 +8,8 @@ cost tracking, and auditing purposes.
 import json
 import logging
 import logging.handlers
-import re
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Optional
 
 from catsyphon.config import settings
@@ -148,7 +146,11 @@ class LLMLogger:
             }
 
             # Add token usage if available and enabled
-            if settings.llm_log_tokens and hasattr(response, "usage") and response.usage:
+            if (
+                settings.llm_log_tokens
+                and hasattr(response, "usage")
+                and response.usage
+            ):
                 log_entry["tokens"] = {
                     "prompt": response.usage.prompt_tokens,
                     "completion": response.usage.completion_tokens,
@@ -157,7 +159,9 @@ class LLMLogger:
 
             # Include sanitized content preview
             if content:
-                content_preview = content[:200] + "..." if len(content) > 200 else content
+                content_preview = (
+                    content[:200] + "..." if len(content) > 200 else content
+                )
                 log_entry["content_preview"] = content_preview
 
             self.llm_logger.info(f"RESPONSE: {json.dumps(log_entry)}")

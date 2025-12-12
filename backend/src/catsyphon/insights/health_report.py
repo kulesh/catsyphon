@@ -19,8 +19,8 @@ from uuid import UUID
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from catsyphon.models.db import Conversation
 from catsyphon.db.repositories import ConversationRepository
+from catsyphon.models.db import Conversation
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +110,15 @@ def get_health_label(score: float) -> tuple[str, str]:
     elif score >= 0.6:
         return ("Good", "Most AI sessions are productive and successful")
     elif score >= 0.4:
-        return ("Developing", "Sessions are productive but often don't complete their goal")
+        return (
+            "Developing",
+            "Sessions are productive but often don't complete their goal",
+        )
     else:
-        return ("Needs Attention", "Sessions frequently end without achieving the intended outcome")
+        return (
+            "Needs Attention",
+            "Sessions frequently end without achieving the intended outcome",
+        )
 
 
 class HealthReportGenerator:
@@ -167,14 +173,14 @@ class HealthReportGenerator:
         # Filter by date
         if date_filter:
             conversations = [
-                c for c in conversations
-                if c.start_time and c.start_time >= date_filter
+                c for c in conversations if c.start_time and c.start_time >= date_filter
             ]
 
         # Filter by developer (compare username)
         if developer_filter:
             conversations = [
-                c for c in conversations
+                c
+                for c in conversations
                 if c.developer and c.developer.username == developer_filter
             ]
 
@@ -196,8 +202,14 @@ class HealthReportGenerator:
 
         # Generate AI recommendations if we have API key and evidence
         recommendations = []
-        if self.client and evidence.get("success_example") and evidence.get("failure_example"):
-            recommendations = self._generate_recommendations(metrics, evidence, conversations)
+        if (
+            self.client
+            and evidence.get("success_example")
+            and evidence.get("failure_example")
+        ):
+            recommendations = self._generate_recommendations(
+                metrics, evidence, conversations
+            )
 
         # Build session links
         session_links = {
@@ -263,8 +275,13 @@ class HealthReportGenerator:
                 try:
                     if conv.files_touched:
                         for ft in conv.files_touched:
-                            total_lines += (ft.lines_added or 0) + (ft.lines_deleted or 0)
-                            if ft.timestamp and (first_file_change_at is None or ft.timestamp < first_file_change_at):
+                            total_lines += (ft.lines_added or 0) + (
+                                ft.lines_deleted or 0
+                            )
+                            if ft.timestamp and (
+                                first_file_change_at is None
+                                or ft.timestamp < first_file_change_at
+                            ):
                                 first_file_change_at = ft.timestamp
 
                         if total_lines > 0:
@@ -273,7 +290,9 @@ class HealthReportGenerator:
 
                         # First change latency
                         if first_file_change_at and conv.start_time:
-                            delta = (first_file_change_at - conv.start_time).total_seconds() / 60
+                            delta = (
+                                first_file_change_at - conv.start_time
+                            ).total_seconds() / 60
                             if delta >= 0:
                                 first_changes.append(delta)
                 except Exception:
@@ -291,10 +310,16 @@ class HealthReportGenerator:
 
         # Compute rates
         total_with_outcome = success_count + failed_count
-        success_rate = (success_count / total_with_outcome * 100) if total_with_outcome > 0 else None
+        success_rate = (
+            (success_count / total_with_outcome * 100)
+            if total_with_outcome > 0
+            else None
+        )
 
         avg_loc_hour = sum(loc_hours) / len(loc_hours) if loc_hours else None
-        avg_first_change = sum(first_changes) / len(first_changes) if first_changes else None
+        avg_first_change = (
+            sum(first_changes) / len(first_changes) if first_changes else None
+        )
 
         # Compute success rates by duration
         def bucket_success_rate(sessions: list[Conversation]) -> Optional[float]:
@@ -308,7 +333,11 @@ class HealthReportGenerator:
         latency_component = max(0.0, 1 - (avg_first_change or 30) / 60.0)
         success_component = (success_rate or 50) / 100
 
-        overall_score = success_component * 0.6 + throughput_component * 0.3 + latency_component * 0.1
+        overall_score = (
+            success_component * 0.6
+            + throughput_component * 0.3
+            + latency_component * 0.1
+        )
 
         return {
             "total_sessions": total,
@@ -429,7 +458,9 @@ class HealthReportGenerator:
         local_dt = dt.astimezone()
         return local_dt.strftime("%Y-%m-%d")
 
-    def _get_first_user_message(self, conv: Conversation, db_session: Session) -> Optional[str]:
+    def _get_first_user_message(
+        self, conv: Conversation, db_session: Session
+    ) -> Optional[str]:
         """Get the first user message from a conversation as context preview."""
         from catsyphon.models.db import Message
 
@@ -454,7 +485,9 @@ class HealthReportGenerator:
             logger.debug(f"Could not fetch first message: {e}")
         return None
 
-    def _conversation_has_content(self, conv: Conversation, db_session: Session) -> bool:
+    def _conversation_has_content(
+        self, conv: Conversation, db_session: Session
+    ) -> bool:
         """Check if a conversation has user messages with actual content."""
         from catsyphon.models.db import Message
 
@@ -495,14 +528,17 @@ class HealthReportGenerator:
         # Filter for sessions with meaningful content (lowered threshold for broader match)
         # First, try sessions with message_count > 5
         candidates = [
-            c for c in conversations
-            if c.message_count and c.message_count > 5
+            c for c in conversations if c.message_count and c.message_count > 5
         ]
 
         # If no candidates found, fall back to any session with messages
         if not candidates:
-            candidates = [c for c in conversations if c.message_count and c.message_count > 0]
-            logger.debug(f"Fell back to any sessions with messages: {len(candidates)} found")
+            candidates = [
+                c for c in conversations if c.message_count and c.message_count > 0
+            ]
+            logger.debug(
+                f"Fell back to any sessions with messages: {len(candidates)} found"
+            )
 
         # If still no candidates, use all conversations
         if not candidates:
@@ -524,13 +560,12 @@ class HealthReportGenerator:
             candidates = filtered
 
         # Sort by recency (most recent first)
-        candidates.sort(
-            key=lambda c: (c.start_time or datetime.min),
-            reverse=True
-        )
+        candidates.sort(key=lambda c: (c.start_time or datetime.min), reverse=True)
 
         result = []
-        for conv in candidates[:limit * 3]:  # Check more candidates to find ones with content
+        for conv in candidates[
+            : limit * 3
+        ]:  # Check more candidates to find ones with content
             if len(result) >= limit:
                 break
 
@@ -565,29 +600,37 @@ class HealthReportGenerator:
                 for msg in messages:
                     if msg.tool_calls:
                         for tc in msg.tool_calls:
-                            tool_name = tc.get("name", "unknown") if isinstance(tc, dict) else "unknown"
+                            tool_name = (
+                                tc.get("name", "unknown")
+                                if isinstance(tc, dict)
+                                else "unknown"
+                            )
                             tool_calls_summary[tool_name] += 1
             except Exception:
                 pass
 
-            result.append({
-                "session_id": str(conv.id),
-                "start_time": conv.start_time.isoformat() if conv.start_time else None,
-                "duration_minutes": self._get_duration_minutes(conv),
-                "message_count": conv.message_count or 0,
-                "files_changed": files_changed[:10],  # Limit to first 10
-                "lines_added": lines_added,
-                "lines_deleted": lines_deleted,
-                "tags": {
-                    "intent": tags.get("intent"),
-                    "outcome": tags.get("outcome"),
-                    "features": tags.get("features", []),
-                    "problems": tags.get("problems", []),
-                    "sentiment": tags.get("sentiment"),
-                },
-                "first_user_message": first_msg[:200] if first_msg else None,
-                "tool_calls_summary": dict(tool_calls_summary),
-            })
+            result.append(
+                {
+                    "session_id": str(conv.id),
+                    "start_time": (
+                        conv.start_time.isoformat() if conv.start_time else None
+                    ),
+                    "duration_minutes": self._get_duration_minutes(conv),
+                    "message_count": conv.message_count or 0,
+                    "files_changed": files_changed[:10],  # Limit to first 10
+                    "lines_added": lines_added,
+                    "lines_deleted": lines_deleted,
+                    "tags": {
+                        "intent": tags.get("intent"),
+                        "outcome": tags.get("outcome"),
+                        "features": tags.get("features", []),
+                        "problems": tags.get("problems", []),
+                        "sentiment": tags.get("sentiment"),
+                    },
+                    "first_user_message": first_msg[:200] if first_msg else None,
+                    "tool_calls_summary": dict(tool_calls_summary),
+                }
+            )
 
         return result
 
@@ -730,7 +773,9 @@ class HealthReportGenerator:
                 logger.debug(f"LLM picked success session: {picked_id}")
             else:
                 picked_id = success_candidates[0]["session_id"]
-                outcome = self._fallback_evidence(success_candidates, is_success=True) or ""
+                outcome = (
+                    self._fallback_evidence(success_candidates, is_success=True) or ""
+                )
                 logger.debug(f"Using fallback success session: {picked_id}")
 
             # Find the conversation for this session
@@ -744,9 +789,13 @@ class HealthReportGenerator:
                     "explanation": "",  # Will be filled by recommendations LLM
                     "outcome": outcome,
                 }
-                logger.debug(f"Built success example: {evidence['success_example']['title']}")
+                logger.debug(
+                    f"Built success example: {evidence['success_example']['title']}"
+                )
             else:
-                logger.warning(f"Could not find conversation for success session {picked_id}")
+                logger.warning(
+                    f"Could not find conversation for success session {picked_id}"
+                )
         else:
             logger.debug("No success candidates found for evidence")
 
@@ -758,7 +807,9 @@ class HealthReportGenerator:
                 logger.debug(f"LLM picked failure session: {picked_id}")
             else:
                 picked_id = failure_candidates[0]["session_id"]
-                outcome = self._fallback_evidence(failure_candidates, is_success=False) or ""
+                outcome = (
+                    self._fallback_evidence(failure_candidates, is_success=False) or ""
+                )
                 logger.debug(f"Using fallback failure session: {picked_id}")
 
             conv = conv_map.get(picked_id)
@@ -771,9 +822,13 @@ class HealthReportGenerator:
                     "explanation": "",
                     "outcome": outcome,
                 }
-                logger.debug(f"Built failure example: {evidence['failure_example']['title']}")
+                logger.debug(
+                    f"Built failure example: {evidence['failure_example']['title']}"
+                )
             else:
-                logger.warning(f"Could not find conversation for failure session {picked_id}")
+                logger.warning(
+                    f"Could not find conversation for failure session {picked_id}"
+                )
         else:
             logger.debug("No failure candidates found for evidence")
 
@@ -783,13 +838,15 @@ class HealthReportGenerator:
 
         if short_rate is not None and long_rate is not None:
             if short_rate > long_rate + 20:  # Significant difference
-                evidence["patterns"].append({
-                    "description": f"Short sessions (<30m) succeed {short_rate:.0f}% vs {long_rate:.0f}% for long sessions",
-                    "data": {
-                        "short_sessions_success": short_rate / 100,
-                        "long_sessions_success": long_rate / 100,
+                evidence["patterns"].append(
+                    {
+                        "description": f"Short sessions (<30m) succeed {short_rate:.0f}% vs {long_rate:.0f}% for long sessions",
+                        "data": {
+                            "short_sessions_success": short_rate / 100,
+                            "long_sessions_success": long_rate / 100,
+                        },
                     }
-                })
+                )
 
         return evidence
 
@@ -809,9 +866,15 @@ class HealthReportGenerator:
             failure_conv = None
 
             for conv in conversations:
-                if evidence.get("success_example") and str(conv.id) == evidence["success_example"]["session_id"]:
+                if (
+                    evidence.get("success_example")
+                    and str(conv.id) == evidence["success_example"]["session_id"]
+                ):
                     success_conv = conv
-                if evidence.get("failure_example") and str(conv.id) == evidence["failure_example"]["session_id"]:
+                if (
+                    evidence.get("failure_example")
+                    and str(conv.id) == evidence["failure_example"]["session_id"]
+                ):
                     failure_conv = conv
 
             success_preview = "N/A"
@@ -841,10 +904,14 @@ class HealthReportGenerator:
                 long_count=metrics.get("long_sessions", 0),
                 long_success_rate=int(metrics.get("long_success_rate") or 0),
                 success_title=evidence.get("success_example", {}).get("title", "N/A"),
-                success_duration=evidence.get("success_example", {}).get("duration_minutes", 0),
+                success_duration=evidence.get("success_example", {}).get(
+                    "duration_minutes", 0
+                ),
                 success_preview=success_preview,
                 failure_title=evidence.get("failure_example", {}).get("title", "N/A"),
-                failure_duration=evidence.get("failure_example", {}).get("duration_minutes", 0),
+                failure_duration=evidence.get("failure_example", {}).get(
+                    "duration_minutes", 0
+                ),
                 failure_preview=failure_preview,
             )
 
@@ -868,9 +935,13 @@ class HealthReportGenerator:
 
                 # Update evidence explanations
                 if evidence.get("success_example"):
-                    evidence["success_example"]["explanation"] = result.get("success_explanation", "")
+                    evidence["success_example"]["explanation"] = result.get(
+                        "success_explanation", ""
+                    )
                 if evidence.get("failure_example"):
-                    evidence["failure_example"]["explanation"] = result.get("failure_explanation", "")
+                    evidence["failure_example"]["explanation"] = result.get(
+                        "failure_explanation", ""
+                    )
 
                 # Return recommendations
                 return result.get("recommendations", [])
@@ -889,26 +960,32 @@ class HealthReportGenerator:
         short_rate = metrics.get("short_success_rate")
         long_rate = metrics.get("long_success_rate")
         if short_rate is not None and long_rate is not None and short_rate > long_rate:
-            recommendations.append({
-                "advice": "Break large tasks into smaller sessions",
-                "evidence": f"Your short sessions (<30m) have {short_rate:.0f}% success vs {long_rate:.0f}% for long sessions",
-            })
+            recommendations.append(
+                {
+                    "advice": "Break large tasks into smaller sessions",
+                    "evidence": f"Your short sessions (<30m) have {short_rate:.0f}% success vs {long_rate:.0f}% for long sessions",
+                }
+            )
 
         # Success rate recommendation
         success_rate = metrics.get("success_rate")
         if success_rate is not None and success_rate < 50:
-            recommendations.append({
-                "advice": "Review your unsuccessful sessions to identify patterns",
-                "evidence": f"Only {success_rate:.0f}% of sessions achieved their goal",
-            })
+            recommendations.append(
+                {
+                    "advice": "Review your unsuccessful sessions to identify patterns",
+                    "evidence": f"Only {success_rate:.0f}% of sessions achieved their goal",
+                }
+            )
 
         # Throughput recommendation
         avg_loc = metrics.get("avg_loc_hour")
         if avg_loc is not None and avg_loc < 100:
-            recommendations.append({
-                "advice": "Focus on code-producing activities during sessions",
-                "evidence": f"Your throughput ({avg_loc:.0f} LOC/hr) is below the 200 target",
-            })
+            recommendations.append(
+                {
+                    "advice": "Focus on code-producing activities during sessions",
+                    "evidence": f"Your throughput ({avg_loc:.0f} LOC/hr) is below the 200 target",
+                }
+            )
 
         return recommendations
 

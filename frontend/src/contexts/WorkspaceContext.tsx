@@ -92,6 +92,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useWorkspace() {
   const context = useContext(WorkspaceContext);
 

@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from catsyphon.canonicalization import CanonicalType, Canonicalizer
+from catsyphon.canonicalization import Canonicalizer, CanonicalType
 from catsyphon.db.repositories.canonical import CanonicalRepository
 from catsyphon.models.parsed import ConversationTags, ParsedConversation
 
@@ -150,7 +150,7 @@ class TaggingPipeline:
 
         canonical = canonical_repo.get_or_generate(
             conversation=conversation,
-            canonical_type="tagging",
+            canonical_type=CanonicalType.TAGGING,
             canonicalizer=canonicalizer,
             regeneration_threshold_tokens=2000,
             children=children,

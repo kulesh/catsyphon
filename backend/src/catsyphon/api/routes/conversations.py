@@ -23,7 +23,11 @@ from catsyphon.api.schemas import (
 )
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import ConversationRepository, MessageRepository, WorkspaceRepository
+from catsyphon.db.repositories import (
+    ConversationRepository,
+    MessageRepository,
+    WorkspaceRepository,
+)
 from catsyphon.models.db import Conversation
 from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 from catsyphon.tagging.pipeline import TaggingPipeline
@@ -106,7 +110,9 @@ def _conversation_to_list_item(
     if children_count is not None:
         item.children_count = children_count
     else:
-        item.children_count = len(conv.children) if hasattr(conv, 'children') and conv.children else 0
+        item.children_count = (
+            len(conv.children) if hasattr(conv, "children") and conv.children else 0
+        )
 
     # Depth level for hierarchical display
     if depth_level is not None:
@@ -172,7 +178,9 @@ def _extract_plans_from_extra_data(extra_data: dict | None) -> list[PlanResponse
                 operations=operations,
                 entry_message_index=plan_data.get("entry_message_index"),
                 exit_message_index=plan_data.get("exit_message_index"),
-                related_agent_session_ids=plan_data.get("related_agent_session_ids", []),
+                related_agent_session_ids=plan_data.get(
+                    "related_agent_session_ids", []
+                ),
             )
         )
 
@@ -186,11 +194,11 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
 
     # Hierarchical relationships (Phase 2: Epic 7u2)
     children = []
-    if hasattr(conv, 'children') and conv.children:
+    if hasattr(conv, "children") and conv.children:
         children = [_conversation_to_list_item(child) for child in conv.children]
 
     parent = None
-    if hasattr(conv, 'parent_conversation') and conv.parent_conversation:
+    if hasattr(conv, "parent_conversation") and conv.parent_conversation:
         parent = _conversation_to_list_item(conv.parent_conversation)
 
     # Extract plan data from extra_data
@@ -206,7 +214,7 @@ def _conversation_to_detail(conv: Conversation) -> ConversationDetail:
     # Calculate total tokens from messages
     total_tokens = 0
     messages_response = []
-    for m in (conv.messages or []):
+    for m in conv.messages or []:
         msg_response = _message_to_response(m)
         messages_response.append(msg_response)
         if msg_response.token_usage:
@@ -404,7 +412,9 @@ async def get_conversation_messages(
 @router.post("/{conversation_id}/tag", response_model=ConversationDetail)
 async def tag_conversation(
     conversation_id: UUID,
-    force: bool = Query(False, description="Force retagging even if tags already exist"),
+    force: bool = Query(
+        False, description="Force retagging even if tags already exist"
+    ),
     session: Session = Depends(get_db),
 ) -> ConversationDetail:
     """
@@ -448,11 +458,11 @@ async def tag_conversation(
         )
 
     # Validate minimum message count
-    MIN_MESSAGES = 2
-    if conversation.message_count < MIN_MESSAGES:
+    min_messages = 2
+    if conversation.message_count < min_messages:
         raise HTTPException(
             status_code=400,
-            detail=f"Conversation too short to tag. Minimum {MIN_MESSAGES} messages required (found {conversation.message_count}).",
+            detail=f"Conversation too short to tag. Minimum {min_messages} messages required (found {conversation.message_count}).",
         )
 
     # Convert database conversation to ParsedConversation for tagging pipeline
@@ -490,7 +500,8 @@ async def tag_conversation(
         openai_model=settings.openai_model,
         cache_dir=Path(settings.tagging_cache_dir),
         cache_ttl_days=settings.tagging_cache_ttl_days,
-        enable_cache=settings.tagging_enable_cache and not force,  # Disable cache when forcing
+        enable_cache=settings.tagging_enable_cache
+        and not force,  # Disable cache when forcing
     )
 
     try:

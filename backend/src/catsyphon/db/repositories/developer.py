@@ -5,8 +5,8 @@ Developer repository.
 import uuid
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import Developer
@@ -83,13 +83,17 @@ class DeveloperRepository(BaseRepository[Developer]):
 
         # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING for atomic upsert
         # This prevents IntegrityError when multiple threads race to create same developer
-        stmt = pg_insert(Developer).values(
-            id=uuid.uuid4(),
-            workspace_id=workspace_id,
-            username=username,
-            **kwargs
-        ).on_conflict_do_nothing(
-            index_elements=['workspace_id', 'username']  # uq_workspace_developer constraint
+        stmt = (
+            pg_insert(Developer)
+            .values(
+                id=uuid.uuid4(), workspace_id=workspace_id, username=username, **kwargs
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    "workspace_id",
+                    "username",
+                ]  # uq_workspace_developer constraint
+            )
         )
 
         self.session.execute(stmt)

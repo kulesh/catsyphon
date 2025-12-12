@@ -53,7 +53,6 @@ import type {
   TrendPoint,
   PairingEffectivenessPair,
   RoleDynamicsSummary,
-  HealthReportResponse,
 } from '@/types/api';
 
 type Tab = 'stats' | 'analytics' | 'insights' | 'sessions' | 'files';
@@ -1312,7 +1311,6 @@ function InsightsTab({ projectId }: { projectId: string }) {
     isLoading,
     error,
     isFetching,
-    refetch,
   } = useQuery({
     queryKey: ['projects', projectId, 'insights', dateRange],
     queryFn: () => getProjectInsights(projectId, dateRange, true, false),

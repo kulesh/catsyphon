@@ -6,15 +6,14 @@ Each log file contains a series of JSON objects, one per line, representing
 the conversation timeline.
 """
 
-import json
 import difflib
+import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-
-import re
 
 from catsyphon.models.parsed import (
     CodeChange,
@@ -150,7 +149,9 @@ class ClaudeCodeParser:
                         saw_json = True
                         if "sessionId" in data and "version" in data:
                             reasons.append("sessionId+version found")
-                            return ProbeResult(can_parse=True, confidence=0.9, reasons=reasons)
+                            return ProbeResult(
+                                can_parse=True, confidence=0.9, reasons=reasons
+                            )
                         if "sessionId" in data:
                             reasons.append("sessionId found")
                             confidence = max(confidence, 0.7)
@@ -179,7 +180,9 @@ class ClaudeCodeParser:
             reasons.append("jsonl content fallback (no markers)")
             confidence = max(confidence, 0.2)
 
-        return ProbeResult(can_parse=bool(reasons), confidence=confidence, reasons=reasons)
+        return ProbeResult(
+            can_parse=bool(reasons), confidence=confidence, reasons=reasons
+        )
 
     def parse(self, file_path: Path) -> ParsedConversation:
         """
@@ -801,20 +804,24 @@ class ClaudeCodeParser:
 
             # Capture summaries
             if msg_type == "summary":
-                summaries.append({
-                    "text": msg.get("summary"),
-                    "leaf_uuid": msg.get("leafUuid"),
-                })
+                summaries.append(
+                    {
+                        "text": msg.get("summary"),
+                        "leaf_uuid": msg.get("leafUuid"),
+                    }
+                )
                 continue
 
             # Capture compaction boundaries
             if msg_type == "system" and msg.get("subtype") == "compact_boundary":
                 metadata = msg.get("compactMetadata", {})
-                compaction_events.append({
-                    "timestamp": msg.get("timestamp"),
-                    "trigger": metadata.get("trigger"),
-                    "pre_tokens": metadata.get("preTokens"),
-                })
+                compaction_events.append(
+                    {
+                        "timestamp": msg.get("timestamp"),
+                        "trigger": metadata.get("trigger"),
+                        "pre_tokens": metadata.get("preTokens"),
+                    }
+                )
                 continue
 
         return summaries, compaction_events
@@ -931,10 +938,7 @@ class ClaudeCodeParser:
                     if tool_call.tool_name == "Task":
                         subagent_type = tool_call.parameters.get("subagent_type", "")
                         if subagent_type.lower() == "plan":
-                            if (
-                                current_plan_path
-                                and current_plan_path in plans_by_path
-                            ):
+                            if current_plan_path and current_plan_path in plans_by_path:
                                 # Could extract agent_id from result if available
                                 logger.debug(
                                     f"Plan agent spawned for: {current_plan_path}"
@@ -950,7 +954,9 @@ class ClaudeCodeParser:
                                     plan_file_path=file_path,
                                     status="referenced",
                                 )
-                                logger.debug(f"Plan file referenced (read): {file_path}")
+                                logger.debug(
+                                    f"Plan file referenced (read): {file_path}"
+                                )
                             continue
 
                     # Write/Edit to plan files

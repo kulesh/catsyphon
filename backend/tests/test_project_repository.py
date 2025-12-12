@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.project import ProjectRepository
-from catsyphon.models.db import Project, Workspace
+from catsyphon.models.db import Workspace
 
 
 def test_generate_project_name_from_meaningful_basename(db_session: Session):

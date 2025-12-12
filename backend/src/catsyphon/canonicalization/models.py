@@ -131,7 +131,9 @@ class CanonicalConversation:
     code_changes_summary: dict = field(
         default_factory=dict
     )  # {added: N, deleted: M, modified: K}
-    agent_metadata: dict = field(default_factory=dict)  # Agent-specific metadata (e.g., parent_message_id)
+    agent_metadata: dict = field(
+        default_factory=dict
+    )  # Agent-specific metadata (e.g., parent_message_id)
 
     # Generation metadata
     config: Optional[CanonicalConfig] = None
@@ -183,7 +185,9 @@ class CanonicalConversation:
                 else datetime.now()
             ),
             end_time=(
-                datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None
+                datetime.fromisoformat(data["end_time"])
+                if data.get("end_time")
+                else None
             ),
             duration_seconds=data.get("duration_seconds"),
             message_count=data["message_count"],
@@ -193,9 +197,7 @@ class CanonicalConversation:
             narrative=data["narrative"],
             token_count=data["token_count"],
             parent_id=data.get("parent_id"),
-            children=[
-                cls.from_dict(child) for child in data.get("children", [])
-            ],
+            children=[cls.from_dict(child) for child in data.get("children", [])],
             tools_used=data.get("tools_used", []),
             files_touched=data.get("files_touched", []),
             has_errors=data.get("has_errors", False),

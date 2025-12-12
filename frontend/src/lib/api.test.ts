@@ -2,7 +2,8 @@
  * Tests for API client.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ApiError,
   getConversations,

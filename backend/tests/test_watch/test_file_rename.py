@@ -1,10 +1,7 @@
 """Tests for file rename handling in FileWatcher."""
 
-import time
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
-from uuid import uuid4
 
 import pytest
 
@@ -104,9 +101,7 @@ class TestHandleFileRename:
         src_path = Path("/test/nonexistent.jsonl")
         dest_path = Path("/test/renamed.jsonl")
 
-        with patch.object(
-            file_watcher, "_handle_file_event"
-        ) as mock_process:
+        with patch.object(file_watcher, "_handle_file_event") as mock_process:
             file_watcher._handle_file_rename(src_path, dest_path)
 
             # Should process dest_path as new file
@@ -117,15 +112,11 @@ class TestHandleFileRename:
         src_path = Path("/test/old.jsonl")
         dest_path = Path("/test/new.jsonl")
 
-        with patch(
-            "catsyphon.watch.db_session"
-        ) as mock_db_session:
+        with patch("catsyphon.watch.db_session") as mock_db_session:
             # Simulate database error
             mock_db_session.side_effect = Exception("Database connection failed")
 
-            with patch.object(
-                file_watcher, "_handle_file_event"
-            ) as mock_process:
+            with patch.object(file_watcher, "_handle_file_event") as mock_process:
                 # Should not raise exception
                 file_watcher._handle_file_rename(src_path, dest_path)
 

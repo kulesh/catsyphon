@@ -8,9 +8,8 @@ Create Date: 2025-11-20 22:54:12.676963
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "49d56cc6183f"
@@ -28,14 +27,16 @@ def upgrade() -> None:
     # ### end Alembic commands ###
 
     # Backfill children_count for existing conversations
-    op.execute("""
+    op.execute(
+        """
         UPDATE conversations c
         SET children_count = (
             SELECT COUNT(*)
             FROM conversations
             WHERE parent_conversation_id = c.id
         )
-    """)
+    """
+    )
 
 
 def downgrade() -> None:
