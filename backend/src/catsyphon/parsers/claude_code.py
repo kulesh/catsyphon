@@ -47,7 +47,7 @@ CLAUDE_CODE_MIN_VERSION = "2.0.0"
 PLAN_FILE_PATTERN = re.compile(r"\.claude/plans/[^/]+\.md$")
 PLAN_MODE_ENTRY_PATTERN = re.compile(
     r"<system-reminder>\s*Plan mode is active.*?"
-    r"(?:create your plan at|already exists at|plan at)\s+([\S]+\.md)",
+    r"(?:create your plan at|already exists at|A plan file already exists at)\s+([\S]+\.md)",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -841,12 +841,30 @@ class ClaudeCodeParser:
                 for tool_call in msg.tool_calls:
                     # ExitPlanMode detection
                     if tool_call.tool_name == "ExitPlanMode":
+                        # Find the plan to mark as approved
+                        plan_to_approve = None
                         if current_plan_path and current_plan_path in plans_by_path:
-                            plans_by_path[current_plan_path].exit_message_index = msg_idx
-                            plans_by_path[current_plan_path].status = "approved"
+                            plan_to_approve = plans_by_path[current_plan_path]
+                        elif plans_by_path:
+                            # Fallback: find plan with most recent operation
+                            latest_plan = None
+                            latest_msg_idx = -1
+                            for plan in plans_by_path.values():
+                                if plan.operations:
+                                    last_op_idx = plan.operations[-1].message_index
+                                    if last_op_idx > latest_msg_idx:
+                                        latest_msg_idx = last_op_idx
+                                        latest_plan = plan
+                            plan_to_approve = latest_plan
+
+                        if plan_to_approve:
+                            plan_to_approve.exit_message_index = msg_idx
+                            plan_to_approve.status = "approved"
                             logger.debug(
-                                f"Plan approved via ExitPlanMode: {current_plan_path}"
+                                f"Plan approved via ExitPlanMode: "
+                                f"{plan_to_approve.plan_file_path}"
                             )
+
                         current_plan_path = None
                         continue
 
@@ -862,6 +880,19 @@ class ClaudeCodeParser:
                                 logger.debug(
                                     f"Plan agent spawned for: {current_plan_path}"
                                 )
+
+                    # Read operations to plan files - track as referenced
+                    if tool_call.tool_name == "Read":
+                        file_path = tool_call.parameters.get("file_path", "")
+                        if self._is_plan_file_path(file_path):
+                            # Initialize plan if this is a new path we haven't seen
+                            if file_path not in plans_by_path:
+                                plans_by_path[file_path] = PlanInfo(
+                                    plan_file_path=file_path,
+                                    status="referenced",
+                                )
+                                logger.debug(f"Plan file referenced (read): {file_path}")
+                            continue
 
                     # Write/Edit to plan files
                     file_path = tool_call.parameters.get("file_path", "")
@@ -889,6 +920,9 @@ class ClaudeCodeParser:
                         if plan.initial_content is None:
                             plan.initial_content = content
                         plan.final_content = content
+                        # Upgrade status from 'referenced' to 'active' if we're writing
+                        if plan.status == "referenced":
+                            plan.status = "active"
                         logger.debug(f"Plan file created: {file_path}")
 
                     elif tool_call.tool_name == "Edit":
@@ -910,6 +944,9 @@ class ClaudeCodeParser:
                             plan.final_content = plan.final_content.replace(
                                 old_content, new_content
                             )
+                        # Upgrade status from 'referenced' to 'active' if we're editing
+                        if plan.status == "referenced":
+                            plan.status = "active"
                         logger.debug(
                             f"Plan file edited: {file_path} "
                             f"(iteration {plan.iteration_count})"
