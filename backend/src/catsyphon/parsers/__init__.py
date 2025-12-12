@@ -7,6 +7,7 @@ a registry for automatic format detection.
 
 from catsyphon.parsers.base import (
     ConversationParser,
+    EmptyFileError,
     ParseDataError,
     ParseFormatError,
     ParserError,
@@ -21,6 +22,7 @@ __all__ = [
     "ParserError",
     "ParseFormatError",
     "ParseDataError",
+    "EmptyFileError",
     "ClaudeCodeParser",
     "CodexParser",
     "ParserRegistry",

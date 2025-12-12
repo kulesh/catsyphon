@@ -101,6 +101,25 @@ class TestParserRegistry:
         with pytest.raises(ParseFormatError, match="No parser could handle"):
             registry.parse(log_file)
 
+    def test_empty_file_raises_empty_file_error(self, tmp_path):
+        """Test that parsing an empty file raises EmptyFileError.
+
+        Empty files are common - they represent abandoned sessions that were
+        created but never had any messages. These should be skipped gracefully
+        rather than treated as parse failures.
+        """
+        from catsyphon.parsers import EmptyFileError
+
+        registry = ParserRegistry()
+        registry.register(ClaudeCodeParser())
+
+        # Create an empty .jsonl file
+        empty_file = tmp_path / "empty_session.jsonl"
+        empty_file.write_text("")
+
+        with pytest.raises(EmptyFileError, match="Log file is empty"):
+            registry.parse(empty_file)
+
     def test_parse_with_metadata_returns_parse_result(self):
         """Test parse_with_metadata returns ParseResult with parser info."""
         registry = ParserRegistry()

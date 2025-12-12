@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from catsyphon.models.parsed import ParsedConversation
-from catsyphon.parsers.base import ConversationParser, ParseFormatError
+from catsyphon.parsers.base import ConversationParser, EmptyFileError, ParseFormatError
 from catsyphon.parsers.types import ParseResult, ProbeResult
 from catsyphon.parsers.incremental import IncrementalParser
 from catsyphon.parsers.metadata import ParserMetadata
@@ -98,6 +98,11 @@ class ParserRegistry:
         """
         if not file_path.exists():
             raise FileNotFoundError(f"Log file not found: {file_path}")
+
+        # Check for empty files early - these are often abandoned sessions
+        file_size = file_path.stat().st_size
+        if file_size == 0:
+            raise EmptyFileError(f"Log file is empty (0 bytes): {file_path}")
 
         attempts: list[str] = []
         parse_errors: list[str] = []
