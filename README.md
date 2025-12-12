@@ -2,7 +2,7 @@
 
 Analyze your AI coding assistant conversations. Track what works, find patterns, improve your workflow.
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Mission Control](docs/screenshots/mission-control.png)
 
 ---
 
@@ -40,14 +40,21 @@ See sessions, activity, and navigate to detailed analytics.
 ![Projects](docs/screenshots/projects.png)
 
 ### Session Archive
-Search and filter through all your AI-assisted coding sessions.
+Search and filter through all your AI-assisted coding sessions. See session names, git branches, token usage, and plan indicators at a glance.
 
-![Sessions](docs/screenshots/sessions.png)
+![Session Archive](docs/screenshots/session-archive.png)
 
 ### Automatic Ingestion
 Point at your log directories and watch them auto-import. Supports live sessions.
 
 ![Ingestion](docs/screenshots/ingestion.png)
+
+### Plan Mode Tracking
+See Claude's planning process - view plans, track iterations, and compare changes between versions with diff view.
+
+![Plan View](docs/screenshots/plan-view.png)
+
+![Plan Diff](docs/screenshots/plan-diff.png)
 
 ### AI Collaboration Health
 Get an effectiveness score based on success rates, session patterns, and outcomes.
