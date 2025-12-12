@@ -512,3 +512,166 @@ class TestEdgeCases:
         assert len(changes) == 1
         assert changes[0].file_path == "test.py"
         assert changes[0].change_type == "edit"
+
+
+class TestMetadataExtraction:
+    """Tests for summary and compaction event extraction."""
+
+    def test_extract_summary_records(self):
+        """Test extraction of summary records from raw messages."""
+        parser = ClaudeCodeParser()
+
+        raw_messages = [
+            {"type": "user", "message": {"role": "user", "content": "test"}},
+            {
+                "type": "summary",
+                "summary": "Implementing feature X",
+                "leafUuid": "abc-123",
+            },
+            {
+                "type": "summary",
+                "summary": "Debugging auth issue",
+                "leafUuid": "def-456",
+            },
+        ]
+
+        summaries, compaction_events = parser._extract_metadata_records(raw_messages)
+
+        assert len(summaries) == 2
+        assert summaries[0]["text"] == "Implementing feature X"
+        assert summaries[0]["leaf_uuid"] == "abc-123"
+        assert summaries[1]["text"] == "Debugging auth issue"
+        assert summaries[1]["leaf_uuid"] == "def-456"
+        assert len(compaction_events) == 0
+
+    def test_extract_compaction_boundary_records(self):
+        """Test extraction of compact_boundary system records."""
+        parser = ClaudeCodeParser()
+
+        raw_messages = [
+            {"type": "user", "message": {"role": "user", "content": "test"}},
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "timestamp": "2025-12-11T13:58:09.892Z",
+                "compactMetadata": {
+                    "trigger": "auto",
+                    "preTokens": 155188,
+                },
+            },
+            {
+                "type": "system",
+                "subtype": "other",  # Different subtype, should be ignored
+                "content": "some other system message",
+            },
+        ]
+
+        summaries, compaction_events = parser._extract_metadata_records(raw_messages)
+
+        assert len(summaries) == 0
+        assert len(compaction_events) == 1
+        assert compaction_events[0]["timestamp"] == "2025-12-11T13:58:09.892Z"
+        assert compaction_events[0]["trigger"] == "auto"
+        assert compaction_events[0]["pre_tokens"] == 155188
+
+    def test_extract_mixed_metadata_records(self):
+        """Test extraction of both summary and compaction records."""
+        parser = ClaudeCodeParser()
+
+        raw_messages = [
+            {
+                "type": "summary",
+                "summary": "Session checkpoint",
+                "leafUuid": "sum-1",
+            },
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "timestamp": "2025-12-11T10:00:00.000Z",
+                "compactMetadata": {"trigger": "manual", "preTokens": 100000},
+            },
+            {
+                "type": "summary",
+                "summary": "Another checkpoint",
+                "leafUuid": "sum-2",
+            },
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "timestamp": "2025-12-11T14:00:00.000Z",
+                "compactMetadata": {"trigger": "auto", "preTokens": 150000},
+            },
+        ]
+
+        summaries, compaction_events = parser._extract_metadata_records(raw_messages)
+
+        assert len(summaries) == 2
+        assert len(compaction_events) == 2
+        assert summaries[0]["text"] == "Session checkpoint"
+        assert summaries[1]["text"] == "Another checkpoint"
+        assert compaction_events[0]["trigger"] == "manual"
+        assert compaction_events[1]["trigger"] == "auto"
+
+    def test_extract_metadata_empty_input(self):
+        """Test extraction with empty input."""
+        parser = ClaudeCodeParser()
+
+        summaries, compaction_events = parser._extract_metadata_records([])
+
+        assert summaries == []
+        assert compaction_events == []
+
+    def test_parse_populates_summaries_and_compaction_events(self, tmp_path):
+        """Test that parse() method populates summaries and compaction_events."""
+        import json
+
+        # Create a test file with summary and compaction records
+        log_file = tmp_path / "test_metadata.jsonl"
+        messages = [
+            {
+                "type": "user",
+                "message": {"role": "user", "content": "Hello"},
+                "sessionId": "test-session-123",
+                "version": "2.0.59",
+                "uuid": "msg-1",
+                "timestamp": "2025-12-11T10:00:00.000Z",
+            },
+            {
+                "type": "summary",
+                "summary": "Testing metadata extraction",
+                "leafUuid": "leaf-1",
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": "Hi there!",
+                    "model": "claude-opus-4-5-20251101",
+                },
+                "sessionId": "test-session-123",
+                "version": "2.0.59",
+                "uuid": "msg-2",
+                "timestamp": "2025-12-11T10:01:00.000Z",
+            },
+            {
+                "type": "system",
+                "subtype": "compact_boundary",
+                "timestamp": "2025-12-11T10:02:00.000Z",
+                "compactMetadata": {"trigger": "auto", "preTokens": 50000},
+            },
+        ]
+
+        with log_file.open("w") as f:
+            for msg in messages:
+                f.write(json.dumps(msg) + "\n")
+
+        parser = ClaudeCodeParser()
+        result = parser.parse(log_file)
+
+        assert len(result.summaries) == 1
+        assert result.summaries[0]["text"] == "Testing metadata extraction"
+        assert result.summaries[0]["leaf_uuid"] == "leaf-1"
+
+        assert len(result.compaction_events) == 1
+        assert result.compaction_events[0]["trigger"] == "auto"
+        assert result.compaction_events[0]["pre_tokens"] == 50000

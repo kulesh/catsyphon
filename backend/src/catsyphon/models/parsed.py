@@ -132,6 +132,12 @@ class ParsedConversation:
     # Session identification
     slug: Optional[str] = None  # Human-readable session name (e.g., "sprightly-dancing-liskov")
 
+    # Summaries (auto-generated session checkpoints)
+    summaries: list[dict] = field(default_factory=list)
+
+    # Context compaction events (when conversation was compacted)
+    compaction_events: list[dict] = field(default_factory=list)
+
 
 @dataclass
 class ConversationTags:

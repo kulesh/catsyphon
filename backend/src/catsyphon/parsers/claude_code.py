@@ -244,6 +244,9 @@ class ClaudeCodeParser:
         # Build message thread and extract tool calls
         parsed_messages = self._build_message_thread(raw_messages)
 
+        # Extract summaries and compaction events
+        summaries, compaction_events = self._extract_metadata_records(raw_messages)
+
         # Check if this is a metadata-only file (has sessionId but no conversation messages)
         is_metadata_only = len(parsed_messages) == 0
 
@@ -324,6 +327,8 @@ class ClaudeCodeParser:
             agent_metadata=agent_metadata,
             plans=plans,
             slug=slug,
+            summaries=summaries,
+            compaction_events=compaction_events,
         )
 
     def supports_incremental(self, file_path: Path) -> bool:
@@ -773,6 +778,46 @@ class ClaudeCodeParser:
                     )
 
         return code_changes
+
+    def _extract_metadata_records(
+        self, raw_messages: list[dict[str, Any]]
+    ) -> tuple[list[dict], list[dict]]:
+        """
+        Extract summary and compaction metadata records from raw messages.
+
+        Args:
+            raw_messages: List of raw message dictionaries
+
+        Returns:
+            Tuple of (summaries, compaction_events)
+            - summaries: List of {text, leaf_uuid} dicts
+            - compaction_events: List of {timestamp, trigger, pre_tokens} dicts
+        """
+        summaries = []
+        compaction_events = []
+
+        for msg in raw_messages:
+            msg_type = msg.get("type")
+
+            # Capture summaries
+            if msg_type == "summary":
+                summaries.append({
+                    "text": msg.get("summary"),
+                    "leaf_uuid": msg.get("leafUuid"),
+                })
+                continue
+
+            # Capture compaction boundaries
+            if msg_type == "system" and msg.get("subtype") == "compact_boundary":
+                metadata = msg.get("compactMetadata", {})
+                compaction_events.append({
+                    "timestamp": msg.get("timestamp"),
+                    "trigger": metadata.get("trigger"),
+                    "pre_tokens": metadata.get("preTokens"),
+                })
+                continue
+
+        return summaries, compaction_events
 
     def _is_plan_file_path(self, file_path: str) -> bool:
         """
