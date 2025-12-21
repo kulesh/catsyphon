@@ -30,7 +30,8 @@ This document outlines the product vision and architecture for enabling external
 |-----------|--------|--------|
 | Collector REST API | ❌ Missing | No endpoints to register, manage, or ingest from collectors |
 | Authentication Middleware | ❌ Missing | No API key validation for incoming requests |
-| Push Ingestion Endpoint | ❌ Missing | Collectors cannot send data; only file upload exists |
+| OTLP/gRPC Ingestion | ❌ Missing | No OpenTelemetry-compatible ingestion endpoint |
+| OTLP/HTTP Fallback | ❌ Missing | No HTTP-based OTLP endpoint for simpler integrations |
 | Rate Limiting | ❌ Missing | No protection against abuse or quota enforcement |
 | Collector Management UI | ❌ Missing | No web interface for collector lifecycle management |
 
@@ -99,14 +100,15 @@ This document outlines the product vision and architecture for enabling external
 │                           │ (opt-in sync)                        │
 └───────────────────────────┼─────────────────────────────────────┘
                             │
-                            ▼ HTTPS + API Key Auth
+                            ▼ OTLP/gRPC (4317) or OTLP/HTTP (4318)
+                              + API Key Auth + TLS
 ┌───────────────────────────────────────────────────────────────────┐
 │                        CATSYPHON SERVER                            │
 │  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                    Collector Gateway                         │  │
+│  │                    OTLP Receiver Gateway                     │  │
+│  │   • OpenTelemetry Protocol (gRPC primary, HTTP fallback)     │  │
 │  │   • API key authentication & rate limiting                   │  │
 │  │   • Workspace isolation enforcement                          │  │
-│  │   • Batch ingestion with deduplication                       │  │
 │  └─────────────────────────────────────────────────────────────┘  │
 │                                                                    │
 │  ┌─────────────────────────────────────────────────────────────┐  │
@@ -144,7 +146,7 @@ This document outlines the product vision and architecture for enabling external
 
 ### Phase 1: Collector Foundation (MVP)
 
-**Goal**: Enable basic push-based data ingestion from collectors
+**Goal**: Enable push-based data ingestion from collectors using industry-standard protocols
 
 **Features**:
 1. **Collector Registration API**
@@ -153,22 +155,24 @@ This document outlines the product vision and architecture for enabling external
    - `PATCH /api/collectors/{id}` - Update collector settings
    - `POST /api/collectors/{id}/rotate-key` - Rotate API key
 
-2. **Push Ingestion Endpoint**
-   - `POST /api/collectors/{id}/ingest` - Accept batch of sessions/messages
-   - Support for both raw JSONL and pre-parsed formats
+2. **OTLP Ingestion Endpoints**
+   - **gRPC** (port 4317) - Primary, high-performance endpoint for production
+   - **HTTP** (port 4318) - Fallback for debugging and simpler integrations
+   - Protocol Buffers serialization for efficient binary transport
    - Deduplication via session ID + timestamp
 
 3. **Authentication Middleware**
-   - API key validation via `Authorization: Bearer cs_xxx` header
+   - API key validation via gRPC metadata or HTTP header
    - Workspace scoping enforced automatically
    - Request logging for audit
 
 4. **Heartbeat Monitoring**
-   - `POST /api/collectors/heartbeat` - Collector health check
+   - gRPC health check service (standard `grpc.health.v1.Health`)
    - Stale collector detection and alerting
 
 **Success Criteria**:
-- aiobscura can push sessions to CatSyphon with single command
+- aiobscura can push sessions via OTLP exporter
+- Compatible with standard OpenTelemetry tooling
 - Duplicate sessions rejected gracefully
 - 99.9% uptime for ingestion endpoint
 
@@ -264,19 +268,22 @@ This document outlines the product vision and architecture for enabling external
 │                                                        │                │
 └────────────────────────────────────────────────────────┼────────────────┘
                                                          │
-                          HTTPS POST /api/collectors/{id}/ingest
-                          Authorization: Bearer cs_xxxxx
-                          Content-Type: application/json
+                             OTLP/gRPC (port 4317) ◄── Primary
+                             OTLP/HTTP (port 4318) ◄── Fallback
+                             ─────────────────────
+                             • Protobuf serialization
+                             • API key in metadata/header
+                             • TLS encryption
                                                          │
                                                          ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                         CATSYPHON SERVER                                │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                     API Gateway Layer                            │   │
+│  │                     OTLP Receiver Layer                          │   │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │   │
-│  │  │ Auth Middleware │ Rate Limiter  │  │ Request Validator   │   │   │
-│  │  │ (API Key)      │ (per collector)│  │ (JSON Schema)       │   │   │
+│  │  │ Auth Middleware │ Rate Limiter  │  │ Protobuf Decoder    │   │   │
+│  │  │ (API Key)      │ (per collector)│  │ (OTLP → Internal)   │   │   │
 │  │  └───────┬────────┘  └──────┬──────┘  └──────────┬──────────┘   │   │
 │  └──────────┼──────────────────┼────────────────────┼──────────────┘   │
 │             │                  │                    │                   │
@@ -321,145 +328,139 @@ This document outlines the product vision and architecture for enabling external
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 API Contract: Collector Ingestion
+### 4.2 Protocol Choice: Why OTLP
 
-**Request Format**:
+**Decision**: Use OpenTelemetry Protocol (OTLP) as the primary ingestion protocol.
 
-```json
-POST /api/collectors/{collector_id}/ingest
-Authorization: Bearer cs_abc12345...
-Content-Type: application/json
+**Rationale**:
 
-{
-  "format_version": "1.0",
-  "collector": {
-    "type": "aiobscura",
-    "version": "0.5.0",
-    "hostname": "dev-laptop-123"
-  },
-  "batch_id": "uuid-for-idempotency",
-  "sessions": [
-    {
-      "id": "session-uuid-from-log",
-      "assistant": "claude-code",
-      "backing_model": {
-        "provider": "anthropic",
-        "model_id": "claude-sonnet-4-20250514"
-      },
-      "project": {
-        "path": "/home/user/myproject",
-        "name": "myproject"
-      },
-      "developer": {
-        "username": "jdoe",
-        "email": "jdoe@company.com"
-      },
-      "started_at": "2025-12-21T10:00:00Z",
-      "last_activity_at": "2025-12-21T10:45:00Z",
-      "status": "inactive",
-      "threads": [
-        {
-          "id": "thread-uuid",
-          "type": "main",
-          "parent_thread_id": null,
-          "messages": [
-            {
-              "seq": 1,
-              "author_role": "human",
-              "message_type": "prompt",
-              "content": "Help me refactor the auth module",
-              "emitted_at": "2025-12-21T10:00:00Z",
-              "observed_at": "2025-12-21T10:00:05Z",
-              "raw_data": { /* original log entry */ }
-            },
-            {
-              "seq": 2,
-              "author_role": "assistant",
-              "message_type": "response",
-              "content": "I'll help you refactor...",
-              "emitted_at": "2025-12-21T10:00:30Z",
-              "tokens_in": 150,
-              "tokens_out": 500,
-              "tool_calls": [
-                {
-                  "id": "tool-123",
-                  "name": "Read",
-                  "input": {"file_path": "/home/user/myproject/auth.py"}
-                }
-              ]
-            }
-          ]
-        }
-      ],
-      "plans": [
-        {
-          "id": "plan-uuid",
-          "path": "auth-refactor.md",
-          "title": "Auth Module Refactoring",
-          "status": "active"
-        }
-      ]
-    }
+| Factor | OTLP/gRPC | Custom HTTP/JSON |
+|--------|-----------|------------------|
+| **Industry Standard** | ✅ Datadog, Grafana, Honeycomb all support | ❌ Proprietary |
+| **Performance** | ✅ Binary protobuf, HTTP/2 multiplexing | ❌ Text JSON, higher overhead |
+| **Streaming** | ✅ Bidirectional streaming for large batches | ❌ Request-response only |
+| **Tooling** | ✅ OTEL Collector, exporters in every language | ❌ Custom SDKs required |
+| **Future-Proof** | ✅ CNCF graduated project, wide adoption | ❌ Maintenance burden |
+
+**Implementation Approach**:
+
+1. **Primary**: OTLP/gRPC on port 4317
+   - Best performance for high-volume collectors
+   - Native streaming for large sessions
+   - Standard health checks via `grpc.health.v1.Health`
+
+2. **Fallback**: OTLP/HTTP on port 4318
+   - Works through HTTP proxies and firewalls
+   - Easier debugging with curl/browser tools
+   - Same protobuf payload, just HTTP transport
+
+3. **Data Mapping**: OTLP → CatSyphon
+   - OTLP `Resource` → Collector + Workspace metadata
+   - OTLP `Scope` → Session context
+   - OTLP `LogRecord` → Message (with attributes for author_role, message_type)
+   - OTLP `Span` → Optional for tool call timing
+
+**References**:
+- [OTLP Specification](https://opentelemetry.io/docs/specs/otlp/)
+- [Datadog OTLP Ingestion](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/)
+- [Grafana Alloy OTLP Receiver](https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.receiver.otlp/)
+
+### 4.3 Data Contract: OTLP Mapping
+
+CatSyphon defines a custom semantic convention for coding assistant telemetry within the OTLP framework.
+
+**Resource Attributes** (per-batch, identifies collector):
+```
+service.name: "aiobscura"
+service.version: "0.5.0"
+host.name: "dev-laptop-123"
+catsyphon.collector.id: "uuid"
+catsyphon.workspace.id: "uuid"
+catsyphon.batch.id: "uuid-for-idempotency"
+```
+
+**LogRecord Attributes** (per-message):
+```
+catsyphon.session.id: "session-uuid"
+catsyphon.thread.id: "thread-uuid"
+catsyphon.message.seq: 1
+catsyphon.author.role: "human|caller|assistant|agent|tool|system"
+catsyphon.message.type: "prompt|response|tool_call|tool_result|plan|summary|context|error"
+catsyphon.message.emitted_at: 1703156400000000000  (nanoseconds)
+catsyphon.tokens.in: 150
+catsyphon.tokens.out: 500
+```
+
+**LogRecord Body**: Message content (text or JSON for tool calls)
+
+**Session Metadata** (sent as first LogRecord per session):
+```
+catsyphon.session.assistant: "claude-code"
+catsyphon.session.project.path: "/home/user/myproject"
+catsyphon.session.project.name: "myproject"
+catsyphon.session.developer.username: "jdoe"
+catsyphon.session.developer.email: "jdoe@company.com"
+catsyphon.session.backing_model.provider: "anthropic"
+catsyphon.session.backing_model.id: "claude-sonnet-4-20250514"
+catsyphon.session.started_at: 1703156400000000000
+```
+
+**Example: Protobuf LogRecord** (conceptual):
+```protobuf
+LogRecord {
+  time_unix_nano: 1703156400000000000
+  observed_time_unix_nano: 1703156405000000000
+  severity_number: INFO
+  body: StringValue { value: "Help me refactor the auth module" }
+  attributes: [
+    { key: "catsyphon.session.id", value: StringValue { value: "abc-123" } },
+    { key: "catsyphon.author.role", value: StringValue { value: "human" } },
+    { key: "catsyphon.message.type", value: StringValue { value: "prompt" } },
+    { key: "catsyphon.message.seq", value: IntValue { value: 1 } }
   ]
 }
 ```
 
-**Response Format**:
+**Response** (OTLP ExportLogsServiceResponse):
+- Success: Empty response (standard OTLP)
+- Partial failure: `partial_success.rejected_log_records` count + error message
+- CatSyphon-specific headers for deduplication status:
+  - `x-catsyphon-sessions-created: 1`
+  - `x-catsyphon-sessions-duplicate: 0`
+  - `x-catsyphon-messages-ingested: 42`
 
-```json
-{
-  "batch_id": "uuid-for-idempotency",
-  "status": "accepted",
-  "results": [
-    {
-      "session_id": "session-uuid-from-log",
-      "catsyphon_id": "uuid-assigned-by-catsyphon",
-      "status": "created",
-      "messages_ingested": 42,
-      "threads_ingested": 3
-    },
-    {
-      "session_id": "another-session-uuid",
-      "status": "duplicate",
-      "existing_catsyphon_id": "uuid-of-existing"
-    }
-  ],
-  "metrics": {
-    "processing_time_ms": 234,
-    "sessions_created": 1,
-    "sessions_updated": 0,
-    "sessions_duplicate": 1
-  }
-}
-```
+### 4.4 Authentication & Authorization
 
-### 4.3 Authentication & Authorization
+**API Key Transport**:
+- **gRPC**: Metadata key `authorization` with value `Bearer cs_xxx`
+- **HTTP**: Header `Authorization: Bearer cs_xxx`
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         AUTHENTICATION FLOW                              │
 │                                                                          │
-│  1. Collector Registration (Admin Action)                                │
-│     ────────────────────────────────────────                            │
+│  1. Collector Registration (Admin Action via REST API)                   │
+│     ─────────────────────────────────────────────────                   │
 │     POST /api/collectors                                                 │
 │     └──▶ Generate API Key: cs_abc12345... (shown once)                  │
 │     └──▶ Store bcrypt hash in collector_configs.api_key_hash            │
 │     └──▶ Store prefix (cs_abc1) in collector_configs.api_key_prefix     │
 │                                                                          │
-│  2. Collector Request (Runtime)                                          │
-│     ──────────────────────────────                                      │
-│     Authorization: Bearer cs_abc12345...                                 │
+│  2. Collector OTLP Request (Runtime)                                     │
+│     ─────────────────────────────────                                   │
+│     gRPC metadata: authorization = "Bearer cs_abc12345..."               │
+│     (or HTTP header: Authorization: Bearer cs_abc12345...)               │
 │           │                                                              │
 │           ▼                                                              │
 │     ┌─────────────────────────────────────────────────────────────┐     │
-│     │                    Auth Middleware                           │     │
-│     │  1. Extract key from header                                  │     │
+│     │                 gRPC/HTTP Interceptor                        │     │
+│     │  1. Extract key from metadata/header                         │     │
 │     │  2. Parse prefix (cs_abc1)                                   │     │
 │     │  3. Query: SELECT * FROM collector_configs                   │     │
 │     │            WHERE api_key_prefix = 'cs_abc1' AND is_active    │     │
 │     │  4. Verify bcrypt(key) == api_key_hash                       │     │
-│     │  5. If valid: inject collector + workspace into request      │     │
-│     │  6. If invalid: return 401 Unauthorized                      │     │
+│     │  5. If valid: inject collector + workspace into context      │     │
+│     │  6. If invalid: return UNAUTHENTICATED (gRPC) / 401 (HTTP)   │     │
 │     └─────────────────────────────────────────────────────────────┘     │
 │           │                                                              │
 │           ▼                                                              │
@@ -467,13 +468,13 @@ Content-Type: application/json
 │     │                    Authorization                             │     │
 │     │  • Collector can only write to its workspace                 │     │
 │     │  • Workspace ID from collector_configs enforced              │     │
-│     │  • Rate limits applied per collector                         │     │
+│     │  • Rate limits applied per collector (token bucket)          │     │
 │     └─────────────────────────────────────────────────────────────┘     │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.4 Type System Alignment
+### 4.5 Type System Alignment
 
 **Current CatSyphon → Proposed Alignment with aiobscura**:
 
@@ -495,7 +496,7 @@ Content-Type: application/json
 3. Update parsers to populate new fields
 4. Eventually deprecate old columns
 
-### 4.5 Deduplication Strategy
+### 4.6 Deduplication Strategy
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -534,7 +535,7 @@ Content-Type: application/json
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.6 Error Handling & Reliability
+### 4.7 Error Handling & Reliability
 
 **Collector-Side (aiobscura)**:
 - Retry with exponential backoff (2s, 4s, 8s, 16s, max 60s)
@@ -543,23 +544,27 @@ Content-Type: application/json
 
 **Server-Side (CatSyphon)**:
 - Transaction per session (partial batch success OK)
-- Detailed error responses per session
+- Standard gRPC status codes for errors
 - Circuit breaker for database overload
 - Async processing option for large batches
 
-**Error Response Format**:
-```json
-{
-  "batch_id": "uuid",
-  "status": "partial_failure",
-  "results": [
-    {"session_id": "...", "status": "created"},
-    {"session_id": "...", "status": "failed", "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Invalid timestamp format",
-      "field": "messages[3].emitted_at"
-    }}
-  ]
+**gRPC Status Codes**:
+| Code | Meaning | When Used |
+|------|---------|-----------|
+| `OK` | Success | All records accepted |
+| `UNAUTHENTICATED` | Invalid API key | Key missing, expired, or invalid |
+| `PERMISSION_DENIED` | Workspace mismatch | Collector trying to write to wrong workspace |
+| `RESOURCE_EXHAUSTED` | Rate limited | Collector exceeded quota |
+| `INVALID_ARGUMENT` | Bad request | Malformed protobuf or invalid attributes |
+| `UNAVAILABLE` | Server overload | Circuit breaker tripped, retry later |
+
+**Partial Failure** (OTLP standard):
+```protobuf
+ExportLogsServiceResponse {
+  partial_success: {
+    rejected_log_records: 3
+    error_message: "Invalid catsyphon.author.role value"
+  }
 }
 ```
 
@@ -691,25 +696,34 @@ ADD COLUMN thread_id UUID REFERENCES threads(id);
 
 ## 8. Open Questions
 
-1. **Schema Versioning**: How to handle collector sending older format?
-   - Option A: Server maintains backward compatibility
+1. **Schema Versioning**: How to handle collector sending older OTLP attribute schema?
+   - Option A: Server maintains backward compatibility via attribute version detection
    - Option B: Require collector upgrade with breaking changes
+   - Option C: Use OTLP schema URL mechanism for versioning
 
 2. **Large Session Handling**: What if a session has 10,000+ messages?
-   - Option A: Split into chunks on collector side
-   - Option B: Streaming ingestion endpoint
+   - Option A: Split into chunks on collector side (multiple OTLP batches)
+   - Option B: gRPC streaming for continuous ingestion
+   - **Recommendation**: gRPC streaming aligns with OTLP design
 
 3. **Offline-First**: Should CatSyphon support queuing when DB is down?
-   - Option A: Return 503, let collector retry
-   - Option B: Accept and queue internally
+   - Option A: Return `UNAVAILABLE`, let collector retry (standard gRPC)
+   - Option B: Accept and queue internally (risk: memory pressure)
+   - **Recommendation**: Option A, collectors should handle retries
 
 4. **Content Storage**: Store full message content or references?
    - Option A: Store everything (current approach)
    - Option B: Store summaries, reference aiobscura for full content
+   - **Note**: OTLP LogRecord body is designed for full content
 
 5. **Plan Synchronization**: How to handle plan updates across sessions?
    - Option A: Plans are immutable per sync
    - Option B: Plans can be updated with version tracking
+
+6. **OTLP Ecosystem Integration**: Should CatSyphon accept standard OTEL data?
+   - Could receive spans/traces from instrumented apps alongside logs
+   - Would position CatSyphon as general-purpose observability backend
+   - **Recommendation**: Start with logs-only, expand to traces later
 
 ---
 
@@ -721,11 +735,12 @@ ADD COLUMN thread_id UUID REFERENCES threads(id);
 3. Create detailed implementation plan for Phase 1
 
 ### Phase 1 Implementation
-1. Add collector REST API endpoints
-2. Implement API key authentication middleware
-3. Create push ingestion endpoint
-4. Add basic rate limiting
-5. Update aiobscura-sync to use new endpoint
+1. Add collector REST API endpoints (registration, management)
+2. Implement OTLP/gRPC receiver (port 4317) with protobuf decoding
+3. Implement OTLP/HTTP receiver (port 4318) as fallback
+4. Add gRPC interceptor for API key authentication
+5. Implement rate limiting (token bucket per collector)
+6. Update aiobscura to export via OTLP
 
 ### Follow-up
 1. Collect feedback from beta users
