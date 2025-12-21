@@ -328,98 +328,172 @@ This document outlines the product vision and architecture for enabling external
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 Protocol Choice: Why OTLP
+### 4.2 Protocol Choice: Hybrid Approach
 
-**Decision**: Use OpenTelemetry Protocol (OTLP) as the primary ingestion protocol.
+**Decision**: Use a custom protobuf schema as the canonical format, with OTLP adapter for ecosystem compatibility.
 
 **Rationale**:
 
-| Factor | OTLP/gRPC | Custom HTTP/JSON |
-|--------|-----------|------------------|
-| **Industry Standard** | ✅ Datadog, Grafana, Honeycomb all support | ❌ Proprietary |
-| **Performance** | ✅ Binary protobuf, HTTP/2 multiplexing | ❌ Text JSON, higher overhead |
-| **Streaming** | ✅ Bidirectional streaming for large batches | ❌ Request-response only |
-| **Tooling** | ✅ OTEL Collector, exporters in every language | ❌ Custom SDKs required |
-| **Future-Proof** | ✅ CNCF graduated project, wide adoption | ❌ Maintenance burden |
+| Factor | Custom Protobuf | OTLP | Our Choice |
+|--------|----------------|------|------------|
+| **Type Safety** | ✅ Compile-time enum validation | ❌ String attributes | Custom |
+| **Domain Fit** | ✅ Session→Thread→Message hierarchy | ❌ Flat LogRecords | Custom |
+| **Ecosystem** | ❌ Must build tooling | ✅ OTEL Collector, exporters | OTLP adapter |
+| **Performance** | ✅ Minimal payload | ⚠️ Unused fields | Custom |
+| **Debugging** | ✅ Structured messages | ❌ Attribute inspection | Custom |
 
-**Implementation Approach**:
+**Implementation Strategy**:
 
-1. **Primary**: OTLP/gRPC on port 4317
-   - Best performance for high-volume collectors
-   - Native streaming for large sessions
-   - Standard health checks via `grpc.health.v1.Health`
-
-2. **Fallback**: OTLP/HTTP on port 4318
-   - Works through HTTP proxies and firewalls
-   - Easier debugging with curl/browser tools
-   - Same protobuf payload, just HTTP transport
-
-3. **Data Mapping**: OTLP → CatSyphon
-   - OTLP `Resource` → Collector + Workspace metadata
-   - OTLP `Scope` → Session context
-   - OTLP `LogRecord` → Message (with attributes for author_role, message_type)
-   - OTLP `Span` → Optional for tool call timing
-
-**References**:
-- [OTLP Specification](https://opentelemetry.io/docs/specs/otlp/)
-- [Datadog OTLP Ingestion](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/)
-- [Grafana Alloy OTLP Receiver](https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.receiver.otlp/)
-
-### 4.3 Data Contract: OTLP Mapping
-
-CatSyphon defines a custom semantic convention for coding assistant telemetry within the OTLP framework.
-
-**Resource Attributes** (per-batch, identifies collector):
 ```
-service.name: "aiobscura"
-service.version: "0.5.0"
-host.name: "dev-laptop-123"
-catsyphon.collector.id: "uuid"
-catsyphon.workspace.id: "uuid"
-catsyphon.batch.id: "uuid-for-idempotency"
-```
-
-**LogRecord Attributes** (per-message):
-```
-catsyphon.session.id: "session-uuid"
-catsyphon.thread.id: "thread-uuid"
-catsyphon.message.seq: 1
-catsyphon.author.role: "human|caller|assistant|agent|tool|system"
-catsyphon.message.type: "prompt|response|tool_call|tool_result|plan|summary|context|error"
-catsyphon.message.emitted_at: 1703156400000000000  (nanoseconds)
-catsyphon.tokens.in: 150
-catsyphon.tokens.out: 500
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        HYBRID PROTOCOL ARCHITECTURE                      │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │              proto/catsyphon/telemetry/v1/sessions.proto         │    │
+│  │                     (Canonical Schema)                           │    │
+│  │                                                                  │    │
+│  │   • Session, Thread, Message - hierarchical domain model         │    │
+│  │   • AuthorRole enum (6 values) - compile-time validated          │    │
+│  │   • MessageType enum (8 values) - compile-time validated         │    │
+│  │   • Source of truth for both Rust and Python codegen             │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                              │                                           │
+│              ┌───────────────┴───────────────┐                          │
+│              ▼                               ▼                          │
+│  ┌─────────────────────────┐    ┌─────────────────────────┐            │
+│  │   Native gRPC Service   │    │    OTLP Adapter Layer   │            │
+│  │      (Port 4317)        │    │     (Port 4318)         │            │
+│  │                         │    │                         │            │
+│  │ • SessionIngestion RPC  │    │ • Accepts OTLP Logs     │            │
+│  │ • Streaming support     │    │ • Transforms attributes │            │
+│  │ • Best performance      │    │ • OTEL Collector compat │            │
+│  │ • Type-safe validation  │    │ • Ecosystem integration │            │
+│  └────────────┬────────────┘    └────────────┬────────────┘            │
+│               │                              │                          │
+│               └──────────────┬───────────────┘                          │
+│                              ▼                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                    Ingestion Pipeline                            │    │
+│  │              (Same processing for both paths)                    │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**LogRecord Body**: Message content (text or JSON for tool calls)
+**Port Allocation**:
+- **4317**: Native gRPC (`SessionIngestion` service) - primary for aiobscura
+- **4318**: OTLP/HTTP adapter - for ecosystem compatibility
+- **8000**: REST API - collector management, web UI
 
-**Session Metadata** (sent as first LogRecord per session):
-```
-catsyphon.session.assistant: "claude-code"
-catsyphon.session.project.path: "/home/user/myproject"
-catsyphon.session.project.name: "myproject"
-catsyphon.session.developer.username: "jdoe"
-catsyphon.session.developer.email: "jdoe@company.com"
-catsyphon.session.backing_model.provider: "anthropic"
-catsyphon.session.backing_model.id: "claude-sonnet-4-20250514"
-catsyphon.session.started_at: 1703156400000000000
-```
+### 4.3 Data Contract: Native Protocol
 
-**Example: Protobuf LogRecord** (conceptual):
+The canonical schema is defined in `proto/catsyphon/telemetry/v1/sessions.proto`.
+
+**Service Definition**:
 ```protobuf
-LogRecord {
-  time_unix_nano: 1703156400000000000
-  observed_time_unix_nano: 1703156405000000000
-  severity_number: INFO
-  body: StringValue { value: "Help me refactor the auth module" }
-  attributes: [
-    { key: "catsyphon.session.id", value: StringValue { value: "abc-123" } },
-    { key: "catsyphon.author.role", value: StringValue { value: "human" } },
-    { key: "catsyphon.message.type", value: StringValue { value: "prompt" } },
-    { key: "catsyphon.message.seq", value: IntValue { value: 1 } }
-  ]
+service SessionIngestion {
+  // Batch export (small to medium batches)
+  rpc ExportSessions(ExportSessionsRequest) returns (ExportSessionsResponse);
+
+  // Streaming export (large sessions, continuous sync)
+  rpc ExportSessionsStream(stream SessionBatch) returns (ExportSessionsResponse);
 }
 ```
+
+**Core Types** (matching aiobscura exactly):
+
+```protobuf
+// Enums - compile-time validated
+enum AuthorRole {
+  AUTHOR_ROLE_HUMAN = 1;      // Real person
+  AUTHOR_ROLE_CALLER = 2;     // CLI or parent
+  AUTHOR_ROLE_ASSISTANT = 3;  // Coding assistant
+  AUTHOR_ROLE_AGENT = 4;      // Spawned subprocess
+  AUTHOR_ROLE_TOOL = 5;       // Tool execution
+  AUTHOR_ROLE_SYSTEM = 6;     // Internal events
+}
+
+enum MessageType {
+  MESSAGE_TYPE_PROMPT = 1;
+  MESSAGE_TYPE_RESPONSE = 2;
+  MESSAGE_TYPE_TOOL_CALL = 3;
+  MESSAGE_TYPE_TOOL_RESULT = 4;
+  MESSAGE_TYPE_PLAN = 5;
+  MESSAGE_TYPE_SUMMARY = 6;
+  MESSAGE_TYPE_CONTEXT = 7;
+  MESSAGE_TYPE_ERROR = 8;
+}
+
+// Hierarchical domain model
+message Session {
+  string id = 1;
+  Assistant assistant = 2;
+  BackingModel backing_model = 3;
+  Project project = 4;
+  Developer developer = 5;
+  repeated Thread threads = 9;
+  repeated Plan plans = 10;
+  // ... timestamps, status, metadata
+}
+
+message Thread {
+  string id = 1;
+  optional string parent_thread_id = 2;
+  ThreadType type = 3;
+  repeated Message messages = 5;
+  // ...
+}
+
+message Message {
+  int32 seq = 1;
+  AuthorRole author_role = 2;
+  MessageType message_type = 4;
+  string content = 5;
+  int64 emitted_at_ns = 6;
+  int64 observed_at_ns = 7;
+  bytes raw_data = 12;  // Lossless preservation
+  // ...
+}
+```
+
+**Request/Response**:
+```protobuf
+message ExportSessionsRequest {
+  CollectorInfo collector = 1;
+  string batch_id = 2;          // Idempotency key
+  repeated Session sessions = 3;
+}
+
+message ExportSessionsResponse {
+  string batch_id = 1;
+  BatchStatus status = 2;       // ACCEPTED, PARTIAL, REJECTED
+  repeated SessionResult results = 3;
+  BatchMetrics metrics = 4;
+}
+```
+
+**Full schema**: See [`proto/catsyphon/telemetry/v1/sessions.proto`](../proto/catsyphon/telemetry/v1/sessions.proto)
+
+### 4.3.1 OTLP Adapter (Ecosystem Compatibility)
+
+For collectors that prefer OTLP, CatSyphon accepts standard OTLP LogRecords with `catsyphon.*` attributes.
+
+**Attribute Mapping** (OTLP → Native):
+
+| OTLP Attribute | Native Field |
+|----------------|--------------|
+| `catsyphon.session.id` | `Session.id` |
+| `catsyphon.author.role` | `Message.author_role` (string → enum) |
+| `catsyphon.message.type` | `Message.message_type` (string → enum) |
+| `catsyphon.message.seq` | `Message.seq` |
+| `LogRecord.body` | `Message.content` |
+| `LogRecord.time_unix_nano` | `Message.emitted_at_ns` |
+| `LogRecord.observed_time_unix_nano` | `Message.observed_at_ns` |
+
+**Trade-offs**:
+- OTLP path requires runtime string → enum validation
+- Native path validates at protobuf decode time
+- Both paths produce identical internal representation
 
 **Response** (OTLP ExportLogsServiceResponse):
 - Success: Empty response (standard OTLP)
@@ -731,16 +805,18 @@ ADD COLUMN thread_id UUID REFERENCES threads(id);
 
 ### Immediate (This Sprint)
 1. ✅ Document current state and gaps (this document)
-2. Review and approve product/architecture plan
-3. Create detailed implementation plan for Phase 1
+2. ✅ Define canonical protobuf schema (`proto/catsyphon/telemetry/v1/sessions.proto`)
+3. Review and approve product/architecture plan
+4. Create detailed implementation plan for Phase 1
 
 ### Phase 1 Implementation
 1. Add collector REST API endpoints (registration, management)
-2. Implement OTLP/gRPC receiver (port 4317) with protobuf decoding
-3. Implement OTLP/HTTP receiver (port 4318) as fallback
-4. Add gRPC interceptor for API key authentication
-5. Implement rate limiting (token bucket per collector)
-6. Update aiobscura to export via OTLP
+2. Set up protobuf codegen (Python: grpcio-tools, Rust: prost/tonic)
+3. Implement native gRPC `SessionIngestion` service (port 4317)
+4. Implement OTLP/HTTP adapter (port 4318) for ecosystem compatibility
+5. Add gRPC interceptor for API key authentication
+6. Implement rate limiting (token bucket per collector)
+7. Update aiobscura to export via native gRPC protocol
 
 ### Follow-up
 1. Collect feedback from beta users
