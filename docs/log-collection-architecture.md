@@ -94,7 +94,7 @@ This document outlines the product vision and architecture for enabling external
 │  │   • Local SQLite database (Layer 1)                   │       │
 │  │   • Real-time TUI for developer self-service          │       │
 │  │   • Personal analytics & session history              │       │
-│  │   • Privacy-first (data stays local by default)       │       │
+│  │   • Standalone operation (works without server)        │       │
 │  └────────────────────────┬─────────────────────────────┘       │
 │                           │ (opt-in sync)                        │
 └───────────────────────────┼─────────────────────────────────────┘
@@ -122,11 +122,12 @@ This document outlines the product vision and architecture for enabling external
 
 ### 2.2 Key Principles
 
-1. **Privacy-First**: Data flows only when explicitly enabled by the developer
-2. **Local-First**: aiobscura remains fully functional without CatSyphon connection
-3. **Lossless Capture**: Raw data preserved for reprocessing as parsers improve
-4. **Incremental Sync**: Efficient bandwidth usage via checkpoint-based sync
-5. **Multi-Tenant by Design**: Complete workspace isolation at every layer
+1. **Secure by Design**: End-to-end encryption, API key authentication, audit trails
+2. **Reliable Ingestion**: Guaranteed delivery with idempotency and retry semantics
+3. **Multi-Tenant Isolation**: Complete workspace separation at every layer
+4. **Lossless Capture**: Raw data preserved for reprocessing as parsers improve
+5. **Incremental Sync**: Efficient bandwidth usage via checkpoint-based sync
+6. **Governance-Ready**: Compliance reporting, retention policies, access controls
 
 ### 2.3 User Personas
 
@@ -237,7 +238,7 @@ This document outlines the product vision and architecture for enabling external
 
 2. **Federated Queries**
    - Query across local + remote data seamlessly
-   - Privacy controls on what's shared
+   - Role-based access controls on data visibility
 
 3. **Plugin Ecosystem**
    - Shared plugin marketplace between aiobscura and CatSyphon
