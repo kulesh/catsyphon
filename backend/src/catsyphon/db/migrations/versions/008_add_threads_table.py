@@ -23,17 +23,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create the thread_type enum
-    thread_type_enum = sa.Enum(
-        "main",
-        "agent",
-        "background",
-        name="thread_type",
-        create_type=True,
+    # Create the thread_type enum using raw SQL with IF NOT EXISTS
+    op.execute(
+        "DO $$ BEGIN "
+        "CREATE TYPE thread_type AS ENUM ('main', 'agent', 'background'); "
+        "EXCEPTION WHEN duplicate_object THEN NULL; END $$"
     )
-    thread_type_enum.create(op.get_bind(), checkfirst=True)
 
-    # Create threads table
+    # Create threads table using existing enum
     op.create_table(
         "threads",
         sa.Column(
@@ -58,13 +55,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "thread_type",
-            sa.Enum(
-                "main",
-                "agent",
-                "background",
-                name="thread_type",
-                create_type=False,
-            ),
+            postgresql.ENUM("main", "agent", "background", name="thread_type", create_type=False),
             nullable=False,
             server_default="main",
         ),
