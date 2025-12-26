@@ -631,12 +631,12 @@ class Message(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)  # order within epoch
 
-    # Dual timestamps aligned with aiobscura
-    emitted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+    # Dual timestamps aligned with aiobscura (nullable for historical messages)
+    emitted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )  # When the message was produced
-    observed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+    observed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )  # When the message was parsed/ingested
 
     # Tool usage
@@ -667,7 +667,11 @@ class Message(Base):
     # Relationships
     epoch: Mapped["Epoch"] = relationship(back_populates="messages")
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
-    thread: Mapped[Optional["Thread"]] = relationship(back_populates="messages")
+    # Specify foreign_keys to resolve ambiguity with Thread.spawned_by_message_id
+    thread: Mapped[Optional["Thread"]] = relationship(
+        back_populates="messages",
+        foreign_keys="[Message.thread_id]",
+    )
 
     def __repr__(self) -> str:
         return (
@@ -795,7 +799,11 @@ class Thread(Base):
         remote_side="Thread.id",
         foreign_keys=[parent_thread_id],
     )
-    messages: Mapped[list["Message"]] = relationship(back_populates="thread")
+    # Specify foreign_keys to resolve ambiguity with Thread.spawned_by_message_id
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="thread",
+        foreign_keys="[Message.thread_id]",
+    )
 
     def __repr__(self) -> str:
         return (
