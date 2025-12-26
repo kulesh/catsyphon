@@ -10,11 +10,372 @@ Both products continue to work standalone; integration is opt-in.
 
 ---
 
-## Phase 0: Multi-Tenancy Security Fixes (Prerequisite)
+## Phase 0: Type System Alignment (Foundation)
+
+The type systems of aiobscura and CatSyphon have diverged. Before adding integration or security fixes, we must establish a stable, aligned foundation. See `docs/type-system-reconciliation.md` for full analysis.
+
+### 0.1 Summary of Changes
+
+**CatSyphon must adopt from aiobscura:**
+
+| Type | Change | Priority |
+|------|--------|----------|
+| `AuthorRole` enum | Add 6 values: human, caller, assistant, agent, tool, system | High |
+| `MessageType` enum | Add 8 values: prompt, response, tool_call, tool_result, plan, summary, context, error | High |
+| `Thread` table | Add parent-child thread hierarchy | High |
+| `BackingModel` table | Track LLM provider/model | High |
+| Dual timestamps | Add `emitted_at`, `observed_at` to messages | High |
+| `raw_data` field | Add JSONB per message for lossless capture | Medium |
+
+**aiobscura verification:**
+- Types already match protobuf schema ✅
+- No changes expected (confirm during implementation)
+
+### 0.2 CatSyphon Schema Changes
+
+**Migration 1: Add AuthorRole enum**
+
+```sql
+-- Create enum type
+CREATE TYPE author_role AS ENUM (
+    'human', 'caller', 'assistant', 'agent', 'tool', 'system'
+);
+
+-- Add column
+ALTER TABLE messages ADD COLUMN author_role author_role;
+
+-- Backfill from existing role string
+UPDATE messages SET author_role = CASE role
+    WHEN 'user' THEN 'human'::author_role
+    WHEN 'system' THEN 'system'::author_role
+    ELSE 'assistant'::author_role
+END;
+
+-- Make NOT NULL after backfill
+ALTER TABLE messages ALTER COLUMN author_role SET NOT NULL;
+```
+
+**Migration 2: Add MessageType enum**
+
+```sql
+CREATE TYPE message_type AS ENUM (
+    'prompt', 'response', 'tool_call', 'tool_result',
+    'plan', 'summary', 'context', 'error'
+);
+
+ALTER TABLE messages ADD COLUMN message_type message_type;
+
+-- Backfill based on role and content analysis
+UPDATE messages SET message_type = CASE
+    WHEN role = 'user' THEN 'prompt'::message_type
+    WHEN tool_calls IS NOT NULL THEN 'tool_call'::message_type
+    WHEN tool_results IS NOT NULL THEN 'tool_result'::message_type
+    ELSE 'response'::message_type
+END;
+
+ALTER TABLE messages ALTER COLUMN message_type SET NOT NULL;
+```
+
+**Migration 3: Add Thread table**
+
+```sql
+CREATE TYPE thread_type AS ENUM ('main', 'agent', 'background');
+
+CREATE TABLE threads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    parent_thread_id UUID REFERENCES threads(id) ON DELETE CASCADE,
+    thread_type thread_type NOT NULL DEFAULT 'main',
+    spawned_by_message_id UUID REFERENCES messages(id),
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ,
+    last_activity_at TIMESTAMPTZ NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_parent_thread_same_conversation CHECK (
+        parent_thread_id IS NULL OR
+        parent_thread_id IN (SELECT id FROM threads WHERE conversation_id = threads.conversation_id)
+    )
+);
+
+CREATE INDEX idx_threads_conversation ON threads(conversation_id);
+CREATE INDEX idx_threads_parent ON threads(parent_thread_id);
+
+-- Add thread reference to messages
+ALTER TABLE messages ADD COLUMN thread_id UUID REFERENCES threads(id);
+CREATE INDEX idx_messages_thread ON messages(thread_id);
+```
+
+**Migration 4: Add BackingModel table**
+
+```sql
+CREATE TABLE backing_models (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider VARCHAR(50) NOT NULL,
+    model_id VARCHAR(100) NOT NULL,
+    display_name VARCHAR(255),
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata JSONB NOT NULL DEFAULT '{}',
+    UNIQUE (provider, model_id)
+);
+
+ALTER TABLE conversations ADD COLUMN backing_model_id UUID REFERENCES backing_models(id);
+CREATE INDEX idx_conversations_backing_model ON conversations(backing_model_id);
+```
+
+**Migration 5: Add dual timestamps**
+
+```sql
+ALTER TABLE messages
+ADD COLUMN emitted_at TIMESTAMPTZ,
+ADD COLUMN observed_at TIMESTAMPTZ;
+
+-- Backfill: use timestamp for emitted, created_at for observed
+UPDATE messages SET
+    emitted_at = COALESCE(timestamp, created_at),
+    observed_at = created_at;
+
+-- Make NOT NULL after backfill
+ALTER TABLE messages ALTER COLUMN emitted_at SET NOT NULL;
+ALTER TABLE messages ALTER COLUMN observed_at SET NOT NULL;
+```
+
+**Migration 6: Add raw_data per message**
+
+```sql
+ALTER TABLE messages ADD COLUMN raw_data JSONB;
+-- raw_data is optional, NULL for messages ingested before this migration
+```
+
+### 0.3 CatSyphon Model Updates
+
+**File:** `backend/src/catsyphon/models/db.py`
+
+```python
+# Add enum classes
+class AuthorRole(str, Enum):
+    HUMAN = "human"
+    CALLER = "caller"
+    ASSISTANT = "assistant"
+    AGENT = "agent"
+    TOOL = "tool"
+    SYSTEM = "system"
+
+class MessageType(str, Enum):
+    PROMPT = "prompt"
+    RESPONSE = "response"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    PLAN = "plan"
+    SUMMARY = "summary"
+    CONTEXT = "context"
+    ERROR = "error"
+
+class ThreadType(str, Enum):
+    MAIN = "main"
+    AGENT = "agent"
+    BACKGROUND = "background"
+
+# Add Thread model
+class Thread(Base):
+    __tablename__ = "threads"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(ForeignKey("conversations.id"))
+    parent_thread_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("threads.id"))
+    thread_type: Mapped[ThreadType] = mapped_column(default=ThreadType.MAIN)
+    spawned_by_message_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("messages.id"))
+    started_at: Mapped[datetime]
+    ended_at: Mapped[Optional[datetime]]
+    last_activity_at: Mapped[datetime]
+    metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # Relationships
+    conversation = relationship("Conversation", back_populates="threads")
+    parent_thread = relationship("Thread", remote_side=[id])
+    messages = relationship("Message", back_populates="thread")
+
+# Add BackingModel model
+class BackingModel(Base):
+    __tablename__ = "backing_models"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    provider: Mapped[str] = mapped_column(String(50))
+    model_id: Mapped[str] = mapped_column(String(100))
+    display_name: Mapped[Optional[str]] = mapped_column(String(255))
+    first_seen_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+# Update Message model
+class Message(Base):
+    # ... existing fields ...
+
+    # New fields
+    author_role: Mapped[AuthorRole]
+    message_type: Mapped[MessageType]
+    thread_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("threads.id"))
+    emitted_at: Mapped[datetime]
+    observed_at: Mapped[datetime]
+    raw_data: Mapped[Optional[dict]] = mapped_column(JSONB)
+
+    # New relationship
+    thread = relationship("Thread", back_populates="messages")
+
+# Update Conversation model
+class Conversation(Base):
+    # ... existing fields ...
+
+    # New field
+    backing_model_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("backing_models.id")
+    )
+
+    # New relationships
+    threads = relationship("Thread", back_populates="conversation")
+    backing_model = relationship("BackingModel")
+```
+
+### 0.4 CatSyphon Parser Updates
+
+Update Claude Code parser to populate new fields:
+
+**File:** `backend/src/catsyphon/parsers/claude_code.py`
+
+```python
+def _parse_message(self, raw_message: dict) -> ParsedMessage:
+    # Map role to AuthorRole enum
+    role_mapping = {
+        "user": AuthorRole.HUMAN,
+        "assistant": AuthorRole.ASSISTANT,
+        "system": AuthorRole.SYSTEM,
+    }
+    author_role = role_mapping.get(raw_message.get("role"), AuthorRole.ASSISTANT)
+
+    # Determine message type
+    if author_role == AuthorRole.HUMAN:
+        message_type = MessageType.PROMPT
+    elif raw_message.get("tool_calls"):
+        message_type = MessageType.TOOL_CALL
+    elif raw_message.get("tool_result"):
+        message_type = MessageType.TOOL_RESULT
+    else:
+        message_type = MessageType.RESPONSE
+
+    return ParsedMessage(
+        author_role=author_role,
+        message_type=message_type,
+        content=raw_message.get("content"),
+        emitted_at=self._parse_timestamp(raw_message.get("timestamp")),
+        observed_at=datetime.utcnow(),
+        raw_data=raw_message,  # Preserve original for reprocessing
+        # ... other fields
+    )
+```
+
+### 0.5 aiobscura Verification
+
+Verify aiobscura's types match the protobuf schema:
+
+```rust
+// src/domain/types.rs - verify these exist and match:
+
+pub enum AuthorRole {
+    Human,
+    Caller,
+    Assistant,
+    Agent,
+    Tool,
+    System,
+}
+
+pub enum MessageType {
+    Prompt,
+    Response,
+    ToolCall,
+    ToolResult,
+    Plan,
+    Summary,
+    Context,
+    Error,
+}
+
+pub enum ThreadType {
+    Main,
+    Agent,
+    Background,
+}
+```
+
+If any mismatches found, update aiobscura to match protobuf.
+
+### 0.6 Testing: Independent Product Validation
+
+Before proceeding to Phase 1, verify each product works independently:
+
+**CatSyphon Tests:**
+```bash
+cd backend
+
+# Run migrations
+uv run alembic upgrade head
+
+# Run all tests
+python3 -m pytest
+
+# Verify new types work
+python3 -m pytest tests/test_models/ -v
+python3 -m pytest tests/test_parsers/ -v
+
+# Test ingestion with new schema
+uv run catsyphon ingest /path/to/claude/logs --project "test"
+```
+
+**aiobscura Tests:**
+```bash
+cd aiobscura
+
+# Run all tests
+cargo test
+
+# Verify types compile and match
+cargo test domain::types
+```
+
+### 0.7 Implementation Checklist
+
+```
+CatSyphon:
+[ ] Create migration: Add author_role enum + column
+[ ] Create migration: Add message_type enum + column
+[ ] Create migration: Add threads table + message FK
+[ ] Create migration: Add backing_models table + conversation FK
+[ ] Create migration: Add emitted_at, observed_at columns
+[ ] Create migration: Add raw_data column
+[ ] Run migrations and backfill existing data
+[ ] Update Message model with new fields
+[ ] Add Thread model
+[ ] Add BackingModel model
+[ ] Update Conversation model with new relationships
+[ ] Update Claude Code parser to populate new fields
+[ ] Update API schemas to expose new fields
+[ ] Update tests for new types
+[ ] Verify full test suite passes
+
+aiobscura:
+[ ] Verify AuthorRole enum matches protobuf
+[ ] Verify MessageType enum matches protobuf
+[ ] Verify ThreadType enum matches protobuf
+[ ] Verify all tests pass
+```
+
+---
+
+## Phase 1: Multi-Tenancy Security Fixes
 
 A security audit revealed that CatSyphon's multi-tenancy is schema-ready but not enforcement-ready. The following issues must be fixed before adding collector integration:
 
-### 0.1 Current State
+### 1.1 Current State
 
 | Layer | Status | Issue |
 |-------|--------|-------|
@@ -25,7 +386,7 @@ A security audit revealed that CatSyphon's multi-tenancy is schema-ready but not
 
 **Attack Vector**: Anyone knowing a `conversation_id` can call `GET /conversations/{id}` and retrieve data from ANY workspace.
 
-### 0.2 API Endpoints to Fix
+### 1.2 API Endpoints to Fix
 
 **Priority 1 - Conversation Data Access:**
 ```
@@ -58,7 +419,7 @@ backend/src/catsyphon/api/routes/ingestion.py
   - DELETE /ingestion/jobs/{id}    → Add workspace_id filter
 ```
 
-### 0.3 Authentication Context
+### 1.3 Authentication Context
 
 Create a proper authentication dependency that provides workspace context:
 
@@ -103,7 +464,7 @@ async def get_auth_context(
     )
 ```
 
-### 0.4 Updated Endpoint Pattern
+### 1.4 Updated Endpoint Pattern
 
 Before:
 ```python
@@ -134,7 +495,7 @@ async def get_conversation(
     return conversation
 ```
 
-### 0.5 Repository Updates
+### 1.5 Repository Updates
 
 Add workspace-aware methods to repositories:
 
@@ -155,7 +516,7 @@ class ConversationRepository:
         return result.scalar_one_or_none()
 ```
 
-### 0.6 Implementation Checklist
+### 1.6 Implementation Checklist
 
 ```
 [ ] Create backend/src/catsyphon/api/auth.py
@@ -186,9 +547,9 @@ aiobscura/proto/catsyphon/telemetry/v1/sessions.proto  (vendored copy)
 
 ---
 
-## Phase 1: CatSyphon - gRPC Ingestion Service
+## Phase 2: CatSyphon - gRPC Ingestion Service
 
-### 1.1 Protobuf Codegen Setup
+### 2.1 Protobuf Codegen Setup
 
 **Files to create:**
 ```
@@ -225,7 +586,7 @@ python -m grpc_tools.protoc \
   ../../proto/catsyphon/telemetry/v1/sessions.proto
 ```
 
-### 1.2 Collector REST API
+### 2.2 Collector REST API
 
 **Files to create:**
 ```
@@ -270,7 +631,7 @@ class CollectorWithKey(CollectorResponse):
     api_key: str  # Only on create/rotate
 ```
 
-### 1.3 gRPC Authentication Interceptor
+### 2.3 gRPC Authentication Interceptor
 
 **File:** `backend/src/catsyphon/grpc/interceptors.py`
 
@@ -298,7 +659,7 @@ class ApiKeyInterceptor(grpc.ServerInterceptor):
         return continuation(handler_call_details)
 ```
 
-### 1.4 SessionIngestion Service
+### 2.4 SessionIngestion Service
 
 **File:** `backend/src/catsyphon/grpc/services/session_ingestion.py`
 
@@ -354,7 +715,7 @@ class SessionIngestionServicer(sessions_pb2_grpc.SessionIngestionServicer):
         return response
 ```
 
-### 1.5 gRPC Server Integration
+### 2.5 gRPC Server Integration
 
 **File:** `backend/src/catsyphon/grpc/server.py`
 
@@ -389,23 +750,61 @@ def serve(
     asyncio.run(run_servers(http_port, grpc_port))
 ```
 
-### 1.6 Database Simplification
+### 2.6 Proto → Model Mapping
 
-Since we don't need migrations, simplify the schema:
+Wire protobuf types to existing ingestion pipeline (schema already updated in Phase 0):
 
-**Update `models/db.py`:**
-- Add `author_role` column (enum)
-- Add `message_type` column (enum)
-- Add `emitted_at`, `observed_at` columns
-- Add `Thread` table
-- Add `BackingModel` table
-- Rename internal references to use "Session" terminology
+**File:** `backend/src/catsyphon/grpc/services/mapper.py`
+
+```python
+from catsyphon.models.db import AuthorRole, MessageType, ThreadType
+
+def proto_author_role_to_db(proto_role: int) -> AuthorRole:
+    """Map protobuf AuthorRole enum to database enum."""
+    mapping = {
+        1: AuthorRole.HUMAN,
+        2: AuthorRole.CALLER,
+        3: AuthorRole.ASSISTANT,
+        4: AuthorRole.AGENT,
+        5: AuthorRole.TOOL,
+        6: AuthorRole.SYSTEM,
+    }
+    return mapping.get(proto_role, AuthorRole.ASSISTANT)
+
+def proto_message_type_to_db(proto_type: int) -> MessageType:
+    """Map protobuf MessageType enum to database enum."""
+    mapping = {
+        1: MessageType.PROMPT,
+        2: MessageType.RESPONSE,
+        3: MessageType.TOOL_CALL,
+        4: MessageType.TOOL_RESULT,
+        5: MessageType.PLAN,
+        6: MessageType.SUMMARY,
+        7: MessageType.CONTEXT,
+        8: MessageType.ERROR,
+    }
+    return mapping.get(proto_type, MessageType.RESPONSE)
+
+def proto_session_to_parsed(session_proto) -> ParsedConversation:
+    """Convert protobuf Session to internal ParsedConversation."""
+    threads = [proto_thread_to_parsed(t) for t in session_proto.threads]
+    messages = [msg for thread in threads for msg in thread.messages]
+
+    return ParsedConversation(
+        session_id=session_proto.id,
+        assistant=session_proto.assistant.name.lower(),
+        threads=threads,
+        messages=messages,
+        backing_model=proto_backing_model_to_db(session_proto.backing_model),
+        # ... other fields
+    )
+```
 
 ---
 
-## Phase 2: aiobscura - gRPC Export Client
+## Phase 3: aiobscura - gRPC Export Client
 
-### 2.1 Protobuf Codegen Setup
+### 3.1 Protobuf Codegen Setup
 
 **Files to create:**
 ```
@@ -445,7 +844,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 2.2 Export Client
+### 3.2 Export Client
 
 **File:** `src/export/client.rs`
 
@@ -501,7 +900,7 @@ impl CatSyphonClient {
 }
 ```
 
-### 2.3 Internal → Proto Mapper
+### 3.3 Internal → Proto Mapper
 
 **File:** `src/export/mapper.rs`
 
@@ -544,7 +943,7 @@ impl Message {
 }
 ```
 
-### 2.4 Export Configuration
+### 3.4 Export Configuration
 
 **File:** `src/export/config.rs`
 
@@ -573,7 +972,7 @@ workspace_id = "uuid-from-registration"
 batch_size = 10
 ```
 
-### 2.5 Sync Command Enhancement
+### 3.5 Sync Command Enhancement
 
 **Update:** `src/sync.rs`
 
@@ -621,7 +1020,7 @@ async fn export_to_catsyphon(
 }
 ```
 
-### 2.6 CLI Integration
+### 3.6 CLI Integration
 
 **Update CLI:**
 ```rust
@@ -664,9 +1063,9 @@ enum Commands {
 
 ---
 
-## Phase 3: Integration Testing
+## Phase 4: Integration Testing
 
-### 3.1 End-to-End Test Flow
+### 4.1 End-to-End Test Flow
 
 ```
 1. Start CatSyphon server (HTTP:8000, gRPC:4317)
@@ -676,7 +1075,7 @@ enum Commands {
 5. Verify sessions appear in CatSyphon web UI
 ```
 
-### 3.2 Test Cases
+### 4.2 Test Cases
 
 **CatSyphon Tests:**
 - gRPC auth: valid key, invalid key, expired key
@@ -694,42 +1093,72 @@ enum Commands {
 
 ## Implementation Order
 
-### Phase 0: Security Foundation (CatSyphon)
-1. [ ] Create `backend/src/catsyphon/api/auth.py` with AuthContext
-2. [ ] Add `get_by_workspace()` to all repositories
-3. [ ] Update all API endpoints to use AuthContext
-4. [ ] Add cross-workspace access denial tests
-5. [ ] Remove `_get_default_workspace_id()` hack
+### Phase 0: Type System Alignment (Foundation)
+1. [ ] Create migration: Add AuthorRole enum + column
+2. [ ] Create migration: Add MessageType enum + column
+3. [ ] Create migration: Add Thread table + message FK
+4. [ ] Create migration: Add BackingModel table + conversation FK
+5. [ ] Create migration: Add emitted_at, observed_at columns
+6. [ ] Create migration: Add raw_data column
+7. [ ] Update CatSyphon models (Message, Thread, BackingModel, Conversation)
+8. [ ] Update Claude Code parser to populate new fields
+9. [ ] Verify aiobscura types match protobuf
+10. [ ] Run full test suites in both repos (independent validation)
 
-### Phase 1: CatSyphon gRPC Foundation
-6. [ ] Set up protobuf codegen
-7. [ ] Create Collector REST API (CRUD)
-8. [ ] Implement API key generation/validation
-9. [ ] Create gRPC server skeleton
-10. [ ] Implement auth interceptor
-11. [ ] Implement SessionIngestion service
-12. [ ] Wire proto → existing ingestion pipeline
+### Phase 1: Security Foundation (CatSyphon)
+11. [ ] Create `backend/src/catsyphon/api/auth.py` with AuthContext
+12. [ ] Add `get_by_workspace()` to all repositories
+13. [ ] Update all API endpoints to use AuthContext
+14. [ ] Add cross-workspace access denial tests
+15. [ ] Remove `_get_default_workspace_id()` hack
 
-### Phase 2: aiobscura Client
-13. [ ] Vendor proto file, set up codegen
-14. [ ] Create gRPC client
-15. [ ] Implement internal → proto mapper
-16. [ ] Add export config to TOML
-17. [ ] Add sync --export flag
-18. [ ] Add export command
+### Phase 2: CatSyphon gRPC Server
+16. [ ] Set up protobuf codegen
+17. [ ] Create Collector REST API (CRUD)
+18. [ ] Implement API key generation/validation
+19. [ ] Create gRPC server skeleton
+20. [ ] Implement auth interceptor
+21. [ ] Implement SessionIngestion service
+22. [ ] Wire proto → internal models (mapper.py)
 
-### Phase 3: Integration
-19. [ ] End-to-end testing
-20. [ ] Documentation
+### Phase 3: aiobscura Client
+23. [ ] Vendor proto file, set up codegen
+24. [ ] Create gRPC client
+25. [ ] Implement internal → proto mapper
+26. [ ] Add export config to TOML
+27. [ ] Add sync --export flag
+28. [ ] Add export command
+
+### Phase 4: Integration Testing
+29. [ ] End-to-end testing
+30. [ ] Documentation
 
 ---
 
 ## Files Changed Summary
 
-### CatSyphon (new files)
+### CatSyphon (Phase 0 - Type System)
+```
+backend/db/migrations/versions/xxx_add_author_role.py
+backend/db/migrations/versions/xxx_add_message_type.py
+backend/db/migrations/versions/xxx_add_threads.py
+backend/db/migrations/versions/xxx_add_backing_models.py
+backend/db/migrations/versions/xxx_add_dual_timestamps.py
+backend/db/migrations/versions/xxx_add_raw_data.py
+backend/src/catsyphon/models/db.py              # Updated models
+backend/src/catsyphon/parsers/claude_code.py    # Updated parser
+```
+
+### CatSyphon (Phase 1 - Security)
+```
+backend/src/catsyphon/api/auth.py               # Auth context
+backend/src/catsyphon/db/repositories/*.py      # get_by_workspace()
+backend/src/catsyphon/api/routes/*.py           # AuthContext dependency
+```
+
+### CatSyphon (Phase 2 - gRPC)
 ```
 proto/catsyphon/telemetry/v1/sessions.proto     ✅ Already exists
-backend/src/catsyphon/api/auth.py               # Phase 0: Auth context
 backend/src/catsyphon/grpc/__init__.py
 backend/src/catsyphon/grpc/server.py
 backend/src/catsyphon/grpc/interceptors.py
