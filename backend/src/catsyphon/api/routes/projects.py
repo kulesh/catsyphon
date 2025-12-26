@@ -18,6 +18,7 @@ from catsyphon.analytics.thinking_time import (
     aggregate_thinking_time,
     pair_user_assistant,
 )
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import (
     ErrorBucket,
     HandoffStats,
@@ -37,7 +38,6 @@ from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
     ConversationRepository,
     ProjectRepository,
-    WorkspaceRepository,
 )
 from catsyphon.models.db import (
     Conversation,
@@ -51,25 +51,6 @@ from catsyphon.models.db import (
 _THINKING_TIME_MAX_LATENCY_SECONDS = 2 * 60 * 60  # 2 hours
 
 router = APIRouter()
-
-
-def _get_default_workspace_id(session: Session) -> Optional[UUID]:
-    """
-    Get default workspace ID for API operations.
-
-    This is a temporary helper until proper authentication is implemented.
-    Returns the first workspace in the database, or None if no workspaces exist.
-
-    Returns:
-        UUID of the first workspace, or None if no workspaces exist
-    """
-    workspace_repo = WorkspaceRepository(session)
-    workspaces = workspace_repo.get_all(limit=1)
-
-    if not workspaces:
-        return None
-
-    return workspaces[0].id
 
 
 def _classify_role_dynamics(
@@ -102,6 +83,7 @@ def _categorize_error(msg: Optional[str]) -> str:
 @router.get("/{project_id}/stats", response_model=ProjectStats)
 async def get_project_stats(
     project_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
     date_range: Optional[str] = Query(
         None, description="Date range filter: 7d, 30d, 90d, or all (default: all)"
@@ -127,8 +109,8 @@ async def get_project_stats(
 
     project_repo = ProjectRepository(session)
 
-    # Verify project exists
-    project = project_repo.get(project_id)
+    # Verify project exists and belongs to workspace
+    project = project_repo.get_by_id_workspace(project_id, auth.workspace_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -302,6 +284,7 @@ async def get_project_stats(
 @router.get("/{project_id}/analytics", response_model=ProjectAnalytics)
 async def get_project_analytics(
     project_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
     date_range: Optional[str] = Query(
         None, description="Date range filter: 7d, 30d, 90d, or all (default: all)"
@@ -319,7 +302,7 @@ async def get_project_analytics(
         return cached
 
     project_repo = ProjectRepository(session)
-    project = project_repo.get(project_id)
+    project = project_repo.get_by_id_workspace(project_id, auth.workspace_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -663,6 +646,7 @@ async def get_project_insights(
         False,
         description="Force regeneration of all insights (ignores cache)",
     ),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
@@ -705,14 +689,9 @@ async def get_project_insights(
     from catsyphon.db.repositories import ProjectRepository
     from catsyphon.insights import ProjectInsightsGenerator
 
-    workspace_id = _get_default_workspace_id(session)
-
-    if workspace_id is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
-
-    # Get project
+    # Get project with workspace validation
     project_repo = ProjectRepository(session)
-    project = project_repo.get(project_id)
+    project = project_repo.get_by_id_workspace(project_id, auth.workspace_id)
 
     if not project:
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
@@ -734,7 +713,7 @@ async def get_project_insights(
         session=session,
         date_range=date_range,
         include_summary=include_summary,
-        workspace_id=workspace_id,
+        workspace_id=auth.workspace_id,
         force_regenerate=force_regenerate,
     )
 
@@ -753,6 +732,7 @@ async def get_project_health_report(
         None,
         description="Filter by developer username",
     ),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """
@@ -777,14 +757,9 @@ async def get_project_health_report(
     from catsyphon.db.repositories import ProjectRepository
     from catsyphon.insights import HealthReportGenerator
 
-    # Get workspace_id
-    workspace_id = _get_default_workspace_id(session)
-    if not workspace_id:
-        raise HTTPException(status_code=404, detail="No workspace found")
-
-    # Verify project exists
+    # Verify project exists and belongs to workspace
     project_repo = ProjectRepository(session)
-    project = project_repo.get(project_id)
+    project = project_repo.get_by_id_workspace(project_id, auth.workspace_id)
 
     if not project:
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
@@ -799,7 +774,7 @@ async def get_project_health_report(
     report = generator.generate(
         project_id=project_id,
         session=session,
-        workspace_id=workspace_id,
+        workspace_id=auth.workspace_id,
         date_range=date_range,
         developer_filter=developer,
     )
@@ -822,6 +797,7 @@ async def list_project_sessions(
     date_to: Optional[str] = Query(
         None, description="Filter sessions to this date (ISO format: YYYY-MM-DD)"
     ),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> list[ProjectSession]:
     """
@@ -839,15 +815,10 @@ async def list_project_sessions(
 
     project_repo = ProjectRepository(session)
 
-    # Verify project exists
-    project = project_repo.get(project_id)
+    # Verify project exists and belongs to workspace
+    project = project_repo.get_by_id_workspace(project_id, auth.workspace_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-
-    # Get workspace ID
-    workspace_id = _get_default_workspace_id(session)
-    if workspace_id is None:
-        return []
 
     # Build filters
     filters = {"project_id": project_id}
@@ -883,7 +854,7 @@ async def list_project_sessions(
     # Use hierarchical query
     repo = ConversationRepository(session)
     results = repo.get_with_counts_hierarchical(
-        workspace_id=workspace_id,
+        workspace_id=auth.workspace_id,
         **filters,
         limit=page_size,
         offset=(page - 1) * page_size,
@@ -935,6 +906,7 @@ async def list_project_sessions(
 @router.get("/{project_id}/files", response_model=list[ProjectFileAggregation])
 async def get_project_files(
     project_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> list[ProjectFileAggregation]:
     """
@@ -948,8 +920,8 @@ async def get_project_files(
     """
     project_repo = ProjectRepository(session)
 
-    # Verify project exists
-    project = project_repo.get(project_id)
+    # Verify project exists and belongs to workspace
+    project = project_repo.get_by_id_workspace(project_id, auth.workspace_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 

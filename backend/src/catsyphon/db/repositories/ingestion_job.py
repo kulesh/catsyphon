@@ -10,7 +10,7 @@ from sqlalchemy import and_, desc, func, text
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
-from catsyphon.models.db import IngestionJob
+from catsyphon.models.db import Conversation, IngestionJob, WatchConfiguration
 
 
 class IngestionJobRepository(BaseRepository[IngestionJob]):
@@ -727,5 +727,198 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         return (
             self.session.query(IngestionJob)
             .filter(IngestionJob.collector_id == collector_id)
+            .count()
+        )
+
+    # ==================== Workspace-Scoped Methods ====================
+    # These methods filter ingestion jobs by workspace through related entities
+    # (conversation, watch_configuration). Used for multi-tenant security.
+
+    def get_by_id_workspace(
+        self, id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> Optional[IngestionJob]:
+        """
+        Get a single ingestion job by ID with workspace validation.
+
+        This validates the job belongs to the workspace via either:
+        1. The conversation it created (conversation.workspace_id)
+        2. The watch configuration that triggered it (watch_config.workspace_id)
+
+        Args:
+            id: IngestionJob UUID
+            workspace_id: Workspace UUID for validation
+
+        Returns:
+            IngestionJob if found and belongs to workspace, None otherwise
+        """
+        # First try to validate via conversation
+        job_via_conv = (
+            self.session.query(IngestionJob)
+            .join(Conversation, IngestionJob.conversation_id == Conversation.id)
+            .filter(
+                IngestionJob.id == id,
+                Conversation.workspace_id == workspace_id,
+            )
+            .first()
+        )
+        if job_via_conv:
+            return job_via_conv
+
+        # Try via watch configuration
+        job_via_config = (
+            self.session.query(IngestionJob)
+            .join(
+                WatchConfiguration,
+                IngestionJob.source_config_id == WatchConfiguration.id,
+            )
+            .filter(
+                IngestionJob.id == id,
+                WatchConfiguration.workspace_id == workspace_id,
+            )
+            .first()
+        )
+        return job_via_config
+
+    def get_recent_by_workspace(
+        self,
+        workspace_id: uuid.UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[IngestionJob]:
+        """
+        Get recent ingestion jobs for a specific workspace.
+
+        Filters jobs that are associated with the workspace through either:
+        - The conversation they created
+        - The watch configuration that triggered them
+
+        Args:
+            workspace_id: Workspace UUID
+            limit: Maximum number of records (default: 50)
+            offset: Number of records to skip
+
+        Returns:
+            List of recent ingestion jobs in the workspace
+        """
+        # Get job IDs via conversations (use label for union compatibility)
+        conv_job_ids = (
+            self.session.query(IngestionJob.id.label("job_id"))
+            .join(Conversation, IngestionJob.conversation_id == Conversation.id)
+            .filter(Conversation.workspace_id == workspace_id)
+        )
+
+        # Get job IDs via watch configurations
+        config_job_ids = (
+            self.session.query(IngestionJob.id.label("job_id"))
+            .join(
+                WatchConfiguration,
+                IngestionJob.source_config_id == WatchConfiguration.id,
+            )
+            .filter(WatchConfiguration.workspace_id == workspace_id)
+        )
+
+        # Union of both
+        all_job_ids = conv_job_ids.union(config_job_ids).subquery()
+
+        return (
+            self.session.query(IngestionJob)
+            .filter(IngestionJob.id.in_(self.session.query(all_job_ids.c.job_id)))
+            .order_by(desc(IngestionJob.started_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def search_by_workspace(
+        self,
+        workspace_id: uuid.UUID,
+        source_type: Optional[str] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[IngestionJob]:
+        """
+        Search ingestion jobs within a specific workspace.
+
+        Args:
+            workspace_id: Workspace UUID (required)
+            source_type: Filter by source type
+            status: Filter by status
+            start_date: Filter by start date (inclusive)
+            end_date: Filter by end date (inclusive)
+            limit: Maximum number of records
+            offset: Number of records to skip
+
+        Returns:
+            List of matching ingestion jobs in the workspace
+        """
+        # Get workspace-scoped job IDs (use label for union compatibility)
+        conv_job_ids = (
+            self.session.query(IngestionJob.id.label("job_id"))
+            .join(Conversation, IngestionJob.conversation_id == Conversation.id)
+            .filter(Conversation.workspace_id == workspace_id)
+        )
+        config_job_ids = (
+            self.session.query(IngestionJob.id.label("job_id"))
+            .join(
+                WatchConfiguration,
+                IngestionJob.source_config_id == WatchConfiguration.id,
+            )
+            .filter(WatchConfiguration.workspace_id == workspace_id)
+        )
+        all_job_ids = conv_job_ids.union(config_job_ids).subquery()
+
+        # Build filter conditions
+        filters = [IngestionJob.id.in_(self.session.query(all_job_ids.c.job_id))]
+
+        if source_type:
+            filters.append(IngestionJob.source_type == source_type)
+        if status:
+            filters.append(IngestionJob.status == status)
+        if start_date:
+            filters.append(IngestionJob.started_at >= start_date)
+        if end_date:
+            filters.append(IngestionJob.started_at <= end_date)
+
+        return (
+            self.session.query(IngestionJob)
+            .filter(and_(*filters))
+            .order_by(desc(IngestionJob.started_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def count_by_workspace(self, workspace_id: uuid.UUID) -> int:
+        """
+        Count ingestion jobs for a workspace.
+
+        Args:
+            workspace_id: Workspace UUID
+
+        Returns:
+            Number of ingestion jobs in the workspace
+        """
+        # Get workspace-scoped job IDs (use label for union compatibility)
+        conv_job_ids = (
+            self.session.query(IngestionJob.id.label("job_id"))
+            .join(Conversation, IngestionJob.conversation_id == Conversation.id)
+            .filter(Conversation.workspace_id == workspace_id)
+        )
+        config_job_ids = (
+            self.session.query(IngestionJob.id.label("job_id"))
+            .join(
+                WatchConfiguration,
+                IngestionJob.source_config_id == WatchConfiguration.id,
+            )
+            .filter(WatchConfiguration.workspace_id == workspace_id)
+        )
+        all_job_ids = conv_job_ids.union(config_job_ids).subquery()
+
+        return (
+            self.session.query(IngestionJob)
+            .filter(IngestionJob.id.in_(self.session.query(all_job_ids.c.job_id)))
             .count()
         )

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.ingestion_job import IngestionJobRepository
+from catsyphon.models.db import Conversation
 from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 from catsyphon.pipeline.ingestion import StageMetrics, ingest_conversation
 
@@ -527,6 +528,7 @@ class TestIngestionJobAPIMetrics:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_conversation: Conversation,
     ):
         """Test that GET /ingestion/jobs/{id} includes metrics field."""
         repo = IngestionJobRepository(db_session)
@@ -536,6 +538,7 @@ class TestIngestionJobAPIMetrics:
             source_type="cli",
             status="success",
             started_at=started,
+            conversation_id=sample_conversation.id,  # Needed for workspace visibility
             metrics={
                 "deduplication_check_ms": 123.0,
                 "database_operations_ms": 456.0,
@@ -560,6 +563,7 @@ class TestIngestionJobAPIMetrics:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_conversation: Conversation,
     ):
         """Test that GET /ingestion/jobs includes metrics for all jobs."""
         repo = IngestionJobRepository(db_session)
@@ -569,6 +573,7 @@ class TestIngestionJobAPIMetrics:
             source_type="cli",
             status="success",
             started_at=started,
+            conversation_id=sample_conversation.id,  # Needed for workspace visibility
             metrics={"deduplication_check_ms": 100.0, "database_operations_ms": 200.0},
         )
         db_session.commit()
@@ -588,6 +593,7 @@ class TestIngestionJobAPIMetrics:
         self,
         api_client: TestClient,
         db_session: Session,
+        sample_conversation: Conversation,
     ):
         """Test job with empty metrics returns empty dict."""
         repo = IngestionJobRepository(db_session)
@@ -597,6 +603,7 @@ class TestIngestionJobAPIMetrics:
             source_type="cli",
             status="success",
             started_at=started,
+            conversation_id=sample_conversation.id,  # Needed for workspace visibility
             metrics={},  # Empty metrics
         )
         db_session.commit()

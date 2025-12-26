@@ -126,6 +126,32 @@ class DeveloperRepository(BaseRepository[Developer]):
         """
         return self.get_or_create(username, workspace_id, **kwargs)
 
+    def get_by_id_workspace(
+        self, id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> Optional[Developer]:
+        """
+        Get a single developer by ID with workspace validation.
+
+        This is the secure method for fetching a developer by ID,
+        ensuring the developer belongs to the specified workspace.
+        Use this instead of the base `get()` method for multi-tenant security.
+
+        Args:
+            id: Developer UUID
+            workspace_id: Workspace UUID for validation
+
+        Returns:
+            Developer instance if found and belongs to workspace, None otherwise
+        """
+        return (
+            self.session.query(Developer)
+            .filter(
+                Developer.id == id,
+                Developer.workspace_id == workspace_id,
+            )
+            .first()
+        )
+
     def get_by_workspace(
         self, workspace_id: uuid.UUID, limit: Optional[int] = None, offset: int = 0
     ) -> List[Developer]:
