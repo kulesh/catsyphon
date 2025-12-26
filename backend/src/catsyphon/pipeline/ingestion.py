@@ -1021,6 +1021,12 @@ def ingest_conversation(
                     "code_changes": code_changes_json,
                     "entities": msg.entities,
                     "extra_data": extra_data,
+                    # Phase 0: Type system alignment with aiobscura
+                    "author_role": msg.author_role,
+                    "message_type": msg.message_type,
+                    "emitted_at": msg.emitted_at,
+                    "observed_at": msg.observed_at,
+                    "raw_data": msg.raw_data,
                 }
             )
 
@@ -1320,6 +1326,12 @@ def _append_messages_incremental(
                 "code_changes": code_changes_json,
                 "entities": msg.entities,
                 "extra_data": extra_data,
+                # Phase 0: Type system alignment with aiobscura
+                "author_role": msg.author_role,
+                "message_type": msg.message_type,
+                "emitted_at": msg.emitted_at,
+                "observed_at": msg.observed_at,
+                "raw_data": msg.raw_data,
             }
         )
 
@@ -1571,6 +1583,12 @@ def ingest_messages_incremental(
                     "code_changes": code_changes_json,
                     "entities": msg.entities,
                     "extra_data": extra_data,
+                    # Phase 0: Type system alignment with aiobscura
+                    "author_role": msg.author_role,
+                    "message_type": msg.message_type,
+                    "emitted_at": msg.emitted_at,
+                    "observed_at": msg.observed_at,
+                    "raw_data": msg.raw_data,
                 }
             )
 

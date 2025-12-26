@@ -1,0 +1,453 @@
+// CatSyphon Telemetry Protocol
+// Canonical schema for coding assistant session data
+//
+// This schema defines the wire format for aiobscura → CatSyphon communication.
+// It is designed to match aiobscura's type system exactly.
+
+syntax = "proto3";
+
+package catsyphon.telemetry.v1;
+
+option go_package = "github.com/kulesh/catsyphon/proto/telemetry/v1;telemetryv1";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// SessionIngestion is the primary service for pushing coding session data.
+// This is a custom gRPC service (not OTLP) optimized for our domain.
+service SessionIngestion {
+  // ExportSessions sends a batch of sessions in a single request.
+  // Use for small to medium batches (< 1000 messages total).
+  rpc ExportSessions(ExportSessionsRequest) returns (ExportSessionsResponse);
+
+  // ExportSessionsStream sends sessions as a stream.
+  // Use for large sessions or continuous sync scenarios.
+  rpc ExportSessionsStream(stream SessionBatch) returns (ExportSessionsResponse);
+}
+
+// =============================================================================
+// Request/Response Messages
+// =============================================================================
+
+message ExportSessionsRequest {
+  // Collector identification and authentication context
+  CollectorInfo collector = 1;
+
+  // Unique batch ID for idempotency (UUID)
+  // If the same batch_id is received twice, return cached response
+  string batch_id = 2;
+
+  // Sessions to ingest
+  repeated Session sessions = 3;
+}
+
+message SessionBatch {
+  // Used in streaming mode - each batch contains one or more sessions
+  repeated Session sessions = 1;
+}
+
+message ExportSessionsResponse {
+  // Echo back the batch_id for correlation
+  string batch_id = 1;
+
+  // Overall status
+  BatchStatus status = 2;
+
+  // Per-session results
+  repeated SessionResult results = 3;
+
+  // Aggregate metrics
+  BatchMetrics metrics = 4;
+}
+
+message SessionResult {
+  // Original session ID from the request
+  string session_id = 1;
+
+  // CatSyphon-assigned UUID (for new sessions)
+  string catsyphon_id = 2;
+
+  // Outcome for this session
+  SessionStatus status = 3;
+
+  // If status is FAILED, contains error details
+  Error error = 4;
+
+  // Counts
+  int32 messages_ingested = 5;
+  int32 threads_ingested = 6;
+}
+
+message BatchMetrics {
+  // Processing time in milliseconds
+  int64 processing_time_ms = 1;
+
+  // Counts
+  int32 sessions_created = 2;
+  int32 sessions_updated = 3;
+  int32 sessions_duplicate = 4;
+  int32 sessions_failed = 5;
+  int32 total_messages = 6;
+}
+
+message Error {
+  // Machine-readable error code
+  ErrorCode code = 1;
+
+  // Human-readable message
+  string message = 2;
+
+  // Field path if validation error (e.g., "sessions[0].threads[1].messages[3].author_role")
+  string field = 3;
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum BatchStatus {
+  BATCH_STATUS_UNSPECIFIED = 0;
+  BATCH_STATUS_ACCEPTED = 1;      // All sessions processed successfully
+  BATCH_STATUS_PARTIAL = 2;       // Some sessions failed
+  BATCH_STATUS_REJECTED = 3;      // All sessions failed
+}
+
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_CREATED = 1;     // New session inserted
+  SESSION_STATUS_UPDATED = 2;     // Existing session updated with new messages
+  SESSION_STATUS_DUPLICATE = 3;   // Session already exists, no changes
+  SESSION_STATUS_FAILED = 4;      // Processing failed
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_VALIDATION = 1;      // Invalid field value
+  ERROR_CODE_DUPLICATE = 2;       // Duplicate detected
+  ERROR_CODE_NOT_FOUND = 3;       // Referenced entity not found
+  ERROR_CODE_INTERNAL = 4;        // Server-side error
+}
+
+// Author role - who produced this message
+// Matches aiobscura's AuthorRole enum exactly
+enum AuthorRole {
+  AUTHOR_ROLE_UNSPECIFIED = 0;
+  AUTHOR_ROLE_HUMAN = 1;          // The real person writing prompts
+  AUTHOR_ROLE_CALLER = 2;         // CLI or parent assistant invoking session
+  AUTHOR_ROLE_ASSISTANT = 3;      // The coding assistant responding
+  AUTHOR_ROLE_AGENT = 4;          // Subprocess spawned by assistant
+  AUTHOR_ROLE_TOOL = 5;           // Tool execution (Bash, Read, Edit, etc.)
+  AUTHOR_ROLE_SYSTEM = 6;         // Internal events, snapshots, context loading
+}
+
+// Message type - what kind of message is this
+// Matches aiobscura's MessageType enum exactly
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_PROMPT = 1;        // Human or caller input
+  MESSAGE_TYPE_RESPONSE = 2;      // Assistant text response
+  MESSAGE_TYPE_TOOL_CALL = 3;     // Tool invocation request
+  MESSAGE_TYPE_TOOL_RESULT = 4;   // Tool execution result
+  MESSAGE_TYPE_PLAN = 5;          // Planning content
+  MESSAGE_TYPE_SUMMARY = 6;       // Summarized content
+  MESSAGE_TYPE_CONTEXT = 7;       // Context/system information
+  MESSAGE_TYPE_ERROR = 8;         // Error message
+}
+
+// Thread type - categorizes conversation flows
+enum ThreadType {
+  THREAD_TYPE_UNSPECIFIED = 0;
+  THREAD_TYPE_MAIN = 1;           // Primary human-assistant conversation
+  THREAD_TYPE_AGENT = 2;          // Spawned agent subprocess
+  THREAD_TYPE_BACKGROUND = 3;     // Background operations
+}
+
+// Coding assistant product
+enum Assistant {
+  ASSISTANT_UNSPECIFIED = 0;
+  ASSISTANT_CLAUDE_CODE = 1;
+  ASSISTANT_CODEX = 2;
+  ASSISTANT_AIDER = 3;
+  ASSISTANT_CURSOR = 4;
+}
+
+// Session activity status
+enum ActivityStatus {
+  ACTIVITY_STATUS_UNSPECIFIED = 0;
+  ACTIVITY_STATUS_ACTIVE = 1;     // Recent activity
+  ACTIVITY_STATUS_INACTIVE = 2;   // No recent activity
+  ACTIVITY_STATUS_STALE = 3;      // Very old session
+}
+
+// Plan status
+enum PlanStatus {
+  PLAN_STATUS_UNSPECIFIED = 0;
+  PLAN_STATUS_ACTIVE = 1;
+  PLAN_STATUS_COMPLETED = 2;
+  PLAN_STATUS_ABANDONED = 3;
+}
+
+// =============================================================================
+// Core Domain Messages
+// =============================================================================
+
+// CollectorInfo identifies the collector sending data
+message CollectorInfo {
+  // Collector type (e.g., "aiobscura")
+  string type = 1;
+
+  // Collector version (e.g., "0.5.0")
+  string version = 2;
+
+  // Hostname of the machine running the collector
+  string hostname = 3;
+
+  // Collector UUID (assigned during registration)
+  string collector_id = 4;
+
+  // Workspace UUID (from collector registration)
+  string workspace_id = 5;
+
+  // Additional metadata
+  map<string, string> metadata = 6;
+}
+
+// Session is the primary unit of work - a single coding assistant session
+message Session {
+  // Session UUID from the source log
+  string id = 1;
+
+  // Which assistant product
+  Assistant assistant = 2;
+
+  // LLM model powering the session
+  BackingModel backing_model = 3;
+
+  // Project context
+  Project project = 4;
+
+  // Developer who initiated the session
+  Developer developer = 5;
+
+  // Timestamps (nanoseconds since Unix epoch)
+  int64 started_at_ns = 6;
+  int64 last_activity_at_ns = 7;
+
+  // Current status
+  ActivityStatus status = 8;
+
+  // Conversation threads (main + agents)
+  repeated Thread threads = 9;
+
+  // Associated plans
+  repeated Plan plans = 10;
+
+  // Git context at session start
+  GitContext git_context = 11;
+
+  // Additional metadata
+  map<string, string> metadata = 12;
+}
+
+// Thread represents a conversation flow within a session
+message Thread {
+  // Thread UUID
+  string id = 1;
+
+  // Parent thread ID (null for main thread)
+  optional string parent_thread_id = 2;
+
+  // Thread type
+  ThreadType type = 3;
+
+  // If agent thread, the message ID that spawned it
+  optional string spawned_by_message_id = 4;
+
+  // Messages in this thread
+  repeated Message messages = 5;
+
+  // Timestamps
+  int64 started_at_ns = 6;
+  optional int64 ended_at_ns = 7;
+  int64 last_activity_at_ns = 8;
+
+  // Additional metadata
+  map<string, string> metadata = 9;
+}
+
+// Message is the atomic unit of activity
+message Message {
+  // Sequence number within thread (1-indexed)
+  int32 seq = 1;
+
+  // Who produced this message
+  AuthorRole author_role = 2;
+
+  // Optional author name (for agents, tool names, etc.)
+  optional string author_name = 3;
+
+  // What kind of message
+  MessageType message_type = 4;
+
+  // Message content (text or JSON for structured content)
+  string content = 5;
+
+  // Timestamps
+  int64 emitted_at_ns = 6;         // When message was produced (from log)
+  int64 observed_at_ns = 7;        // When parsed into system
+
+  // Token usage (if available)
+  optional TokenUsage tokens = 8;
+
+  // Tool calls (for TOOL_CALL messages)
+  repeated ToolCall tool_calls = 9;
+
+  // Tool result (for TOOL_RESULT messages)
+  optional ToolResult tool_result = 10;
+
+  // Files touched in this message
+  repeated FileTouched files_touched = 11;
+
+  // Original JSON from source log (for lossless preservation)
+  bytes raw_data = 12;
+
+  // Additional metadata
+  map<string, string> metadata = 13;
+}
+
+// TokenUsage tracks LLM token consumption
+message TokenUsage {
+  int32 input_tokens = 1;
+  int32 output_tokens = 2;
+  int32 cache_creation_tokens = 3;
+  int32 cache_read_tokens = 4;
+}
+
+// ToolCall represents a tool invocation request
+message ToolCall {
+  // Tool call ID (for correlating with results)
+  string id = 1;
+
+  // Tool name (e.g., "Read", "Edit", "Bash")
+  string name = 2;
+
+  // Tool input parameters (JSON)
+  string input = 3;
+}
+
+// ToolResult represents tool execution output
+message ToolResult {
+  // Corresponding tool_call_id
+  string tool_call_id = 1;
+
+  // Result content (text or JSON)
+  string content = 2;
+
+  // Was the tool execution successful?
+  bool success = 3;
+
+  // Execution duration in milliseconds
+  optional int64 duration_ms = 4;
+}
+
+// FileTouched records file operations
+message FileTouched {
+  // File path
+  string path = 1;
+
+  // Type of change
+  FileChangeType change_type = 2;
+
+  // Line counts (for modifications)
+  int32 lines_added = 3;
+  int32 lines_deleted = 4;
+
+  // Timestamp of the change
+  int64 timestamp_ns = 5;
+}
+
+enum FileChangeType {
+  FILE_CHANGE_TYPE_UNSPECIFIED = 0;
+  FILE_CHANGE_TYPE_READ = 1;
+  FILE_CHANGE_TYPE_CREATED = 2;
+  FILE_CHANGE_TYPE_MODIFIED = 3;
+  FILE_CHANGE_TYPE_DELETED = 4;
+}
+
+// =============================================================================
+// Context Messages
+// =============================================================================
+
+// BackingModel identifies the LLM powering a session
+message BackingModel {
+  // Provider (e.g., "anthropic", "openai")
+  string provider = 1;
+
+  // Model ID (e.g., "claude-sonnet-4-20250514")
+  string model_id = 2;
+
+  // Display name (optional)
+  optional string display_name = 3;
+}
+
+// Project context
+message Project {
+  // Directory path
+  string path = 1;
+
+  // Project name (derived from path or explicit)
+  string name = 2;
+
+  // Additional metadata
+  map<string, string> metadata = 3;
+}
+
+// Developer identity
+message Developer {
+  // Username
+  string username = 1;
+
+  // Email (optional)
+  optional string email = 2;
+
+  // Additional metadata
+  map<string, string> metadata = 3;
+}
+
+// GitContext captures git state at session start
+message GitContext {
+  // Current branch
+  optional string branch = 1;
+
+  // Current commit SHA
+  optional string commit_sha = 2;
+
+  // Is working directory clean?
+  optional bool is_clean = 3;
+
+  // Remote URL
+  optional string remote_url = 4;
+}
+
+// Plan document
+message Plan {
+  // Plan UUID
+  string id = 1;
+
+  // File path
+  string path = 2;
+
+  // Plan title
+  optional string title = 3;
+
+  // Current status
+  PlanStatus status = 4;
+
+  // Plan content (markdown)
+  optional string content = 5;
+
+  // Timestamps
+  int64 created_at_ns = 6;
+  optional int64 updated_at_ns = 7;
+}

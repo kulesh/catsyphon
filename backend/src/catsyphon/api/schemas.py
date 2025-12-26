@@ -239,6 +239,68 @@ class MessageResponse(BaseModel):
     )
     stop_reason: Optional[str] = None  # end_turn, max_tokens, tool_use
 
+    # Phase 0: Type system alignment with aiobscura
+    author_role: Optional[str] = Field(
+        None,
+        description="AuthorRole: human, caller, assistant, agent, tool, system",
+    )
+    message_type: Optional[str] = Field(
+        None,
+        description="MessageType: prompt, response, tool_call, tool_result, plan, summary, context, error",
+    )
+    emitted_at: Optional[datetime] = Field(
+        None,
+        description="When message was produced by source (original timestamp)",
+    )
+    observed_at: Optional[datetime] = Field(
+        None,
+        description="When message was parsed/ingested into CatSyphon",
+    )
+    thread_id: Optional[UUID] = Field(
+        None,
+        description="Thread this message belongs to (for multi-thread conversations)",
+    )
+
+    class Config:
+        from_attributes = True
+
+
+class ThreadResponse(BaseModel):
+    """Response schema for Thread (Phase 0: Type system alignment)."""
+
+    id: UUID
+    conversation_id: UUID
+    parent_thread_id: Optional[UUID] = Field(
+        None,
+        description="Parent thread for nested agent conversations",
+    )
+    thread_type: str = Field(
+        "main",
+        description="ThreadType: main, agent, background",
+    )
+    spawned_by_message_id: Optional[UUID] = Field(
+        None,
+        description="Message that spawned this thread (for agent threads)",
+    )
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BackingModelResponse(BaseModel):
+    """Response schema for BackingModel (Phase 0: Type system alignment)."""
+
+    id: UUID
+    provider: str = Field(..., description="LLM provider (e.g., 'anthropic', 'openai')")
+    model_id: str = Field(..., description="Model identifier (e.g., 'claude-opus-4-5')")
+    display_name: Optional[str] = Field(
+        None,
+        description="Human-readable model name",
+    )
+    created_at: datetime
+
     class Config:
         from_attributes = True
 
@@ -317,6 +379,12 @@ class ConversationListItem(BaseModel):
     git_branch: Optional[str] = None  # Git branch active during session
     total_tokens: Optional[int] = None  # Sum of all message token usage
 
+    # Phase 0: Type system alignment with aiobscura
+    backing_model_id: Optional[UUID] = Field(
+        None,
+        description="ID of the LLM model used for this conversation",
+    )
+
     # Related objects (optional, for joins)
     project: Optional[ProjectResponse] = None
     developer: Optional[DeveloperResponse] = None
@@ -360,6 +428,16 @@ class ConversationDetail(ConversationListItem):
     compaction_events: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Context compaction events [{timestamp, trigger, pre_tokens}]",
+    )
+
+    # Phase 0: Type system alignment with aiobscura
+    threads: list[ThreadResponse] = Field(
+        default_factory=list,
+        description="Threads within this conversation (main, agent, background)",
+    )
+    backing_model: Optional[BackingModelResponse] = Field(
+        None,
+        description="LLM model used for this conversation",
     )
 
     class Config:
