@@ -105,6 +105,17 @@ class ParsedMessage:
     )
     thinking_metadata: Optional[dict] = None  # Thinking level and settings
 
+    # Phase 0: Type system alignment with aiobscura
+    # AuthorRole: human, caller, assistant, agent, tool, system
+    author_role: Optional[str] = None
+    # MessageType: prompt, response, tool_call, tool_result, plan, summary, context, error
+    message_type: Optional[str] = None
+    # Dual timestamps for accurate timeline reconstruction
+    emitted_at: Optional[datetime] = None  # When message was produced by source
+    observed_at: Optional[datetime] = None  # When message was parsed/ingested
+    # Lossless capture for reprocessing
+    raw_data: Optional[dict] = None  # Original message data
+
 
 @dataclass
 class ParsedConversation:

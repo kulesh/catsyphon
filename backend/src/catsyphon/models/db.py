@@ -45,6 +45,38 @@ class ConversationType(str, enum.Enum):
     OTHER = "other"  # Other types of sub-conversations
 
 
+class AuthorRole(str, enum.Enum):
+    """Role of the message author - aligned with aiobscura's type system."""
+
+    HUMAN = "human"  # Human user (previously 'user')
+    CALLER = "caller"  # CLI or parent process invoking the agent
+    ASSISTANT = "assistant"  # AI assistant response
+    AGENT = "agent"  # Subagent/delegated task
+    TOOL = "tool"  # Tool execution result
+    SYSTEM = "system"  # System message
+
+
+class MessageType(str, enum.Enum):
+    """Type of message - aligned with aiobscura's type system."""
+
+    PROMPT = "prompt"  # Human prompt/request
+    RESPONSE = "response"  # Assistant response
+    TOOL_CALL = "tool_call"  # Tool invocation
+    TOOL_RESULT = "tool_result"  # Tool execution result
+    PLAN = "plan"  # Planning/reasoning output
+    SUMMARY = "summary"  # Conversation summary
+    CONTEXT = "context"  # Context injection (system message)
+    ERROR = "error"  # Error message
+
+
+class ThreadType(str, enum.Enum):
+    """Type of conversation thread - aligned with aiobscura's type system."""
+
+    MAIN = "main"  # Primary conversation thread
+    AGENT = "agent"  # Spawned agent thread
+    BACKGROUND = "background"  # Background processing thread
+
+
 class Organization(Base):
     """Organization entity for multi-workspace companies."""
 
@@ -366,6 +398,14 @@ class Conversation(Base):
         String(50), nullable=False
     )  # 'claude-code', 'copilot', etc.
     agent_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # LLM model tracking (aligned with aiobscura)
+    backing_model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("backing_models.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     start_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -444,6 +484,9 @@ class Conversation(Base):
     epochs: Mapped[list["Epoch"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
+    threads: Mapped[list["Thread"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
+    )
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
@@ -453,6 +496,7 @@ class Conversation(Base):
     raw_logs: Mapped[list["RawLog"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
+    backing_model: Mapped[Optional["BackingModel"]] = relationship()
 
     def __repr__(self) -> str:
         return (
@@ -548,16 +592,52 @@ class Message(Base):
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
     )
+    thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("threads.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
+    # Legacy role field (kept for backward compatibility during migration)
     role: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # 'user', 'assistant', 'system'
+
+    # New type-safe fields aligned with aiobscura
+    author_role: Mapped[AuthorRole] = mapped_column(
+        Enum(
+            AuthorRole,
+            native_enum=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        server_default=AuthorRole.ASSISTANT.value,
+    )
+    message_type: Mapped[MessageType] = mapped_column(
+        Enum(
+            MessageType,
+            native_enum=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        server_default=MessageType.RESPONSE.value,
+    )
+
     content: Mapped[str] = mapped_column(Text, nullable=False)
     thinking_content: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
     )  # Claude's extended thinking (internal reasoning)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)  # order within epoch
+
+    # Dual timestamps aligned with aiobscura
+    emitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )  # When the message was produced
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )  # When the message was parsed/ingested
 
     # Tool usage
     tool_calls: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
@@ -573,6 +653,9 @@ class Message(Base):
     # Extracted entities
     entities: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
 
+    # Raw data for lossless capture (enables reprocessing)
+    raw_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
     extra_data: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
@@ -584,6 +667,7 @@ class Message(Base):
     # Relationships
     epoch: Mapped["Epoch"] = relationship(back_populates="messages")
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    thread: Mapped[Optional["Thread"]] = relationship(back_populates="messages")
 
     def __repr__(self) -> str:
         return (
@@ -647,6 +731,111 @@ class FileTouched(Base):
             f"<FileTouched(id={self.id}, "
             f"file_path={self.file_path!r}, "
             f"change_type={self.change_type})>"
+        )
+
+
+class Thread(Base):
+    """Thread within a conversation for tracking conversation flow hierarchy.
+
+    Aligned with aiobscura's Thread model - supports main, agent, and background
+    threads with parent-child relationships.
+    """
+
+    __tablename__ = "threads"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    parent_thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("threads.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    thread_type: Mapped[ThreadType] = mapped_column(
+        Enum(
+            ThreadType,
+            native_enum=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        server_default=ThreadType.MAIN.value,
+    )
+    spawned_by_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ended_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    extra_data: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Relationships
+    conversation: Mapped["Conversation"] = relationship(back_populates="threads")
+    parent_thread: Mapped[Optional["Thread"]] = relationship(
+        "Thread",
+        remote_side="Thread.id",
+        foreign_keys=[parent_thread_id],
+    )
+    messages: Mapped[list["Message"]] = relationship(back_populates="thread")
+
+    def __repr__(self) -> str:
+        return (
+            f"<Thread(id={self.id}, "
+            f"conversation_id={self.conversation_id}, "
+            f"type={self.thread_type})>"
+        )
+
+
+class BackingModel(Base):
+    """LLM model information for tracking provider and model versions.
+
+    Aligned with aiobscura's BackingModel - tracks which LLM was used for
+    cost analysis, capability tracking, and reproducibility.
+    """
+
+    __tablename__ = "backing_models"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    extra_data: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider", "model_id", name="uq_backing_model_provider_model"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<BackingModel(id={self.id}, "
+            f"provider={self.provider!r}, "
+            f"model_id={self.model_id!r})>"
         )
 
 

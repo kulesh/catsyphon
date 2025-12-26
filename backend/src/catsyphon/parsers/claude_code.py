@@ -669,6 +669,17 @@ class ClaudeCodeParser:
                 "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
             }
 
+        # Phase 0: Type system alignment with aiobscura
+        # Map role to author_role
+        author_role = self._map_role_to_author_role(role)
+
+        # Derive message_type from role and tool_calls
+        message_type = self._derive_message_type(role, tool_calls)
+
+        # Dual timestamps: emitted_at is when message was produced, observed_at is now
+        emitted_at = timestamp
+        observed_at = datetime.now()
+
         return ParsedMessage(
             role=role,
             content=text_content,
@@ -680,7 +691,61 @@ class ClaudeCodeParser:
             code_changes=code_changes,
             stop_reason=stop_reason,
             thinking_metadata=thinking_metadata,
+            author_role=author_role,
+            message_type=message_type,
+            emitted_at=emitted_at,
+            observed_at=observed_at,
+            raw_data=msg_data,
         )
+
+    def _map_role_to_author_role(self, role: str) -> str:
+        """
+        Map OpenAI-style role to aiobscura AuthorRole.
+
+        Mapping:
+        - user → human (human user input)
+        - assistant → assistant (LLM response)
+        - system → system (system prompts/context)
+
+        Args:
+            role: The message role (user, assistant, system)
+
+        Returns:
+            AuthorRole value as string
+        """
+        role_mapping = {
+            "user": "human",
+            "assistant": "assistant",
+            "system": "system",
+        }
+        return role_mapping.get(role, "assistant")
+
+    def _derive_message_type(self, role: str, tool_calls: list[ToolCall]) -> str:
+        """
+        Derive MessageType from role and tool_calls presence.
+
+        Logic:
+        - user role → prompt
+        - system role → context
+        - assistant with tool_calls → tool_call
+        - assistant without tool_calls → response
+
+        Args:
+            role: The message role
+            tool_calls: List of tool calls in the message
+
+        Returns:
+            MessageType value as string
+        """
+        if role == "user":
+            return "prompt"
+        elif role == "system":
+            return "context"
+        elif role == "assistant":
+            if tool_calls:
+                return "tool_call"
+            return "response"
+        return "response"
 
     def _extract_tool_call(
         self, tool_use_item: dict[str, Any], tool_result_map: dict[str, dict[str, Any]]
