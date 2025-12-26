@@ -10,6 +10,169 @@ Both products continue to work standalone; integration is opt-in.
 
 ---
 
+## Phase 0: Multi-Tenancy Security Fixes (Prerequisite)
+
+A security audit revealed that CatSyphon's multi-tenancy is schema-ready but not enforcement-ready. The following issues must be fixed before adding collector integration:
+
+### 0.1 Current State
+
+| Layer | Status | Issue |
+|-------|--------|-------|
+| Database Schema | ✅ Ready | Proper FK relationships, workspace_id columns |
+| Repository Layer | ⚠️ Partial | Methods exist but require callers to pass workspace_id |
+| API Layer | ❌ Critical | 12+ endpoints bypass workspace validation |
+| Authentication | ❌ Missing | Uses "first workspace" hack |
+
+**Attack Vector**: Anyone knowing a `conversation_id` can call `GET /conversations/{id}` and retrieve data from ANY workspace.
+
+### 0.2 API Endpoints to Fix
+
+**Priority 1 - Conversation Data Access:**
+```
+backend/src/catsyphon/api/routes/conversations.py
+  - GET /conversations/{id}         → Add workspace_id filter
+  - GET /conversations/{id}/messages → Add workspace_id filter
+
+backend/src/catsyphon/api/routes/canonical.py
+  - GET /conversations/{id}/canonical  → Add workspace_id filter
+  - PUT /conversations/{id}/canonical  → Add workspace_id filter
+  - POST /conversations/{id}/canonical/generate → Add workspace_id filter
+  - GET /conversations/{id}/canonical/status    → Add workspace_id filter
+```
+
+**Priority 2 - Project/Developer Access:**
+```
+backend/src/catsyphon/api/routes/projects.py
+  - GET /projects/{id}             → Add workspace_id filter
+  - PUT /projects/{id}             → Add workspace_id filter
+  - DELETE /projects/{id}          → Add workspace_id filter
+  - GET /projects/{id}/conversations → Add workspace_id filter
+  - GET /projects/{id}/developers  → Add workspace_id filter
+  - GET /projects/{id}/stats       → Add workspace_id filter
+```
+
+**Priority 3 - Ingestion Pipeline:**
+```
+backend/src/catsyphon/api/routes/ingestion.py
+  - GET /ingestion/jobs/{id}       → Add workspace_id filter
+  - DELETE /ingestion/jobs/{id}    → Add workspace_id filter
+```
+
+### 0.3 Authentication Context
+
+Create a proper authentication dependency that provides workspace context:
+
+**File:** `backend/src/catsyphon/api/auth.py`
+
+```python
+from fastapi import Depends, HTTPException, Header
+from uuid import UUID
+from typing import Optional
+
+class AuthContext:
+    """Authenticated request context."""
+    workspace_id: UUID
+    user_id: Optional[UUID]
+    collector_id: Optional[UUID]
+
+async def get_auth_context(
+    authorization: Optional[str] = Header(None),
+    x_workspace_id: Optional[str] = Header(None),
+) -> AuthContext:
+    """
+    Extract authentication context from request.
+
+    For now (development), accept X-Workspace-Id header.
+    Later, this will validate JWT tokens or API keys.
+    """
+    if x_workspace_id:
+        return AuthContext(workspace_id=UUID(x_workspace_id))
+
+    # For collector API keys (cs_xxx format)
+    if authorization and authorization.startswith("Bearer cs_"):
+        collector = await validate_collector_key(authorization[7:])
+        if collector:
+            return AuthContext(
+                workspace_id=collector.workspace_id,
+                collector_id=collector.id
+            )
+
+    raise HTTPException(
+        status_code=401,
+        detail="Missing or invalid authentication"
+    )
+```
+
+### 0.4 Updated Endpoint Pattern
+
+Before:
+```python
+@router.get("/conversations/{id}")
+async def get_conversation(
+    id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> ConversationResponse:
+    conversation = await repo.get(db, id)  # NO ISOLATION!
+    if not conversation:
+        raise HTTPException(404)
+    return conversation
+```
+
+After:
+```python
+@router.get("/conversations/{id}")
+async def get_conversation(
+    id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db)
+) -> ConversationResponse:
+    conversation = await repo.get_by_workspace(
+        db, id, workspace_id=auth.workspace_id
+    )
+    if not conversation:
+        raise HTTPException(404)  # Returns 404 even if exists in other workspace
+    return conversation
+```
+
+### 0.5 Repository Updates
+
+Add workspace-aware methods to repositories:
+
+```python
+class ConversationRepository:
+    async def get_by_workspace(
+        self,
+        db: AsyncSession,
+        id: UUID,
+        workspace_id: UUID
+    ) -> Optional[Conversation]:
+        """Get conversation only if it belongs to the workspace."""
+        stmt = select(Conversation).where(
+            Conversation.id == id,
+            Conversation.workspace_id == workspace_id
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+```
+
+### 0.6 Implementation Checklist
+
+```
+[ ] Create backend/src/catsyphon/api/auth.py
+[ ] Add get_by_workspace() to ConversationRepository
+[ ] Add get_by_workspace() to ProjectRepository
+[ ] Add get_by_workspace() to DeveloperRepository
+[ ] Add get_by_workspace() to IngestionJobRepository
+[ ] Update conversations.py endpoints (2 endpoints)
+[ ] Update canonical.py endpoints (4 endpoints)
+[ ] Update projects.py endpoints (6 endpoints)
+[ ] Update ingestion.py endpoints (2 endpoints)
+[ ] Add integration tests for cross-workspace access denial
+[ ] Remove _get_default_workspace_id() usage
+```
+
+---
+
 ## Shared: Protobuf Schema
 
 The canonical schema lives in CatSyphon and is copied/vendored to aiobscura:
@@ -531,28 +694,33 @@ enum Commands {
 
 ## Implementation Order
 
-### Week 1: CatSyphon Foundation
-1. [ ] Set up protobuf codegen
-2. [ ] Create Collector REST API (CRUD)
-3. [ ] Implement API key generation/validation
+### Phase 0: Security Foundation (CatSyphon)
+1. [ ] Create `backend/src/catsyphon/api/auth.py` with AuthContext
+2. [ ] Add `get_by_workspace()` to all repositories
+3. [ ] Update all API endpoints to use AuthContext
+4. [ ] Add cross-workspace access denial tests
+5. [ ] Remove `_get_default_workspace_id()` hack
 
-### Week 2: CatSyphon gRPC Server
-4. [ ] Create gRPC server skeleton
-5. [ ] Implement auth interceptor
-6. [ ] Implement SessionIngestion service
-7. [ ] Wire proto → existing ingestion pipeline
+### Phase 1: CatSyphon gRPC Foundation
+6. [ ] Set up protobuf codegen
+7. [ ] Create Collector REST API (CRUD)
+8. [ ] Implement API key generation/validation
+9. [ ] Create gRPC server skeleton
+10. [ ] Implement auth interceptor
+11. [ ] Implement SessionIngestion service
+12. [ ] Wire proto → existing ingestion pipeline
 
-### Week 3: aiobscura Client
-8. [ ] Vendor proto file, set up codegen
-9. [ ] Create gRPC client
-10. [ ] Implement internal → proto mapper
-11. [ ] Add export config to TOML
+### Phase 2: aiobscura Client
+13. [ ] Vendor proto file, set up codegen
+14. [ ] Create gRPC client
+15. [ ] Implement internal → proto mapper
+16. [ ] Add export config to TOML
+17. [ ] Add sync --export flag
+18. [ ] Add export command
 
-### Week 4: Integration
-12. [ ] Add sync --export flag
-13. [ ] Add export command
-14. [ ] End-to-end testing
-15. [ ] Documentation
+### Phase 3: Integration
+19. [ ] End-to-end testing
+20. [ ] Documentation
 
 ---
 
@@ -561,6 +729,7 @@ enum Commands {
 ### CatSyphon (new files)
 ```
 proto/catsyphon/telemetry/v1/sessions.proto     ✅ Already exists
+backend/src/catsyphon/api/auth.py               # Phase 0: Auth context
 backend/src/catsyphon/grpc/__init__.py
 backend/src/catsyphon/grpc/server.py
 backend/src/catsyphon/grpc/interceptors.py
@@ -569,6 +738,18 @@ backend/src/catsyphon/grpc/services/session_ingestion.py
 backend/src/catsyphon/grpc/generated/           (auto-generated)
 backend/src/catsyphon/api/routes/collectors.py
 scripts/generate_proto.sh
+```
+
+### CatSyphon (modified files - Phase 0 security fixes)
+```
+backend/src/catsyphon/db/repositories/conversation.py  # Add get_by_workspace()
+backend/src/catsyphon/db/repositories/project.py       # Add get_by_workspace()
+backend/src/catsyphon/db/repositories/developer.py     # Add get_by_workspace()
+backend/src/catsyphon/db/repositories/ingestion_job.py # Add get_by_workspace()
+backend/src/catsyphon/api/routes/conversations.py      # Use AuthContext
+backend/src/catsyphon/api/routes/canonical.py          # Use AuthContext
+backend/src/catsyphon/api/routes/projects.py           # Use AuthContext
+backend/src/catsyphon/api/routes/ingestion.py          # Use AuthContext
 ```
 
 ### aiobscura (new files)
