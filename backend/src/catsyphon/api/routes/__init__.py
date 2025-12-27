@@ -4,10 +4,12 @@ API routes for CatSyphon.
 
 from catsyphon.api.routes import (
     canonical,
+    collectors,
     conversations,
     ingestion,
     insights,
     metadata,
+    plans,
     projects,
     setup,
     stats,
@@ -17,10 +19,12 @@ from catsyphon.api.routes import (
 
 __all__ = [
     "canonical",
+    "collectors",
     "conversations",
     "ingestion",
     "insights",
     "metadata",
+    "plans",
     "projects",
     "setup",
     "stats",

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from catsyphon.api.routes import (
     canonical,
+    collectors,
     conversations,
     ingestion,
     insights,
@@ -143,6 +144,7 @@ async def ready() -> dict:
     return details
 
 
+app.include_router(collectors.router)  # /collectors/* endpoints
 app.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )
