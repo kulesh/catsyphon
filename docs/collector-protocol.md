@@ -104,6 +104,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
       "sequence": 1,
       "type": "session_start",
       "emitted_at": "2025-12-27T10:00:00.000Z",
+      "observed_at": "2025-12-27T10:00:00.050Z",
       "data": {
         "agent_type": "claude-code",
         "agent_version": "1.0.45",
@@ -115,6 +116,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
       "sequence": 2,
       "type": "message",
       "emitted_at": "2025-12-27T10:00:01.000Z",
+      "observed_at": "2025-12-27T10:00:01.050Z",
       "data": {
         "author_role": "human",
         "message_type": "prompt",
@@ -125,6 +127,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
       "sequence": 3,
       "type": "message",
       "emitted_at": "2025-12-27T10:00:05.000Z",
+      "observed_at": "2025-12-27T10:00:05.050Z",
       "data": {
         "author_role": "assistant",
         "message_type": "response",
@@ -140,6 +143,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
       "sequence": 4,
       "type": "tool_call",
       "emitted_at": "2025-12-27T10:00:06.000Z",
+      "observed_at": "2025-12-27T10:00:06.050Z",
       "data": {
         "tool_name": "Read",
         "tool_use_id": "toolu_abc123",
@@ -150,6 +154,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
       "sequence": 5,
       "type": "tool_result",
       "emitted_at": "2025-12-27T10:00:07.000Z",
+      "observed_at": "2025-12-27T10:00:07.050Z",
       "data": {
         "tool_use_id": "toolu_abc123",
         "success": true,
@@ -265,6 +270,7 @@ All events share a common envelope with type-specific data. The schema aligns wi
   "sequence": 1,
   "type": "message",
   "emitted_at": "2025-12-27T10:00:01.000Z",
+  "observed_at": "2025-12-27T10:00:01.050Z",
   "data": { ... }
 }
 ```
@@ -273,10 +279,29 @@ All events share a common envelope with type-specific data. The schema aligns wi
 |-------|------|-------------|
 | `sequence` | integer | Monotonic sequence number (1-based) |
 | `type` | string | Event type (see table above) |
-| `emitted_at` | ISO 8601 | When the event was produced by the source |
+| `emitted_at` | ISO 8601 | When the event was originally produced by the source (from logs) |
+| `observed_at` | ISO 8601 | When the collector (parser) observed the event |
 | `data` | object | Type-specific payload |
 
-Note: `observed_at` is set server-side when the event is received.
+### Timestamp Semantics
+
+Events flow through a pipeline where each stage can record when it observed the event:
+
+```
+Source (Claude/Codex logs)  →  Parser (aiobscura/watcher)  →  CatSyphon API  →  Storage
+        emitted_at                   observed_at                server_received_at
+```
+
+| Timestamp | Set By | Description |
+|-----------|--------|-------------|
+| `emitted_at` | Source | When the event was originally produced (inferred from log timestamps) |
+| `observed_at` | Collector | When the parser/collector first observed the event |
+| `server_received_at` | Server | When CatSyphon API received the event (set automatically) |
+
+This chain enables:
+- **Latency debugging**: Identify delays between source → collector → server
+- **Causality tracking**: Preserve the temporal ordering of observations
+- **Pipeline monitoring**: Measure end-to-end ingestion latency
 
 ### Message Event Data
 
@@ -492,10 +517,12 @@ class CatSyphonExporter:
 
     def on_message(self, message: Message):
         self.sequence += 1
+        observed_at = datetime.now(UTC).isoformat()
         self.buffer.append({
             "sequence": self.sequence,
             "type": "message",
             "emitted_at": message.emitted_at.isoformat(),
+            "observed_at": observed_at,  # When we (the collector) observed it
             "data": {
                 "author_role": message.author_role,
                 "message_type": message.message_type,
@@ -596,7 +623,7 @@ None required - uses existing schema:
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["sequence", "type", "emitted_at", "data"],
+        "required": ["sequence", "type", "emitted_at", "observed_at", "data"],
         "properties": {
           "sequence": {
             "type": "integer",
@@ -611,7 +638,12 @@ None required - uses existing schema:
           "emitted_at": {
             "type": "string",
             "format": "date-time",
-            "description": "When the event was produced by the source"
+            "description": "When the event was originally produced by the source"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the collector observed the event"
           },
           "data": {
             "type": "object",
