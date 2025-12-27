@@ -1,5 +1,5 @@
 [tools]
-python = "3.11"  # Backend requirement
+python = "latest"
 node = "20"      # Frontend - LTS version
 uv = "latest"
 pnpm = "latest"  # Frontend package manager
@@ -8,3 +8,8 @@ pnpm = "latest"  # Frontend package manager
 # Ensure Python packages are installed in project
 _.python.venv = { path = "backend/.venv", create = true }
 
+
+[hooks]
+# Sandbox entry/exit handled by zsh chpwd hooks, not mise
+enter = 'true'
+leave = 'true'
