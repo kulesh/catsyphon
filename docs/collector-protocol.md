@@ -447,7 +447,7 @@ Events are deduplicated by `(session_id, sequence)`. If a batch includes events 
 
 ```
 1. Admin creates workspace (out of scope for this protocol)
-2. Admin/user calls POST /collect/register with workspace auth
+2. Admin/user calls POST /collectors with workspace auth
 3. Server returns collector_id + api_key
 4. Client stores api_key securely
 5. All subsequent calls use Authorization: Bearer {api_key}
@@ -474,7 +474,7 @@ Events are deduplicated by `(session_id, sequence)`. If a batch includes events 
 | 401 | Unauthorized | Check API key |
 | 403 | Forbidden | Wrong workspace |
 | 404 | Not found | Session doesn't exist |
-| 409 | Conflict | Sequence gap - call /status and resend |
+| 409 | Conflict | Sequence gap - call GET /collectors/sessions/{id} and resend |
 | 429 | Rate limited | Back off and retry |
 | 500 | Server error | Retry with backoff |
 
