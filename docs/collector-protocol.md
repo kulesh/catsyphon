@@ -103,7 +103,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
     {
       "sequence": 1,
       "type": "session_start",
-      "timestamp": "2025-12-27T10:00:00.000Z",
+      "emitted_at": "2025-12-27T10:00:00.000Z",
       "data": {
         "agent_type": "claude-code",
         "agent_version": "1.0.45",
@@ -114,18 +114,20 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
     {
       "sequence": 2,
       "type": "message",
-      "timestamp": "2025-12-27T10:00:01.000Z",
+      "emitted_at": "2025-12-27T10:00:01.000Z",
       "data": {
-        "role": "user",
+        "author_role": "human",
+        "message_type": "prompt",
         "content": "Help me implement authentication"
       }
     },
     {
       "sequence": 3,
       "type": "message",
-      "timestamp": "2025-12-27T10:00:05.000Z",
+      "emitted_at": "2025-12-27T10:00:05.000Z",
       "data": {
-        "role": "assistant",
+        "author_role": "assistant",
+        "message_type": "response",
         "content": "I'll help you implement authentication...",
         "model": "claude-sonnet-4-20250514",
         "token_usage": {
@@ -137,7 +139,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
     {
       "sequence": 4,
       "type": "tool_call",
-      "timestamp": "2025-12-27T10:00:06.000Z",
+      "emitted_at": "2025-12-27T10:00:06.000Z",
       "data": {
         "tool_name": "Read",
         "tool_use_id": "toolu_abc123",
@@ -147,7 +149,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
     {
       "sequence": 5,
       "type": "tool_result",
-      "timestamp": "2025-12-27T10:00:07.000Z",
+      "emitted_at": "2025-12-27T10:00:07.000Z",
       "data": {
         "tool_use_id": "toolu_abc123",
         "success": true,
@@ -243,12 +245,148 @@ Mark a session as completed (no more events expected).
 |------|-------------|-----------------|
 | `session_start` | Begin a new conversation | agent_type, agent_version |
 | `session_end` | Conversation ended | outcome |
-| `message` | User or assistant message | role, content |
+| `message` | User or assistant message | author_role, message_type, content |
 | `tool_call` | Tool invocation | tool_name, tool_use_id, parameters |
 | `tool_result` | Tool response | tool_use_id, success, result |
 | `thinking` | Extended thinking content | content |
 | `error` | Error occurred | error_type, message |
 | `metadata` | Session metadata update | (any key-value pairs) |
+
+---
+
+## Event Schema (Phase 0 Aligned)
+
+All events share a common envelope with type-specific data. The schema aligns with the aiobscura type system from Phase 0.
+
+### Common Event Envelope
+
+```json
+{
+  "sequence": 1,
+  "type": "message",
+  "emitted_at": "2025-12-27T10:00:01.000Z",
+  "data": { ... }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sequence` | integer | Monotonic sequence number (1-based) |
+| `type` | string | Event type (see table above) |
+| `emitted_at` | ISO 8601 | When the event was produced by the source |
+| `data` | object | Type-specific payload |
+
+Note: `observed_at` is set server-side when the event is received.
+
+### Message Event Data
+
+```json
+{
+  "author_role": "human" | "assistant" | "agent" | "tool" | "system",
+  "message_type": "prompt" | "response" | "tool_call" | "tool_result" | "context" | "error",
+  "content": "Help me implement authentication",
+  "model": "claude-sonnet-4-20250514",
+  "token_usage": {
+    "input_tokens": 1500,
+    "output_tokens": 250,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1200
+  },
+  "thinking_content": "Let me analyze the requirements...",
+  "thinking_metadata": {
+    "level": "high",
+    "disabled": false
+  },
+  "stop_reason": "end_turn",
+  "raw_data": { }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `author_role` | string | Yes | Who produced the message (Phase 0 AuthorRole) |
+| `message_type` | string | Yes | Semantic type of message (Phase 0 MessageType) |
+| `content` | string | Yes | Message text content |
+| `model` | string | No | LLM model used (assistant messages) |
+| `token_usage` | object | No | Token consumption stats |
+| `thinking_content` | string | No | Extended thinking blocks |
+| `thinking_metadata` | object | No | Thinking level settings |
+| `stop_reason` | string | No | Why generation stopped |
+| `raw_data` | object | No | Original message for lossless capture |
+
+### AuthorRole Values (Phase 0)
+
+| Value | Description |
+|-------|-------------|
+| `human` | Human user input |
+| `caller` | Calling system/API |
+| `assistant` | LLM response |
+| `agent` | Sub-agent response |
+| `tool` | Tool execution |
+| `system` | System prompts/context |
+
+### MessageType Values (Phase 0)
+
+| Value | Description |
+|-------|-------------|
+| `prompt` | User input/request |
+| `response` | LLM text response |
+| `tool_call` | Tool invocation |
+| `tool_result` | Tool output |
+| `plan` | Planning content |
+| `summary` | Conversation summary |
+| `context` | System context |
+| `error` | Error information |
+
+### Tool Call Event Data
+
+```json
+{
+  "tool_name": "Read",
+  "tool_use_id": "toolu_abc123",
+  "parameters": {
+    "file_path": "/src/auth.py"
+  }
+}
+```
+
+### Tool Result Event Data
+
+```json
+{
+  "tool_use_id": "toolu_abc123",
+  "success": true,
+  "result": "# auth.py contents...",
+  "error_message": null
+}
+```
+
+### Session Start Event Data
+
+```json
+{
+  "agent_type": "claude-code",
+  "agent_version": "1.0.45",
+  "working_directory": "/Users/dev/project",
+  "git_branch": "feature/auth",
+  "parent_session_id": null,
+  "context_semantics": {
+    "shares_parent_context": false,
+    "can_use_parent_tools": true
+  }
+}
+```
+
+### Session End Event Data
+
+```json
+{
+  "outcome": "success" | "partial" | "failed" | "abandoned",
+  "summary": "Implemented user authentication feature",
+  "total_messages": 42,
+  "total_tool_calls": 15
+}
+```
 
 ---
 
@@ -357,8 +495,14 @@ class CatSyphonExporter:
         self.buffer.append({
             "sequence": self.sequence,
             "type": "message",
-            "timestamp": message.timestamp.isoformat(),
-            "data": message.to_dict()
+            "emitted_at": message.emitted_at.isoformat(),
+            "data": {
+                "author_role": message.author_role,
+                "message_type": message.message_type,
+                "content": message.content,
+                "model": message.model,
+                "token_usage": message.token_usage,
+            }
         })
         if len(self.buffer) >= 10:  # Batch size
             self.flush()
@@ -452,7 +596,7 @@ None required - uses existing schema:
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["sequence", "type", "timestamp", "data"],
+        "required": ["sequence", "type", "emitted_at", "data"],
         "properties": {
           "sequence": {
             "type": "integer",
@@ -464,12 +608,14 @@ None required - uses existing schema:
                      "tool_call", "tool_result", "thinking",
                      "error", "metadata"]
           },
-          "timestamp": {
+          "emitted_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the event was produced by the source"
           },
           "data": {
-            "type": "object"
+            "type": "object",
+            "description": "Type-specific payload (see Event Schema section)"
           }
         }
       }
