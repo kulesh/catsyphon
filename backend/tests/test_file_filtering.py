@@ -186,11 +186,22 @@ class TestIsConversationalLog:
 class TestSkipTracking:
     """Tests for skip tracking in ingestion pipeline."""
 
-    def test_track_skip_creates_ingestion_job(self, tmp_path: Path) -> None:
+    def test_track_skip_creates_ingestion_job(
+        self, tmp_path: Path, db_session, monkeypatch
+    ) -> None:
         """Test that track_skip creates an ingestion_job record."""
-        from catsyphon.db.connection import db_session
+        from contextlib import contextmanager
+
         from catsyphon.db.repositories import IngestionJobRepository
+        from catsyphon.pipeline import failure_tracking
         from catsyphon.pipeline.failure_tracking import track_skip
+
+        # Mock db_session to use the test session
+        @contextmanager
+        def mock_db_session():
+            yield db_session
+
+        monkeypatch.setattr(failure_tracking, "db_session", mock_db_session)
 
         log_file = tmp_path / "skipped.jsonl"
         log_file.touch()
@@ -202,28 +213,37 @@ class TestSkipTracking:
             reason="Test skip reason",
         )
 
-        # Verify ingestion_job was created (query in new session)
-        with db_session() as session:
-            repo = IngestionJobRepository(session)
-            # Query for jobs with this specific file path
-            all_jobs = repo.get_recent(limit=1000)
-            jobs = [j for j in all_jobs if str(log_file) in (j.file_path or "")]
+        # Verify ingestion_job was created
+        repo = IngestionJobRepository(db_session)
+        all_jobs = repo.get_recent(limit=1000)
+        jobs = [j for j in all_jobs if str(log_file) in (j.file_path or "")]
 
-            assert (
-                len(jobs) == 1
-            ), f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
-            assert jobs[0].status == "skipped"
-            assert jobs[0].error_message == "Test skip reason"
-            assert str(log_file) in jobs[0].file_path
-            assert jobs[0].source_type == "cli"
-            assert jobs[0].messages_added == 0
-            assert jobs[0].incremental is False
+        assert (
+            len(jobs) == 1
+        ), f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
+        assert jobs[0].status == "skipped"
+        assert jobs[0].error_message == "Test skip reason"
+        assert str(log_file) in jobs[0].file_path
+        assert jobs[0].source_type == "cli"
+        assert jobs[0].messages_added == 0
+        assert jobs[0].incremental is False
 
-    def test_track_skip_with_created_by(self, tmp_path: Path) -> None:
+    def test_track_skip_with_created_by(
+        self, tmp_path: Path, db_session, monkeypatch
+    ) -> None:
         """Test that track_skip stores created_by for uploads."""
-        from catsyphon.db.connection import db_session
+        from contextlib import contextmanager
+
         from catsyphon.db.repositories import IngestionJobRepository
+        from catsyphon.pipeline import failure_tracking
         from catsyphon.pipeline.failure_tracking import track_skip
+
+        # Mock db_session to use the test session
+        @contextmanager
+        def mock_db_session():
+            yield db_session
+
+        monkeypatch.setattr(failure_tracking, "db_session", mock_db_session)
 
         log_file = tmp_path / "skipped.jsonl"
         log_file.touch()
@@ -237,16 +257,14 @@ class TestSkipTracking:
         )
 
         # Verify created_by was stored
-        with db_session() as session:
-            repo = IngestionJobRepository(session)
-            # Query for jobs with this specific file path
-            all_jobs = repo.get_recent(limit=1000)
-            jobs = [j for j in all_jobs if str(log_file) in (j.file_path or "")]
+        repo = IngestionJobRepository(db_session)
+        all_jobs = repo.get_recent(limit=1000)
+        jobs = [j for j in all_jobs if str(log_file) in (j.file_path or "")]
 
-            assert (
-                len(jobs) == 1
-            ), f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
-            assert jobs[0].created_by == "testuser"
+        assert (
+            len(jobs) == 1
+        ), f"Expected 1 job with file_path containing {log_file}, found {len(jobs)}"
+        assert jobs[0].created_by == "testuser"
 
 
 @pytest.fixture

@@ -687,6 +687,32 @@ class ConversationRepository(BaseRepository[Conversation]):
             .count()
         )
 
+    def get_by_id_workspace(
+        self, id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> Optional[Conversation]:
+        """
+        Get a single conversation by ID with workspace validation.
+
+        This is the secure method for fetching a conversation by ID,
+        ensuring the conversation belongs to the specified workspace.
+        Use this instead of the base `get()` method for multi-tenant security.
+
+        Args:
+            id: Conversation UUID
+            workspace_id: Workspace UUID for validation
+
+        Returns:
+            Conversation instance if found and belongs to workspace, None otherwise
+        """
+        return (
+            self.session.query(Conversation)
+            .filter(
+                Conversation.id == id,
+                Conversation.workspace_id == workspace_id,
+            )
+            .first()
+        )
+
     def get_by_collector(
         self,
         collector_id: uuid.UUID,

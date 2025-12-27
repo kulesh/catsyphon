@@ -2,6 +2,11 @@
 Canonical representation API routes.
 
 Endpoints for generating and retrieving canonical conversation representations.
+
+Security Note (Phase 1):
+    All endpoints now use AuthContext for workspace isolation. This fixes
+    a critical vulnerability where any conversation_id could be accessed
+    regardless of workspace ownership.
 """
 
 import uuid
@@ -11,6 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import (
     CanonicalConfig,
     CanonicalMetadata,
@@ -39,6 +45,7 @@ def get_canonical(
     force_regenerate: bool = Query(
         default=False, description="Force regeneration even if cached version exists"
     ),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> CanonicalResponse:
     """
@@ -94,9 +101,11 @@ def get_canonical(
             detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
         )
 
-    # Get conversation
+    # Get conversation with workspace validation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get(conversation_id)
+    conversation = conversation_repo.get_by_id_workspace(
+        conversation_id, auth.workspace_id
+    )
 
     if not conversation:
         raise HTTPException(
@@ -173,6 +182,7 @@ def get_canonical_narrative(
         default="semantic",
         description="Sampling strategy (semantic, epoch, chronological)",
     ),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> CanonicalNarrativeResponse:
     """
@@ -212,9 +222,11 @@ def get_canonical_narrative(
             detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
         )
 
-    # Get conversation
+    # Get conversation with workspace validation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get(conversation_id)
+    conversation = conversation_repo.get_by_id_workspace(
+        conversation_id, auth.workspace_id
+    )
 
     if not conversation:
         raise HTTPException(
@@ -229,7 +241,7 @@ def get_canonical_narrative(
 
     canonical = canonical_repo.get_or_generate(
         conversation=conversation,
-        canonical_type=canonical_type_enum,  # Fixed: use enum, not string
+        canonical_type=canonical_type_enum,
         canonicalizer=canonicalizer,
         children=conversation.children if hasattr(conversation, "children") else [],
     )
@@ -237,8 +249,8 @@ def get_canonical_narrative(
     return CanonicalNarrativeResponse(
         narrative=canonical.narrative,
         token_count=canonical.token_count,
-        canonical_type=canonical_type,  # Use the string parameter
-        version=canonical.canonical_version,  # Fixed: correct attribute name
+        canonical_type=canonical_type,
+        version=canonical.canonical_version,
     )
 
 
@@ -248,6 +260,7 @@ def get_canonical_narrative(
 def regenerate_canonical(
     conversation_id: UUID,
     request: RegenerateCanonicalRequest,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> CanonicalResponse:
     """
@@ -288,9 +301,11 @@ def regenerate_canonical(
             detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
         )
 
-    # Get conversation
+    # Get conversation with workspace validation
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get(conversation_id)
+    conversation = conversation_repo.get_by_id_workspace(
+        conversation_id, auth.workspace_id
+    )
 
     if not conversation:
         raise HTTPException(
@@ -348,6 +363,7 @@ def delete_canonical(
         default=None,
         description="Specific canonical type to delete, or all if not specified",
     ),
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> dict:
     """
@@ -360,6 +376,7 @@ def delete_canonical(
     Args:
         conversation_id: UUID of the conversation
         canonical_type: Optional specific type to delete
+        auth: Authentication context
         session: Database session
 
     Returns:
@@ -368,9 +385,11 @@ def delete_canonical(
     Raises:
         HTTPException 404: Conversation not found
     """
-    # Verify conversation exists
+    # Verify conversation exists and belongs to workspace
     conversation_repo = ConversationRepository(session)
-    conversation = conversation_repo.get(conversation_id)
+    conversation = conversation_repo.get_by_id_workspace(
+        conversation_id, auth.workspace_id
+    )
 
     if not conversation:
         raise HTTPException(

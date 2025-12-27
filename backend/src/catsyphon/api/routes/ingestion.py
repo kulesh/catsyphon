@@ -2,6 +2,10 @@
 Ingestion jobs API routes.
 
 Endpoints for querying ingestion job history and statistics.
+
+Security Note (Phase 1):
+    All endpoints now use AuthContext for workspace isolation. Ingestion jobs
+    are filtered by workspace through their related conversation or watch config.
 """
 
 from typing import Optional
@@ -10,12 +14,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import (
     IngestionJobResponse,
     IngestionStatsResponse,
 )
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import IngestionJobRepository
+from catsyphon.db.repositories import (
+    ConversationRepository,
+    IngestionJobRepository,
+    WatchConfigurationRepository,
+)
 
 router = APIRouter()
 
@@ -26,6 +35,7 @@ async def list_ingestion_jobs(
     status: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> list[IngestionJobResponse]:
     """
@@ -38,27 +48,21 @@ async def list_ingestion_jobs(
         page_size: Items per page (1-100)
 
     Returns:
-        List of ingestion jobs
+        List of ingestion jobs in the current workspace
     """
     repo = IngestionJobRepository(session)
 
     # Calculate offset
     offset = (page - 1) * page_size
 
-    # Apply filters
-    if source_type and status:
-        jobs = repo.search(
-            source_type=source_type,
-            status=status,
-            limit=page_size,
-            offset=offset,
-        )
-    elif source_type:
-        jobs = repo.get_by_source_type(source_type, limit=page_size, offset=offset)
-    elif status:
-        jobs = repo.get_by_status(status, limit=page_size, offset=offset)
-    else:
-        jobs = repo.get_recent(limit=page_size, offset=offset)
+    # Use workspace-filtered search
+    jobs = repo.search_by_workspace(
+        workspace_id=auth.workspace_id,
+        source_type=source_type,
+        status=status,
+        limit=page_size,
+        offset=offset,
+    )
 
     return [IngestionJobResponse.model_validate(j) for j in jobs]
 
@@ -66,6 +70,7 @@ async def list_ingestion_jobs(
 @router.get("/ingestion/jobs/{job_id}", response_model=IngestionJobResponse)
 async def get_ingestion_job(
     job_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> IngestionJobResponse:
     """
@@ -78,10 +83,10 @@ async def get_ingestion_job(
         Ingestion job details
 
     Raises:
-        HTTPException: 404 if job not found
+        HTTPException: 404 if job not found or not in workspace
     """
     repo = IngestionJobRepository(session)
-    job = repo.get(job_id)
+    job = repo.get_by_id_workspace(job_id, auth.workspace_id)
 
     if not job:
         raise HTTPException(status_code=404, detail="Ingestion job not found")
@@ -91,15 +96,21 @@ async def get_ingestion_job(
 
 @router.get("/ingestion/stats", response_model=IngestionStatsResponse)
 async def get_ingestion_stats(
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> IngestionStatsResponse:
     """
     Get overall ingestion statistics.
 
+    Note: Currently returns global stats. In Phase 2, this should be filtered
+    by workspace using repo.get_stats_by_workspace(auth.workspace_id).
+
     Returns:
         Ingestion statistics including counts by status, source type, and stage-level metrics
     """
     repo = IngestionJobRepository(session)
+    # TODO (Phase 2): Filter stats by workspace
+    # stats = repo.get_stats_by_workspace(auth.workspace_id)
     stats = repo.get_stats()
 
     return IngestionStatsResponse(
@@ -152,6 +163,7 @@ async def get_ingestion_stats(
 )
 async def get_conversation_ingestion_jobs(
     conversation_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> list[IngestionJobResponse]:
     """
@@ -162,7 +174,18 @@ async def get_conversation_ingestion_jobs(
 
     Returns:
         List of ingestion jobs for the conversation
+
+    Raises:
+        HTTPException: 404 if conversation not found or not in workspace
     """
+    # First validate conversation belongs to workspace
+    conv_repo = ConversationRepository(session)
+    conversation = conv_repo.get_by_id_workspace(conversation_id, auth.workspace_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Get jobs for the validated conversation
     repo = IngestionJobRepository(session)
     jobs = repo.get_by_conversation(conversation_id)
 
@@ -177,6 +200,7 @@ async def get_watch_config_ingestion_jobs(
     config_id: UUID,
     page: int = 1,
     page_size: int = 50,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> list[IngestionJobResponse]:
     """
@@ -189,12 +213,20 @@ async def get_watch_config_ingestion_jobs(
 
     Returns:
         List of ingestion jobs for the watch configuration
+
+    Raises:
+        HTTPException: 404 if watch config not found or not in workspace
     """
+    # First validate watch config belongs to workspace
+    config_repo = WatchConfigurationRepository(session)
+    config = config_repo.get(config_id)
+
+    if not config or config.workspace_id != auth.workspace_id:
+        raise HTTPException(status_code=404, detail="Watch configuration not found")
+
+    # Get jobs for the validated config
     repo = IngestionJobRepository(session)
-
-    # Calculate offset
     offset = (page - 1) * page_size
-
     jobs = repo.get_by_watch_config(config_id, limit=page_size, offset=offset)
 
     return [IngestionJobResponse.model_validate(j) for j in jobs]

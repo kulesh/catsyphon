@@ -70,6 +70,7 @@ def ingestion_jobs(
         ),
         repo.create(
             source_type="cli",
+            conversation_id=sample_conversation.id,  # Needed for workspace visibility
             status="failed",
             error_message="Parse error",
             processing_time_ms=500,
@@ -302,18 +303,17 @@ class TestGetConversationIngestionJobs:
 
         # Should include jobs with this conversation_id
         assert isinstance(data, list)
-        assert len(data) == 2  # watch and upload jobs have conversation_id
+        assert len(data) == 3  # watch, upload, and cli jobs have conversation_id
         assert all(j["conversation_id"] == str(sample_conversation.id) for j in data)
 
     def test_get_jobs_for_nonexistent_conversation(self, api_client: TestClient):
-        """Test retrieving jobs for a non-existent conversation."""
+        """Test retrieving jobs for a non-existent conversation returns 404."""
         fake_id = uuid.uuid4()
         response = api_client.get(f"/ingestion/jobs/conversation/{fake_id}")
 
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) == 0  # No jobs found
+        # Returns 404 to prevent ID enumeration (security best practice)
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
 
     def test_get_jobs_ordered_by_recent(
         self,
@@ -376,14 +376,13 @@ class TestGetWatchConfigIngestionJobs:
         assert all(j["source_config_id"] == str(watch_config.id) for j in data)
 
     def test_get_jobs_for_nonexistent_config(self, api_client: TestClient):
-        """Test retrieving jobs for a non-existent watch config."""
+        """Test retrieving jobs for a non-existent watch config returns 404."""
         fake_id = uuid.uuid4()
         response = api_client.get(f"/ingestion/jobs/watch-config/{fake_id}")
 
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) == 0  # No jobs found
+        # Returns 404 to prevent ID enumeration (security best practice)
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
 
     def test_get_jobs_pagination(
         self,
@@ -472,16 +471,41 @@ class TestIngestionJobsIntegration:
         assert data["processing_time_ms"] == 1500
         assert data["messages_added"] == 25
 
-    def test_filter_combinations(self, api_client: TestClient, db_session: Session):
+    def test_filter_combinations(
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_conversation: Conversation,
+    ):
         """Test various filter combinations."""
         repo = IngestionJobRepository(db_session)
         started = datetime.now(UTC)
 
-        # Create diverse jobs
-        repo.create(source_type="watch", status="success", started_at=started)
-        repo.create(source_type="watch", status="failed", started_at=started)
-        repo.create(source_type="upload", status="success", started_at=started)
-        repo.create(source_type="cli", status="duplicate", started_at=started)
+        # Create diverse jobs (all need conversation_id for workspace visibility)
+        repo.create(
+            source_type="watch",
+            status="success",
+            started_at=started,
+            conversation_id=sample_conversation.id,
+        )
+        repo.create(
+            source_type="watch",
+            status="failed",
+            started_at=started,
+            conversation_id=sample_conversation.id,
+        )
+        repo.create(
+            source_type="upload",
+            status="success",
+            started_at=started,
+            conversation_id=sample_conversation.id,
+        )
+        repo.create(
+            source_type="cli",
+            status="duplicate",
+            started_at=started,
+            conversation_id=sample_conversation.id,
+        )
         db_session.commit()
 
         # Test watch + success
@@ -588,9 +612,12 @@ class TestIngestionJobsEdgeCases:
         assert len(data) == 0  # No matching jobs
 
     def test_job_without_optional_fields(
-        self, api_client: TestClient, db_session: Session
+        self,
+        api_client: TestClient,
+        db_session: Session,
+        sample_conversation: Conversation,
     ):
-        """Test retrieving a job with minimal fields."""
+        """Test retrieving a job with minimal optional fields (but workspace-visible)."""
         repo = IngestionJobRepository(db_session)
         started = datetime.now(UTC)
 
@@ -598,7 +625,8 @@ class TestIngestionJobsEdgeCases:
             source_type="cli",
             status="success",
             started_at=started,
-            # No conversation_id, source_config_id, etc.
+            conversation_id=sample_conversation.id,  # Needed for workspace visibility
+            # Other optional fields remain null
         )
         db_session.commit()
 
@@ -607,6 +635,7 @@ class TestIngestionJobsEdgeCases:
         assert response.status_code == 200
         data = response.json()
         assert data["source_config_id"] is None
-        assert data["conversation_id"] is None
+        # conversation_id is set now for workspace visibility
+        assert data["conversation_id"] == str(sample_conversation.id)
         assert data["raw_log_id"] is None
         assert data["file_path"] is None

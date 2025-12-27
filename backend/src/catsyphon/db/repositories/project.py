@@ -83,6 +83,32 @@ class ProjectRepository(BaseRepository[Project]):
             project = self.create(name=name, workspace_id=workspace_id, **kwargs)
         return project
 
+    def get_by_id_workspace(
+        self, id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> Optional[Project]:
+        """
+        Get a single project by ID with workspace validation.
+
+        This is the secure method for fetching a project by ID,
+        ensuring the project belongs to the specified workspace.
+        Use this instead of the base `get()` method for multi-tenant security.
+
+        Args:
+            id: Project UUID
+            workspace_id: Workspace UUID for validation
+
+        Returns:
+            Project instance if found and belongs to workspace, None otherwise
+        """
+        return (
+            self.session.query(Project)
+            .filter(
+                Project.id == id,
+                Project.workspace_id == workspace_id,
+            )
+            .first()
+        )
+
     def get_by_workspace(
         self, workspace_id: uuid.UUID, limit: Optional[int] = None, offset: int = 0
     ) -> List[Project]:

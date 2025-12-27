@@ -203,6 +203,28 @@ def sample_workspace(
     return workspace
 
 
+@pytest.fixture(autouse=True)
+def ensure_default_workspace(
+    request: pytest.FixtureRequest, db_session: Session
+) -> Workspace | None:
+    """
+    Autouse fixture that ensures a default workspace exists for most tests.
+
+    This fixture creates a workspace for tests that need AuthContext to work.
+    It skips tests in test_api_setup.py which specifically test empty database states.
+
+    Returns:
+        The sample workspace, or None for setup tests
+    """
+    # Skip for setup tests that test empty database states
+    if "test_api_setup" in request.fspath.basename:
+        return None
+
+    # Get sample_workspace fixture for other tests
+    sample_workspace = request.getfixturevalue("sample_workspace")
+    return sample_workspace
+
+
 @pytest.fixture
 def sample_collector(
     db_session: Session, sample_workspace: Workspace
