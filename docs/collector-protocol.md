@@ -32,7 +32,7 @@ This document specifies the HTTP-based collector events protocol for streaming c
 │  (remote)   │     │   (local)   │
 └──────┬──────┘     └──────┬──────┘
        │                   │
-       │  POST /collect/events
+       │  POST /collectors/events
        │                   │
        └───────────┬───────┘
                    ▼
@@ -52,7 +52,7 @@ This document specifies the HTTP-based collector events protocol for streaming c
 
 ## API Endpoints
 
-### 1. POST /collect/register
+### 1. POST /collectors
 
 Register a new collector instance and obtain API credentials.
 
@@ -84,7 +84,7 @@ Register a new collector instance and obtain API credentials.
 
 ---
 
-### 2. POST /collect/events
+### 2. POST /collectors/events
 
 Submit a batch of events from an active session.
 
@@ -180,7 +180,7 @@ X-Idempotency-Key: uuid  // Optional, for retry safety
 
 ---
 
-### 3. GET /collect/status/{session_id}
+### 3. GET /collectors/sessions/{session_id}
 
 Check the last received sequence for a session (for resumption).
 
@@ -212,7 +212,7 @@ Authorization: Bearer cs_live_xxxxxxxxxxxx
 
 ---
 
-### 4. POST /collect/sessions/{session_id}/complete
+### 4. POST /collectors/sessions/{session_id}/complete
 
 Mark a session as completed (no more events expected).
 
@@ -321,12 +321,12 @@ Events are deduplicated by `(session_id, sequence)`. If a batch includes events 
 def send_with_retry(events, max_retries=3):
     for attempt in range(max_retries):
         try:
-            response = post("/collect/events", events)
+            response = post("/collectors/events", events)
             if response.status == 202:
                 return response
             if response.status == 409:
                 # Sequence gap - get status and resend from last_sequence
-                status = get(f"/collect/status/{session_id}")
+                status = get(f"/collectors/sessions/{session_id}")
                 events = filter_events_after(status.last_sequence)
                 continue
             if response.status >= 500:
@@ -366,7 +366,7 @@ class CatSyphonExporter:
     def flush(self):
         if not self.buffer:
             return
-        self.post("/collect/events", {
+        self.post("/collectors/events", {
             "session_id": self.session_id,
             "events": self.buffer
         })
@@ -378,7 +378,7 @@ class CatSyphonExporter:
 The existing watcher will be refactored to:
 1. Parse log file changes locally
 2. Convert to event stream
-3. POST to /collect/events instead of calling ingest_conversation()
+3. POST to /collectors/events instead of calling ingest_conversation()
 
 This makes the watcher a reference implementation for the protocol.
 
@@ -422,7 +422,7 @@ None required - uses existing schema:
 ## Migration Path
 
 ### Phase 1: HTTP API (This Epic)
-- Implement /collect/events, /collect/status, /collect/register
+- Implement /collectors, /collectors/events, /collectors/sessions/{id}
 - Refactor watcher to use HTTP API
 - Manual testing with curl/httpie
 
