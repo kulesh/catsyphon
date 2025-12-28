@@ -71,12 +71,12 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         path = Path(working_directory)
         project_name = path.name or working_directory
 
-        # Look for existing project
+        # Look for existing project by directory_path
         project = (
             self.session.query(Project)
             .filter(
                 Project.workspace_id == workspace_id,
-                Project.name == project_name,
+                Project.directory_path == working_directory,
             )
             .first()
         )
@@ -86,7 +86,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             project = Project(
                 workspace_id=workspace_id,
                 name=project_name,
-                extra_data={"source_path": working_directory},
+                directory_path=working_directory,
             )
             self.session.add(project)
             self.session.flush()
