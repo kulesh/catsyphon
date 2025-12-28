@@ -315,7 +315,8 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
         if existing:
             return existing, False
 
-        api_key, api_key_hash, api_key_prefix = api_key_generator()
+        # generate_api_key returns (full_key, prefix, hash)
+        api_key, api_key_prefix, api_key_hash = api_key_generator()
         collector = self.create_builtin(
             workspace_id=workspace_id,
             api_key_hash=api_key_hash,

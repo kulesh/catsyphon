@@ -524,8 +524,9 @@ class TestBuiltinCollector:
         """Test get_or_create_builtin creates new when none exists."""
         repo = CollectorRepository(db_session)
 
+        # Generator returns (full_key, prefix, hash) - same order as generate_api_key()
         def api_key_generator():
-            return ("cs_live_testkey123", "sha256_hash", "cs_live_tes")
+            return ("cs_live_testkey123", "cs_live_tes", "sha256_hash")
 
         collector, created = repo.get_or_create_builtin(
             workspace_id=sample_workspace.id,
@@ -553,9 +554,10 @@ class TestBuiltinCollector:
         )
         db_session.flush()
 
+        # Generator returns (full_key, prefix, hash) - same order as generate_api_key()
         def api_key_generator():
             # This should NOT be called
-            return ("cs_live_newkey", "new_hash", "cs_live_new")
+            return ("cs_live_newkey", "cs_live_new", "new_hash")
 
         collector, created = repo.get_or_create_builtin(
             workspace_id=sample_workspace.id,
