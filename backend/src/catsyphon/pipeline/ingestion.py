@@ -610,9 +610,15 @@ def ingest_conversation(
         metadata_fields["parser_version"] = parse_result.parser_version
         metadata_fields["parse_method"] = parse_result.parse_method
         metadata_fields["parse_change_type"] = parse_result.change_type
+        # Legacy warning tracking (backwards compatibility)
         metadata_fields["parse_warning_count"] = len(parse_result.warnings or [])
         if parse_result.warnings:
             metadata_fields["parse_warnings"] = parse_result.warnings
+        # New structured issue tracking
+        if parse_result.has_issues:
+            issues_dict = parse_result.issues_to_dict()
+            metadata_fields["parse_issues"] = issues_dict
+            metadata_fields["parse_error_count"] = issues_dict.get("error_count", 0)
         _merge_metrics(metrics, metadata_fields, parse_result.metrics)
 
     tracker = tracker or IngestionJobTracker(
