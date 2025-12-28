@@ -1,9 +1,33 @@
 # Collector Events Protocol Design
 
-**Status:** DRAFT - For Review
+**Status:** IMPLEMENTED (Phase 1 Complete)
 **Epic:** catsyphon-collector-api
 **Author:** Claude
 **Date:** 2025-12-27
+**Implementation:** 2025-12-28
+
+## Implementation Notes
+
+Phase 1 of the Collector Events API is complete:
+
+- ✅ `POST /collectors` - Register collector with API key generation
+- ✅ `POST /collectors/events` - Submit event batches with sequence tracking
+- ✅ `GET /collectors/sessions/{id}` - Check session status for resumption
+- ✅ `POST /collectors/sessions/{id}/complete` - Mark session as completed
+
+**Key Implementation Details:**
+- API keys use SHA-256 hashing (not bcrypt as originally proposed) for simplicity
+- Sequence gap detection and deduplication implemented
+- Event validation for type-specific required fields (e.g., `author_role` for messages)
+- Three-tier timestamps: `emitted_at`, `observed_at`, `server_received_at`
+
+**Files:**
+- Routes: `backend/src/catsyphon/api/routes/collectors.py`
+- Schemas: `backend/src/catsyphon/api/schemas.py` (collector section)
+- Repository: `backend/src/catsyphon/db/repositories/collector_session.py`
+- Tests: `backend/tests/test_api_collectors.py`
+
+---
 
 ## Overview
 
@@ -439,7 +463,7 @@ Events are deduplicated by `(session_id, sequence)`. If a batch includes events 
 ### API Keys
 
 - Format: `cs_{environment}_{random}` (e.g., `cs_live_a1b2c3d4e5f6`)
-- Stored: bcrypt hash in `collector_configs.api_key_hash`
+- Stored: SHA-256 hash in `collector_configs.api_key_hash`
 - Scoped: To a single workspace
 - Rotatable: Old keys can be revoked, new keys issued
 

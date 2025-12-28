@@ -123,12 +123,33 @@ pnpm tsc --noEmit               # Type check
 
 ---
 
+## Choose Your Path
+
+| I want to... | Start here |
+|-------------|------------|
+| **Analyze my own logs locally** | [Getting Started](docs/getting-started.md) |
+| **Deploy for my team/company** | [Enterprise Deployment](docs/enterprise-deployment.md) |
+| **Build a parser plugin** | [Parser SDK](docs/plugin-sdk.md) |
+| **Build a collector client** | [Collector SDK](docs/collector-sdk.md) |
+| **Contribute to CatSyphon** | [Contributing](CONTRIBUTING.md) |
+
+---
+
 ## Documentation
 
-- [Architecture](ARCHITECTURE.md) - System design and diagrams
-- [Plugin SDK](docs/plugin-sdk.md) - Add support for other agents
-- [API Reference](docs/api-reference.md) - REST API docs
-- [Contributing](AGENTS.md) - Issue tracking with bd/beads
+### For Users
+- [Getting Started](docs/getting-started.md) - Quick start for individual users
+- [Enterprise Deployment](docs/enterprise-deployment.md) - Team/organization setup
+
+### For Developers
+- [Parser SDK](docs/plugin-sdk.md) - Add support for other AI assistants
+- [Collector SDK](docs/collector-sdk.md) - Build HTTP clients for CatSyphon
+- [Collector Protocol](docs/collector-protocol.md) - Event streaming API specification
+- [API Reference](docs/api-reference.md) - REST API documentation
+
+### Reference
+- [Architecture](docs/ARCHITECTURE.md) - System design and diagrams
+- [Contributing](CONTRIBUTING.md) - Development workflow
 
 ---
 
