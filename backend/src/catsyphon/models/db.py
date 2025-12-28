@@ -198,8 +198,8 @@ class CollectorConfig(Base):
         String(255), nullable=False, unique=True, index=True
     )  # SHA-256 hash
     api_key_prefix: Mapped[str] = mapped_column(
-        String(10), nullable=False
-    )  # First 8 chars for display (e.g., "cs_abc123...")
+        String(16), nullable=False
+    )  # Prefix for display (e.g., "cs_live_xxxx")
 
     # Built-in collector flag (for local watcher)
     is_builtin: Mapped[bool] = mapped_column(

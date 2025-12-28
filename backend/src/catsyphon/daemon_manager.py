@@ -82,12 +82,29 @@ class DaemonEntry:
     restart_policy: RestartPolicy = field(default_factory=RestartPolicy)
 
 
+def _fetch_credentials_http(workspace_id: UUID, api_url: str) -> tuple[str, str]:
+    """
+    Make the actual HTTP request to fetch credentials.
+
+    This is run in a thread pool to avoid blocking the main request handler.
+    """
+    url = f"{api_url}/collectors/builtin/credentials"
+    params = {"workspace_id": str(workspace_id)}
+    response = requests.get(url, params=params, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data["collector_id"], data["api_key"]
+
+
 def fetch_builtin_credentials(
     workspace_id: UUID,
     api_url: str = "http://localhost:8000",
 ) -> tuple[str, str]:
     """
-    Fetch built-in collector credentials from the API.
+    Fetch built-in collector credentials via HTTP API.
+
+    Uses a ThreadPoolExecutor to avoid blocking the main request handler
+    when the server makes a request to itself.
 
     Args:
         workspace_id: Workspace UUID
@@ -99,17 +116,21 @@ def fetch_builtin_credentials(
     Raises:
         Exception: If credentials cannot be fetched
     """
-    url = f"{api_url.rstrip('/')}/collectors/builtin/credentials"
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
     try:
-        response = requests.get(
-            url,
-            params={"workspace_id": str(workspace_id)},
-            timeout=10,
+        # Run HTTP request in a separate thread to avoid blocking the main worker
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_fetch_credentials_http, workspace_id, api_url)
+            return future.result(timeout=35)  # Slightly longer than HTTP timeout
+    except FuturesTimeoutError:
+        raise Exception(
+            f"Timeout fetching builtin credentials from {api_url}"
         )
-        response.raise_for_status()
-        data = response.json()
-        return str(data["collector_id"]), data["api_key"]
-    except requests.RequestException as e:
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to fetch builtin credentials: {e}")
+        raise Exception(f"Failed to fetch builtin credentials: {e}") from e
+    except Exception as e:
         logger.error(f"Failed to fetch builtin credentials: {e}")
         raise Exception(f"Failed to fetch builtin credentials: {e}") from e
 
