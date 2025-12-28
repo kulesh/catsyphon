@@ -9,13 +9,22 @@ Handles collector events protocol operations:
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
-from catsyphon.models.db import AuthorRole, Conversation, Epoch, Message, MessageType
+from catsyphon.models.db import (
+    AuthorRole,
+    Conversation,
+    Developer,
+    Epoch,
+    Message,
+    MessageType,
+    Project,
+)
 
 
 class CollectorSessionRepository(BaseRepository[Conversation]):
@@ -41,6 +50,48 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             .filter(Conversation.collector_session_id == collector_session_id)
             .first()
         )
+
+    def _get_or_create_project(
+        self, workspace_id: uuid.UUID, working_directory: Optional[str]
+    ) -> Optional[Project]:
+        """
+        Get or create a project based on working directory.
+
+        Args:
+            workspace_id: Workspace UUID
+            working_directory: Working directory path
+
+        Returns:
+            Project if working_directory provided, None otherwise
+        """
+        if not working_directory:
+            return None
+
+        # Derive project name from working directory
+        path = Path(working_directory)
+        project_name = path.name or working_directory
+
+        # Look for existing project
+        project = (
+            self.session.query(Project)
+            .filter(
+                Project.workspace_id == workspace_id,
+                Project.name == project_name,
+            )
+            .first()
+        )
+
+        if not project:
+            # Create new project
+            project = Project(
+                workspace_id=workspace_id,
+                name=project_name,
+                extra_data={"source_path": working_directory},
+            )
+            self.session.add(project)
+            self.session.flush()
+
+        return project
 
     def get_or_create_session(
         self,
@@ -82,12 +133,16 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             if parent:
                 parent_conversation_id = parent.id
 
+        # Get or create project from working directory
+        project = self._get_or_create_project(workspace_id, working_directory)
+
         # Create new conversation
         now = datetime.now(timezone.utc)
         conversation = Conversation(
             workspace_id=workspace_id,
             collector_id=collector_id,
             collector_session_id=collector_session_id,
+            project_id=project.id if project else None,
             agent_type=agent_type,
             agent_version=agent_version,
             start_time=now,
