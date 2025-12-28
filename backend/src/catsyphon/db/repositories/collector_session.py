@@ -5,12 +5,18 @@ Handles collector events protocol operations:
 - Session creation/lookup by collector_session_id
 - Sequence tracking for resumption
 - Event deduplication
+
+Semantic Parity Notes:
+This repository mirrors the behavior of the direct file ingestion pipeline
+(pipeline/ingestion.py) to ensure conversations ingested via the Collector
+Events API have the same fields populated as those ingested from log files.
 """
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -19,12 +25,55 @@ from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import (
     AuthorRole,
     Conversation,
+    ConversationType,
     Developer,
     Epoch,
+    FileTouched,
     Message,
     MessageType,
     Project,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _extract_username_from_path(path: Optional[str]) -> Optional[str]:
+    """
+    Extract username from a file path.
+
+    Mirrors pipeline/ingestion.py:_extract_username_from_path for semantic parity.
+
+    Attempts to extract the username from common path patterns like:
+    - /Users/username/... (macOS)
+    - /home/username/... (Linux)
+    - C:\\Users\\username\\... (Windows)
+
+    Args:
+        path: File system path (e.g., working_directory)
+
+    Returns:
+        Extracted username or None if not found
+    """
+    if not path:
+        return None
+
+    # Normalize path separators
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+
+    # Check for /Users/username (macOS)
+    if len(parts) > 2 and parts[1].lower() == "users":
+        return parts[2]
+
+    # Check for /home/username (Linux)
+    if len(parts) > 2 and parts[1].lower() == "home":
+        return parts[2]
+
+    # Check for C:/Users/username (Windows, already normalized)
+    if len(parts) > 2 and parts[-3].lower() == "users":
+        return parts[-2]
+
+    return None
 
 
 class CollectorSessionRepository(BaseRepository[Conversation]):
@@ -93,6 +142,47 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
         return project
 
+    def _get_or_create_developer(
+        self, workspace_id: uuid.UUID, working_directory: Optional[str]
+    ) -> Optional[Developer]:
+        """
+        Get or create a developer based on username extracted from working directory.
+
+        Mirrors pipeline/ingestion.py:_resolve_project_and_developer for semantic parity.
+
+        Args:
+            workspace_id: Workspace UUID
+            working_directory: Working directory path to extract username from
+
+        Returns:
+            Developer if username can be extracted, None otherwise
+        """
+        username = _extract_username_from_path(working_directory)
+        if not username:
+            return None
+
+        # Look for existing developer
+        developer = (
+            self.session.query(Developer)
+            .filter(
+                Developer.workspace_id == workspace_id,
+                Developer.username == username,
+            )
+            .first()
+        )
+
+        if not developer:
+            # Create new developer
+            developer = Developer(
+                workspace_id=workspace_id,
+                username=username,
+            )
+            self.session.add(developer)
+            self.session.flush()
+            logger.debug(f"Created developer: {username} ({developer.id})")
+
+        return developer
+
     def get_or_create_session(
         self,
         collector_session_id: str,
@@ -105,9 +195,12 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         parent_session_id: Optional[str] = None,
         context_semantics: Optional[dict] = None,
         first_event_timestamp: Optional[datetime] = None,
+        agent_metadata: Optional[dict] = None,
     ) -> tuple[Conversation, bool]:
         """
         Get existing session or create new one.
+
+        Mirrors pipeline/ingestion.py:ingest_conversation for semantic parity.
 
         Args:
             collector_session_id: Original session_id from collector
@@ -120,6 +213,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             parent_session_id: Parent session ID for sub-agents
             context_semantics: Context sharing settings
             first_event_timestamp: Timestamp of first event (for accurate start_time)
+            agent_metadata: Additional agent metadata (for agent conversations)
 
         Returns:
             Tuple of (conversation, created) where created is True if new
@@ -130,38 +224,71 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
         # Look up parent conversation if parent_session_id provided
         parent_conversation_id = None
+        parent_conversation = None
         if parent_session_id:
-            parent = self.get_by_collector_session_id(parent_session_id)
-            if parent:
-                parent_conversation_id = parent.id
+            parent_conversation = self.get_by_collector_session_id(parent_session_id)
+            if parent_conversation:
+                parent_conversation_id = parent_conversation.id
+
+        # Determine conversation_type based on parent (mirrors ingestion.py logic)
+        # If has parent_session_id, this is an agent/sub-agent conversation
+        conversation_type = ConversationType.AGENT if parent_session_id else ConversationType.MAIN
 
         # Get or create project from working directory
         project = self._get_or_create_project(workspace_id, working_directory)
+
+        # Get or create developer from working directory (semantic parity)
+        developer = self._get_or_create_developer(workspace_id, working_directory)
+
+        # Inherit project/developer from parent if not resolved locally (semantic parity)
+        project_id = project.id if project else None
+        developer_id = developer.id if developer else None
+
+        if parent_conversation:
+            if project_id is None and parent_conversation.project_id:
+                project_id = parent_conversation.project_id
+                logger.debug(f"Inherited project_id={project_id} from parent conversation")
+            if developer_id is None and parent_conversation.developer_id:
+                developer_id = parent_conversation.developer_id
+                logger.debug(f"Inherited developer_id={developer_id} from parent conversation")
 
         # Use first event timestamp for start_time if provided, else now
         now = datetime.now(timezone.utc)
         start_time = first_event_timestamp or now
 
-        # Create new conversation
+        # Build extra_data (mirrors _build_extra_data in ingestion.py)
+        extra_data: dict[str, Any] = {
+            "session_id": collector_session_id,
+            "working_directory": working_directory,
+            "git_branch": git_branch,
+            "parent_session_id": parent_session_id,  # Store for deferred linking
+        }
+
+        # Build agent_metadata if this is an agent conversation
+        resolved_agent_metadata: Optional[dict[str, Any]] = None
+        if parent_session_id:
+            resolved_agent_metadata = agent_metadata or {}
+            resolved_agent_metadata["parent_session_id"] = parent_session_id
+
+        # Create new conversation (mirrors conversation_repo.create in ingestion.py)
         conversation = Conversation(
             workspace_id=workspace_id,
             collector_id=collector_id,
             collector_session_id=collector_session_id,
-            project_id=project.id if project else None,
+            project_id=project_id,
+            developer_id=developer_id,  # NEW: semantic parity
+            conversation_type=conversation_type,  # NEW: semantic parity
             agent_type=agent_type,
             agent_version=agent_version,
             start_time=start_time,
             status="active",
+            iteration_count=1,  # NEW: semantic parity (matches ingestion.py)
             last_event_sequence=0,
             server_received_at=now,
             parent_conversation_id=parent_conversation_id,
             context_semantics=context_semantics or {},
-            extra_data={
-                "session_id": collector_session_id,
-                "working_directory": working_directory,
-                "git_branch": git_branch,
-                "parent_session_id": parent_session_id,  # Store for deferred linking
-            },
+            agent_metadata=resolved_agent_metadata,  # NEW: semantic parity
+            extra_data=extra_data,
         )
         self.session.add(conversation)
         self.session.flush()
@@ -298,6 +425,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         Finds sessions that have parent_session_id in extra_data but no
         parent_conversation_id set (parent wasn't created yet when child was).
 
+        Also updates conversation_type and inherits project/developer from parent
+        for full semantic parity with direct ingestion.
+
         Args:
             workspace_id: Workspace to process
 
@@ -329,6 +459,23 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             parent = self.get_by_collector_session_id(parent_session_id)
             if parent:
                 orphan.parent_conversation_id = parent.id
+
+                # Update conversation_type to AGENT since it has a parent (semantic parity)
+                if orphan.conversation_type != ConversationType.AGENT:
+                    orphan.conversation_type = ConversationType.AGENT
+                    logger.debug(f"Updated conversation_type to AGENT for {orphan.id}")
+
+                # Inherit project and developer from parent if not set (semantic parity)
+                if orphan.project_id is None and parent.project_id:
+                    orphan.project_id = parent.project_id
+                    logger.debug(f"Inherited project_id from parent for {orphan.id}")
+                if orphan.developer_id is None and parent.developer_id:
+                    orphan.developer_id = parent.developer_id
+                    logger.debug(f"Inherited developer_id from parent for {orphan.id}")
+
+                # Update parent's children_count
+                parent.children_count = (parent.children_count or 0) + 1
+
                 linked_count += 1
 
         if linked_count > 0:
@@ -368,6 +515,8 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         """
         Add a message from a collector event.
 
+        Mirrors pipeline/ingestion.py message creation for semantic parity.
+
         Args:
             conversation: Parent conversation
             sequence: Event sequence number
@@ -396,6 +545,33 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         except ValueError:
             message_type = MessageType.RESPONSE
 
+        # Build tool_calls JSONB for tool_call events (semantic parity)
+        # Mirrors the tool_calls_json structure in ingestion.py
+        tool_calls: Optional[list[dict[str, Any]]] = None
+        if event_type == "tool_call":
+            tool_calls = [
+                {
+                    "tool_name": data.get("tool_name", "unknown"),
+                    "tool_use_id": data.get("tool_use_id"),
+                    "parameters": data.get("parameters", {}),
+                    "result": None,  # Will be updated when tool_result arrives
+                    "success": None,
+                    "timestamp": emitted_at.isoformat(),
+                }
+            ]
+
+        # Build extra_data for model and token_usage (semantic parity)
+        # Mirrors the extra_data structure in ingestion.py
+        extra_data: dict[str, Any] = {}
+        if data.get("model"):
+            extra_data["model"] = data["model"]
+        if data.get("token_usage"):
+            extra_data["token_usage"] = data["token_usage"]
+        if data.get("stop_reason"):
+            extra_data["stop_reason"] = data["stop_reason"]
+        if data.get("thinking_metadata"):
+            extra_data["thinking_metadata"] = data["thinking_metadata"]
+
         message = Message(
             epoch_id=epoch.id,
             conversation_id=conversation.id,
@@ -408,10 +584,55 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             author_role=author_role,
             message_type=message_type,
             thinking_content=data.get("thinking_content"),
+            tool_calls=tool_calls,  # NEW: semantic parity
+            extra_data=extra_data if extra_data else None,  # NEW: semantic parity
             raw_data=data,  # Store full event data for reference
         )
         self.session.add(message)
         return message
+
+    def add_file_touched(
+        self,
+        conversation: Conversation,
+        file_path: str,
+        change_type: str,
+        timestamp: datetime,
+        lines_added: int = 0,
+        lines_deleted: int = 0,
+    ) -> FileTouched:
+        """
+        Record a file that was touched during the conversation.
+
+        Mirrors pipeline/ingestion.py FileTouched creation for semantic parity.
+
+        Args:
+            conversation: Parent conversation
+            file_path: Path to the file
+            change_type: Type of change (read, write, create, delete)
+            timestamp: When the file was touched
+            lines_added: Number of lines added
+            lines_deleted: Number of lines deleted
+
+        Returns:
+            Created FileTouched instance
+        """
+        epoch = self._get_default_epoch(conversation)
+
+        file_touched = FileTouched(
+            conversation_id=conversation.id,
+            epoch_id=epoch.id,
+            file_path=file_path,
+            change_type=change_type,
+            timestamp=timestamp,
+            lines_added=lines_added,
+            lines_deleted=lines_deleted,
+        )
+        self.session.add(file_touched)
+
+        # Update denormalized count (semantic parity)
+        conversation.files_count = (conversation.files_count or 0) + 1
+
+        return file_touched
 
     def _derive_role(self, event_type: str, data: dict) -> str:
         """Derive message role from event type and data."""

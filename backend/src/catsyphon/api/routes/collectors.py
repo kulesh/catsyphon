@@ -278,6 +278,17 @@ def submit_events(
 
         # Track message-like events added
         messages_added = 0
+        files_touched = 0
+
+        # Tools that modify files (for FileTouched tracking)
+        # Maps tool_name -> change_type for semantic parity with direct ingestion
+        FILE_MODIFYING_TOOLS = {
+            "Edit": "write",
+            "Write": "write",
+            "NotebookEdit": "write",
+            "MultiEdit": "write",
+        }
+        FILE_READING_TOOLS = {"Read", "Glob", "Grep"}
 
         # Process new events
         warnings = []
@@ -299,6 +310,33 @@ def submit_events(
                     data=event.data.model_dump(exclude_none=True),
                 )
                 messages_added += 1
+
+                # Track file touches from tool_call events (semantic parity)
+                # Mirrors FileTouched creation in pipeline/ingestion.py
+                if event.type == "tool_call" and event.data.tool_name:
+                    tool_name = event.data.tool_name
+                    params = event.data.parameters or {}
+
+                    # Extract file_path from tool parameters
+                    file_path = params.get("file_path") or params.get("path")
+                    if file_path:
+                        if tool_name in FILE_MODIFYING_TOOLS:
+                            change_type = FILE_MODIFYING_TOOLS[tool_name]
+                            session_repo.add_file_touched(
+                                conversation=conversation,
+                                file_path=file_path,
+                                change_type=change_type,
+                                timestamp=event.emitted_at,
+                            )
+                            files_touched += 1
+                        elif tool_name in FILE_READING_TOOLS:
+                            session_repo.add_file_touched(
+                                conversation=conversation,
+                                file_path=file_path,
+                                change_type="read",
+                                timestamp=event.emitted_at,
+                            )
+                            files_touched += 1
 
             # Handle session_end
             if event.type == "session_end":
@@ -342,6 +380,7 @@ def submit_events(
             "events_received": len(sorted_events),
             "events_accepted": len(new_events),
             "events_deduplicated": len(sorted_events) - len(new_events),
+            "files_touched": files_touched,
             "session_created": created,
             "total_ms": processing_time_ms,
         }
