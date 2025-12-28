@@ -10,10 +10,12 @@ Implements the collector events protocol for aiobscura and watcher integration:
 
 import hashlib
 import hmac
+import logging
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
@@ -34,7 +36,9 @@ from catsyphon.db.repositories import (
     CollectorSessionRepository,
     WorkspaceRepository,
 )
-from catsyphon.models.db import CollectorConfig
+from catsyphon.models.db import CollectorConfig, IngestionJob
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collectors", tags=["collectors"])
 
@@ -200,95 +204,164 @@ def submit_events(
     Sequence gaps result in 409 Conflict - call GET /collectors/sessions/{id}
     to get the last received sequence and resend from there.
     """
+    start_time = time.time()
+    start_datetime = datetime.now(timezone.utc)
+
     collector = get_collector_from_auth(authorization, x_collector_id, db)
 
     session_repo = CollectorSessionRepository(db)
+    # Note: We create IngestionJob directly rather than using repository
+    # to avoid extra queries when we just need to insert
 
-    # Sort events by sequence
-    sorted_events = sorted(request.events, key=lambda e: e.sequence)
-
-    # Get or create session
-    first_event = sorted_events[0]
-    session_data = first_event.data
-
-    conversation, created = session_repo.get_or_create_session(
-        collector_session_id=request.session_id,
-        workspace_id=collector.workspace_id,
+    # Create ingestion job for tracking
+    ingestion_job = IngestionJob(
+        source_type="collector",
         collector_id=collector.id,
-        agent_type=session_data.agent_type or "unknown",
-        agent_version=session_data.agent_version,
-        working_directory=session_data.working_directory,
-        git_branch=session_data.git_branch,
-        parent_session_id=session_data.parent_session_id,
-        context_semantics=session_data.context_semantics,
+        status="processing",
+        started_at=start_datetime,
+        messages_added=0,
+        metrics={},
     )
+    db.add(ingestion_job)
+    db.flush()
 
-    # Check for sequence gap (only for existing sessions)
-    if not created:
-        gap = session_repo.check_sequence_gap(conversation, first_event.sequence)
-        if gap:
-            last_received, expected = gap
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=CollectorSequenceGapError(
-                    message=f"Expected sequence {expected}, got {first_event.sequence}",
-                    last_received_sequence=last_received,
-                    expected_sequence=expected,
-                ).model_dump(),
-            )
+    try:
+        # Sort events by sequence
+        sorted_events = sorted(request.events, key=lambda e: e.sequence)
 
-    # Filter duplicates
-    events_dict = [
-        {"sequence": e.sequence, "event": e} for e in sorted_events
-    ]
-    new_events = session_repo.filter_duplicate_sequences(conversation, events_dict)
+        # Get or create session
+        first_event = sorted_events[0]
+        session_data = first_event.data
 
-    # Process new events
-    warnings = []
-    for event_item in new_events:
-        event = event_item["event"]
-
-        # Skip session_start for existing sessions
-        if event.type == "session_start" and not created:
-            continue
-
-        # Add message for message-like events
-        if event.type in ("message", "tool_call", "tool_result", "thinking", "error"):
-            session_repo.add_message(
-                conversation=conversation,
-                sequence=event.sequence,
-                event_type=event.type,
-                emitted_at=event.emitted_at,
-                observed_at=event.observed_at,
-                data=event.data.model_dump(exclude_none=True),
-            )
-
-        # Handle session_end
-        if event.type == "session_end":
-            session_repo.complete_session(
-                conversation=conversation,
-                final_sequence=event.sequence,
-                outcome=event.data.outcome or "unknown",
-                summary=event.data.summary,
-            )
-
-    # Update sequence tracking
-    if new_events:
-        last_seq = max(e["sequence"] for e in new_events)
-        session_repo.update_sequence(
-            conversation=conversation,
-            last_sequence=last_seq,
-            event_count_delta=len(new_events),
+        conversation, created = session_repo.get_or_create_session(
+            collector_session_id=request.session_id,
+            workspace_id=collector.workspace_id,
+            collector_id=collector.id,
+            agent_type=session_data.agent_type or "unknown",
+            agent_version=session_data.agent_version,
+            working_directory=session_data.working_directory,
+            git_branch=session_data.git_branch,
+            parent_session_id=session_data.parent_session_id,
+            context_semantics=session_data.context_semantics,
         )
 
-    db.commit()
+        # Update ingestion job with conversation
+        ingestion_job.conversation_id = conversation.id
 
-    return CollectorEventsResponse(
-        accepted=len(new_events),
-        last_sequence=conversation.last_event_sequence,
-        conversation_id=conversation.id,
-        warnings=warnings,
-    )
+        # Check for sequence gap (only for existing sessions)
+        if not created:
+            gap = session_repo.check_sequence_gap(conversation, first_event.sequence)
+            if gap:
+                last_received, expected = gap
+                # Mark job as failed due to sequence gap
+                ingestion_job.status = "failed"
+                ingestion_job.error_message = f"Sequence gap: expected {expected}, got {first_event.sequence}"
+                ingestion_job.processing_time_ms = int((time.time() - start_time) * 1000)
+                ingestion_job.completed_at = datetime.now(timezone.utc)
+                db.commit()
+
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=CollectorSequenceGapError(
+                        message=f"Expected sequence {expected}, got {first_event.sequence}",
+                        last_received_sequence=last_received,
+                        expected_sequence=expected,
+                    ).model_dump(),
+                )
+
+        # Filter duplicates
+        events_dict = [
+            {"sequence": e.sequence, "event": e} for e in sorted_events
+        ]
+        new_events = session_repo.filter_duplicate_sequences(conversation, events_dict)
+
+        # Track message-like events added
+        messages_added = 0
+
+        # Process new events
+        warnings = []
+        for event_item in new_events:
+            event = event_item["event"]
+
+            # Skip session_start for existing sessions
+            if event.type == "session_start" and not created:
+                continue
+
+            # Add message for message-like events
+            if event.type in ("message", "tool_call", "tool_result", "thinking", "error"):
+                session_repo.add_message(
+                    conversation=conversation,
+                    sequence=event.sequence,
+                    event_type=event.type,
+                    emitted_at=event.emitted_at,
+                    observed_at=event.observed_at,
+                    data=event.data.model_dump(exclude_none=True),
+                )
+                messages_added += 1
+
+            # Handle session_end
+            if event.type == "session_end":
+                session_repo.complete_session(
+                    conversation=conversation,
+                    final_sequence=event.sequence,
+                    outcome=event.data.outcome or "unknown",
+                    summary=event.data.summary,
+                )
+
+        # Update sequence tracking
+        if new_events:
+            last_seq = max(e["sequence"] for e in new_events)
+            session_repo.update_sequence(
+                conversation=conversation,
+                last_sequence=last_seq,
+                event_count_delta=len(new_events),
+            )
+
+        # Calculate processing time
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        # Update ingestion job as successful
+        ingestion_job.status = "success"
+        ingestion_job.messages_added = messages_added
+        ingestion_job.processing_time_ms = processing_time_ms
+        ingestion_job.completed_at = datetime.now(timezone.utc)
+        ingestion_job.metrics = {
+            "events_received": len(sorted_events),
+            "events_accepted": len(new_events),
+            "events_deduplicated": len(sorted_events) - len(new_events),
+            "session_created": created,
+            "total_ms": processing_time_ms,
+        }
+
+        db.commit()
+
+        logger.debug(
+            f"Collector ingestion completed: job={ingestion_job.id}, "
+            f"conversation={conversation.id}, messages={messages_added}, "
+            f"time={processing_time_ms}ms"
+        )
+
+        return CollectorEventsResponse(
+            accepted=len(new_events),
+            last_sequence=conversation.last_event_sequence,
+            conversation_id=conversation.id,
+            warnings=warnings,
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already handled above)
+        raise
+    except Exception as e:
+        # Mark job as failed
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        ingestion_job.status = "failed"
+        ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
+        ingestion_job.processing_time_ms = processing_time_ms
+        ingestion_job.completed_at = datetime.now(timezone.utc)
+        db.commit()
+
+        logger.error(f"Collector ingestion failed: {e}", exc_info=True)
+        raise
 
 
 @router.get(
