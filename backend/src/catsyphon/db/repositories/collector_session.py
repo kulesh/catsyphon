@@ -472,9 +472,6 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                     orphan.developer_id = parent.developer_id
                     logger.debug(f"Inherited developer_id from parent for {orphan.id}")
 
-                # Update parent's children_count
-                parent.children_count = (parent.children_count or 0) + 1
-
                 linked_count += 1
 
         if linked_count > 0:
