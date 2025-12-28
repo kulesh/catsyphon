@@ -621,6 +621,7 @@ Modern coding agents like Claude Code support powerful extensibility:
 - **Sub-agents**: Specialized agents spawned for specific tasks
 - **Slash commands**: Custom prompts triggered by `/command`
 - **Skills**: Reusable capabilities loaded on demand
+- **MCP Servers**: External tool integrations via Model Context Protocol (databases, browsers, APIs, etc.)
 
 By analyzing conversation patterns, CatSyphon can **recommend which automations developers and enterprises should create** to optimize their workflows. This transforms CatSyphon from a passive analytics tool into an **active workflow optimization advisor**.
 
@@ -816,6 +817,193 @@ def detect_skill_opportunities(conversations: list) -> list[SkillRecommendation]
 }
 ```
 
+#### 4. External Tool Needs → MCP Server Candidates
+
+**Pattern to Detect:**
+```
+Agent lacks capability → Workaround attempted → Manual steps required
+OR
+Repeated use of external tools via bash/browser that could be integrated
+```
+
+MCP (Model Context Protocol) servers extend agent capabilities by providing direct integrations with external systems. Detecting when developers need capabilities the agent doesn't have natively is highly valuable.
+
+**Detection Algorithm:**
+```python
+# Known MCP server categories and their detection signals
+MCP_CATEGORIES = {
+    "browser-automation": {
+        "signals": [
+            r"open.*browser", r"click.*button", r"fill.*form",
+            r"screenshot", r"selenium", r"playwright", r"puppeteer",
+            r"UI test", r"e2e test", r"end-to-end", r"visual regression"
+        ],
+        "mcps": ["playwright-mcp", "puppeteer-mcp", "browser-tools-mcp"],
+        "use_cases": ["UI testing", "Web scraping", "Visual regression", "Form automation"]
+    },
+    "database": {
+        "signals": [
+            r"SELECT.*FROM", r"INSERT INTO", r"UPDATE.*SET",
+            r"psql", r"mysql", r"sqlite3", r"mongosh",
+            r"query.*database", r"check.*table", r"database.*schema"
+        ],
+        "mcps": ["postgres-mcp", "sqlite-mcp", "mongodb-mcp"],
+        "use_cases": ["Direct queries", "Schema inspection", "Data validation", "Migrations"]
+    },
+    "api-integration": {
+        "signals": [
+            r"curl.*api", r"fetch.*endpoint", r"REST.*call",
+            r"GraphQL", r"webhook", r"OAuth", r"API key"
+        ],
+        "mcps": ["http-mcp", "graphql-mcp", "openapi-mcp"],
+        "use_cases": ["API testing", "Integration verification", "Webhook debugging"]
+    },
+    "cloud-services": {
+        "signals": [
+            r"aws\s", r"gcloud", r"az\s", r"terraform",
+            r"s3.*bucket", r"lambda", r"ec2", r"kubernetes", r"kubectl"
+        ],
+        "mcps": ["aws-mcp", "gcp-mcp", "kubernetes-mcp"],
+        "use_cases": ["Infrastructure management", "Deployment", "Log access", "Resource provisioning"]
+    },
+    "observability": {
+        "signals": [
+            r"logs.*prod", r"metrics", r"traces", r"datadog",
+            r"grafana", r"prometheus", r"sentry", r"error.*tracking"
+        ],
+        "mcps": ["datadog-mcp", "grafana-mcp", "sentry-mcp"],
+        "use_cases": ["Log analysis", "Metric queries", "Error investigation", "Performance monitoring"]
+    },
+    "version-control": {
+        "signals": [
+            r"github.*api", r"gitlab.*api", r"pull request",
+            r"list.*issues", r"create.*branch", r"merge.*request"
+        ],
+        "mcps": ["github-mcp", "gitlab-mcp"],
+        "use_cases": ["PR management", "Issue tracking", "Code review", "CI/CD triggers"]
+    },
+    "documentation": {
+        "signals": [
+            r"confluence", r"notion", r"google docs",
+            r"update.*wiki", r"documentation.*page"
+        ],
+        "mcps": ["confluence-mcp", "notion-mcp", "google-docs-mcp"],
+        "use_cases": ["Doc updates", "Knowledge base queries", "Meeting notes"]
+    },
+    "communication": {
+        "signals": [
+            r"slack.*message", r"teams.*notify", r"discord",
+            r"send.*notification", r"alert.*channel"
+        ],
+        "mcps": ["slack-mcp", "teams-mcp", "discord-mcp"],
+        "use_cases": ["Notifications", "Status updates", "Team alerts"]
+    }
+}
+
+def detect_mcp_opportunities(conversations: list) -> list[MCPRecommendation]:
+    """Identify needs for external tool integrations via MCP servers."""
+
+    category_signals: dict[str, list[dict]] = defaultdict(list)
+
+    for conv in conversations:
+        combined_text = " ".join(m.content for m in conv.messages if m.content)
+
+        for category, config in MCP_CATEGORIES.items():
+            matches = []
+            for signal in config["signals"]:
+                if re.search(signal, combined_text, re.IGNORECASE):
+                    matches.append(signal)
+
+            if matches:
+                # Check for friction indicators (signs the native approach was painful)
+                friction_signals = detect_friction(conv, category)
+
+                category_signals[category].append({
+                    "conversation_id": conv.id,
+                    "matches": matches,
+                    "friction_level": friction_signals,
+                    "outcome": conv.outcome,
+                    "workarounds_used": detect_workarounds(conv, category)
+                })
+
+    recommendations = []
+    for category, signals in category_signals.items():
+        if len(signals) >= 2:  # Lower threshold - MCP setup is high-value
+            config = MCP_CATEGORIES[category]
+
+            # Calculate friction score (higher = more pain without MCP)
+            avg_friction = sum(s["friction_level"] for s in signals) / len(signals)
+
+            recommendations.append(MCPRecommendation(
+                category=category,
+                suggested_mcps=config["mcps"],
+                use_cases=config["use_cases"],
+                frequency=len(signals),
+                friction_score=avg_friction,
+                example_conversations=[s["conversation_id"] for s in signals[:3]],
+                workarounds_observed=collect_workarounds(signals),
+                estimated_setup_effort="low" if category in ["github-mcp", "slack-mcp"] else "medium"
+            ))
+
+    return sorted(recommendations, key=lambda r: r.friction_score * r.frequency, reverse=True)
+
+
+def detect_friction(conv, category: str) -> float:
+    """Detect signs of friction when working without MCP integration."""
+    friction_score = 0.0
+
+    # Multi-step bash commands for what should be one call
+    if count_bash_commands(conv) > 5:
+        friction_score += 0.3
+
+    # Manual copy-paste patterns
+    if has_copy_paste_pattern(conv):
+        friction_score += 0.2
+
+    # Error recovery cycles
+    if conv.tags.get("has_errors") and category in str(conv.messages):
+        friction_score += 0.3
+
+    # Long duration for simple tasks
+    if conv.duration_seconds and conv.duration_seconds > 600:  # > 10 min
+        friction_score += 0.2
+
+    return min(1.0, friction_score)
+```
+
+**Example Output:**
+```json
+{
+  "category": "browser-automation",
+  "suggested_mcps": ["playwright-mcp", "puppeteer-mcp"],
+  "use_cases": ["UI testing", "Visual regression", "Form automation"],
+  "frequency": 7,
+  "friction_score": 0.8,
+  "workarounds_observed": [
+    "Manual screenshot via bash + open command",
+    "Selenium scripts run externally then results copied back",
+    "Asked user to manually verify UI changes"
+  ],
+  "estimated_setup_effort": "medium",
+  "recommendation": "Install playwright-mcp to enable direct browser automation.
+                     You've needed browser interaction 7 times in the last 30 days,
+                     often with workarounds like manual screenshots or external scripts.
+                     With Playwright MCP, the agent can directly navigate, click,
+                     fill forms, and capture screenshots."
+}
+```
+
+**High-Value MCP Recommendations by Use Case:**
+
+| Use Case | Recommended MCP | Detection Signals | Value |
+|----------|----------------|-------------------|-------|
+| **UI/E2E Testing** | `playwright-mcp` | "UI test", "e2e", "screenshot", "click button" | HIGH |
+| **Database Queries** | `postgres-mcp` | SQL patterns, "check table", "query database" | HIGH |
+| **GitHub Workflows** | `github-mcp` | "create PR", "list issues", "merge request" | MEDIUM |
+| **Cloud Infrastructure** | `aws-mcp`, `kubernetes-mcp` | AWS/GCP commands, kubectl, terraform | HIGH |
+| **Observability** | `datadog-mcp`, `sentry-mcp` | "check logs", "error tracking", "metrics" | MEDIUM |
+| **Team Communication** | `slack-mcp` | "notify team", "send message", "alert channel" | LOW |
+
 ### Enterprise-Level Recommendations
 
 #### Cross-Team Pattern Analysis
@@ -829,7 +1017,8 @@ def detect_enterprise_automation_opportunities(
     all_recommendations = {
         "subagents": [],
         "slash_commands": [],
-        "skills": []
+        "skills": [],
+        "mcps": []
     }
 
     # Collect patterns across all projects
@@ -838,12 +1027,14 @@ def detect_enterprise_automation_opportunities(
         all_recommendations["subagents"].extend(detect_subagent_opportunities(convs))
         all_recommendations["slash_commands"].extend(detect_slash_command_opportunities(convs))
         all_recommendations["skills"].extend(detect_skill_opportunities(convs))
+        all_recommendations["mcps"].extend(detect_mcp_opportunities(convs))
 
     # Identify cross-project patterns (used by multiple teams)
     cross_project = {
         "subagents": find_cross_project_patterns(all_recommendations["subagents"]),
         "slash_commands": find_cross_project_patterns(all_recommendations["slash_commands"]),
-        "skills": find_cross_project_patterns(all_recommendations["skills"])
+        "skills": find_cross_project_patterns(all_recommendations["skills"]),
+        "mcps": find_cross_project_patterns(all_recommendations["mcps"])
     }
 
     # Rank by org-wide impact
@@ -862,7 +1053,7 @@ Once automations are created, track their effectiveness:
 ```python
 @dataclass
 class AutomationMetrics:
-    automation_type: str  # "subagent", "slash_command", "skill"
+    automation_type: str  # "subagent", "slash_command", "skill", "mcp"
     name: str
     times_used: int
     success_rate: float
@@ -877,10 +1068,13 @@ class AutomationMetrics:
 
 | Metric | Level | Description |
 |--------|-------|-------------|
-| `automation_opportunities` | Conversation | List of detected automation candidates |
+| `automation_opportunities` | Conversation | List of detected automation candidates (sub-agents, commands, skills, MCPs) |
 | `repetition_score` | Conversation | How similar this is to previous conversations |
+| `friction_score` | Conversation | How much friction was encountered (workarounds, errors, manual steps) |
+| `mcp_needs` | Conversation | External tool integrations that would have helped |
 | `automation_potential` | Project | Number of high-confidence automation recommendations |
 | `automation_adoption` | Project | Usage rate of created automations |
+| `mcp_coverage` | Project | % of needed integrations that have MCPs installed |
 | `time_saved_via_automation` | Enterprise | Aggregate time savings from adopted automations |
 
 ### New LLM Prompt for Automation Detection
@@ -896,6 +1090,9 @@ AUTOMATION_DETECTION_PROMPT = """Analyze this coding session for automation oppo
 
 # Tools Used
 {tools_used}
+
+# External Services Mentioned
+{external_services}
 
 # Identify automation opportunities:
 
@@ -916,11 +1113,18 @@ AUTOMATION_DETECTION_PROMPT = """Analyze this coding session for automation oppo
    - What capabilities should the skill provide?
    - Confidence: low/medium/high
 
+4. **MCP Server Opportunity**: Was an external tool/service needed that the agent couldn't access directly?
+   - What service/tool was needed? (browser, database, API, cloud, etc.)
+   - What workarounds were attempted?
+   - What MCP would help? (playwright-mcp, postgres-mcp, github-mcp, etc.)
+   - Friction level: low/medium/high
+
 Return JSON:
 {
   "subagent_opportunity": {...} | null,
   "slash_command_opportunity": {...} | null,
   "skill_opportunity": {...} | null,
+  "mcp_opportunity": {...} | null,
   "reasoning": "Brief explanation"
 }
 """
@@ -948,10 +1152,11 @@ Return JSON:
 | Phase | Deliverable | Value |
 |-------|-------------|-------|
 | **Phase 1** | Detect slash command opportunities (simplest pattern) | MEDIUM |
-| **Phase 2** | Detect sub-agent opportunities (multi-step workflows) | HIGH |
-| **Phase 3** | Track automation effectiveness post-creation | HIGH |
-| **Phase 4** | Cross-project enterprise recommendations | VERY HIGH |
-| **Phase 5** | Skill detection and packaging | MEDIUM |
+| **Phase 2** | Detect MCP opportunities (high friction detection) | HIGH |
+| **Phase 3** | Detect sub-agent opportunities (multi-step workflows) | HIGH |
+| **Phase 4** | Track automation effectiveness post-creation | HIGH |
+| **Phase 5** | Cross-project enterprise recommendations | VERY HIGH |
+| **Phase 6** | Skill detection and packaging | MEDIUM |
 
 ### Integration with Existing Metrics
 
@@ -960,6 +1165,228 @@ This feature builds on existing capabilities:
 - Leverages `tools_used` for tool chain detection
 - Builds on `intent` classification for trigger detection
 - Extends `learning_opportunities` with actionable automation suggestions
+- Uses `has_errors` and friction signals for MCP need detection
+- Analyzes bash commands for external tool workarounds
+
+---
+
+## Part IX: Architecture Assessment for "Advisor" Direction
+
+### Current Architecture Strengths
+
+The existing CatSyphon architecture provides a solid foundation for the "advisor" direction:
+
+| Component | Current State | Advisor Readiness |
+|-----------|--------------|-------------------|
+| **Parser Pipeline** | Extensible plugin system | ✅ Can extract new signals for automation detection |
+| **Canonical Representation** | Intelligent conversation sampling | ✅ Provides efficient context for pattern analysis |
+| **LLM Integration** | OpenAI with caching | ✅ Can add new prompts for automation detection |
+| **Project Aggregation** | Pattern counting, trends | ✅ Foundation for cross-conversation analysis |
+| **Database Schema** | JSONB for flexible metrics | ✅ Can store automation recommendations without migrations |
+| **API Layer** | FastAPI with typed schemas | ✅ Easy to add new recommendation endpoints |
+| **Frontend** | React + TanStack Query | ✅ Can add recommendation UI components |
+
+### Architecture Gaps for Advisor Features
+
+| Gap | Current Limitation | Required Change | Effort |
+|-----|-------------------|-----------------|--------|
+| **Cross-conversation similarity** | No embedding storage | Add vector DB (pgvector or external) | MEDIUM |
+| **Semantic clustering** | No ML pipeline | Add sentence-transformers or OpenAI embeddings | MEDIUM |
+| **Sequence pattern mining** | Basic pattern counting | Add sequence alignment algorithms | HIGH |
+| **Real-time recommendations** | Batch analysis only | Add streaming/incremental analysis | MEDIUM |
+| **Feedback loop** | No user action tracking | Track recommendation acceptance/rejection | LOW |
+| **MCP registry** | No knowledge of available MCPs | Maintain MCP catalog with detection signals | LOW |
+
+### Recommended Architecture Enhancements
+
+#### 1. Add Embedding Storage for Similarity Detection
+
+```
+Current Flow:
+  Conversation → Parser → Tags → JSONB Storage
+
+Enhanced Flow:
+  Conversation → Parser → Tags → JSONB Storage
+                      ↓
+               Canonical → Embeddings → Vector Storage (pgvector)
+                                              ↓
+                                    Similarity Search for Patterns
+```
+
+**Implementation Options:**
+- **pgvector extension**: Keep everything in PostgreSQL, simpler operations
+- **Dedicated vector DB**: Pinecone/Weaviate for scale, adds operational complexity
+- **Hybrid**: pgvector for similarity, external for large-scale clustering
+
+**Recommendation**: Start with pgvector for simplicity, migrate if scale requires.
+
+#### 2. Add Recommendation Engine Service
+
+```python
+# New service layer: backend/src/catsyphon/advisor/
+
+advisor/
+├── __init__.py
+├── detector.py          # Unified automation opportunity detection
+├── embeddings.py        # Embedding generation and similarity
+├── clustering.py        # Semantic clustering of patterns
+├── recommendations.py   # Recommendation generation and ranking
+├── feedback.py          # Track user actions on recommendations
+└── mcp_registry.py      # MCP catalog and detection signals
+```
+
+**Key Design Decisions:**
+- Separate from insights (insights = what happened, advisor = what to do)
+- Pluggable detection strategies (rule-based + LLM + ML)
+- Feedback loop for recommendation quality improvement
+
+#### 3. Enhanced Database Schema
+
+```sql
+-- New tables for advisor functionality
+
+-- Store embeddings for similarity search
+CREATE TABLE conversation_embeddings (
+    id UUID PRIMARY KEY,
+    conversation_id UUID REFERENCES conversations(id),
+    embedding vector(1536),  -- OpenAI ada-002 dimension
+    embedding_model TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Store automation recommendations
+CREATE TABLE automation_recommendations (
+    id UUID PRIMARY KEY,
+    conversation_id UUID REFERENCES conversations(id),
+    project_id UUID REFERENCES projects(id),
+    recommendation_type TEXT,  -- 'subagent', 'slash_command', 'skill', 'mcp'
+    recommendation JSONB,      -- Full recommendation details
+    confidence FLOAT,
+    status TEXT DEFAULT 'pending',  -- 'pending', 'accepted', 'rejected', 'implemented'
+    created_at TIMESTAMP DEFAULT NOW(),
+    actioned_at TIMESTAMP
+);
+
+-- Track similar conversation clusters
+CREATE TABLE conversation_clusters (
+    id UUID PRIMARY KEY,
+    cluster_type TEXT,  -- 'workflow', 'prompt', 'capability'
+    conversation_ids UUID[],
+    centroid vector(1536),
+    pattern_summary JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- MCP registry with detection signals
+CREATE TABLE mcp_registry (
+    id UUID PRIMARY KEY,
+    name TEXT UNIQUE,
+    category TEXT,
+    description TEXT,
+    detection_signals JSONB,  -- Regex patterns, keywords
+    setup_complexity TEXT,    -- 'low', 'medium', 'high'
+    documentation_url TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+#### 4. API Enhancements
+
+```python
+# New endpoints for advisor functionality
+
+# Conversation-level recommendations
+GET /conversations/{id}/recommendations
+POST /conversations/{id}/recommendations/{rec_id}/accept
+POST /conversations/{id}/recommendations/{rec_id}/reject
+
+# Project-level recommendations (aggregated)
+GET /projects/{id}/automation-opportunities
+GET /projects/{id}/mcp-recommendations
+GET /projects/{id}/recommended-commands
+
+# Enterprise-level recommendations
+GET /enterprise/automation-opportunities
+GET /enterprise/top-recommendations
+GET /enterprise/adoption-metrics
+
+# Feedback and tracking
+POST /recommendations/{id}/feedback
+GET /recommendations/effectiveness
+```
+
+### Migration Path
+
+#### Phase 1: Foundation (2-4 weeks)
+1. Add `automation_recommendations` table
+2. Implement basic slash command detection (rule-based)
+3. Add recommendation UI in conversation detail
+4. Track acceptance/rejection
+
+#### Phase 2: Similarity (2-4 weeks)
+1. Add pgvector extension
+2. Generate embeddings for canonicals
+3. Implement similarity-based clustering
+4. Enhance detection with cross-conversation patterns
+
+#### Phase 3: MCP Detection (2-3 weeks)
+1. Create MCP registry with detection signals
+2. Implement friction scoring
+3. Add MCP recommendation UI
+4. Track MCP installation events
+
+#### Phase 4: Sub-agent & Skills (3-4 weeks)
+1. Implement sequence pattern mining
+2. Detect multi-step workflow patterns
+3. Generate sub-agent definitions
+4. Skill capability extraction
+
+#### Phase 5: Enterprise Features (4-6 weeks)
+1. Cross-project aggregation
+2. Org-wide recommendation ranking
+3. Adoption dashboards
+4. ROI calculations
+
+### Technology Decisions
+
+| Decision | Recommendation | Rationale |
+|----------|---------------|-----------|
+| **Vector storage** | pgvector | Keeps stack simple, sufficient for <1M conversations |
+| **Embeddings** | OpenAI text-embedding-3-small | Cost-effective, good quality, consistent with existing OpenAI use |
+| **Clustering** | scikit-learn HDBSCAN | No need for external ML infra, works well for variable-density clusters |
+| **Sequence mining** | Custom + LLM hybrid | Rule-based for common patterns, LLM for nuanced detection |
+| **Recommendation ranking** | Frequency × Friction × Recency | Simple, interpretable, tunable |
+
+### Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| **Embedding costs** | Medium | Cache aggressively, batch generation, use smaller model |
+| **False positive recommendations** | High | Require minimum frequency, add confidence scores, user feedback loop |
+| **User fatigue** | Medium | Rate-limit recommendations, prioritize high-confidence only |
+| **Stale recommendations** | Medium | Re-analyze on new data, expire old recommendations |
+| **Privacy concerns** | High | Ensure recommendations don't leak cross-project info without permissions |
+
+### Success Metrics
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| **Recommendation acceptance rate** | >30% | Accepted / (Accepted + Rejected) |
+| **Time saved per adoption** | >10 min/week | User survey + before/after analysis |
+| **MCP installation rate** | >20% of recommended | Track MCP installations after recommendation |
+| **User engagement** | >50% view recommendations | Track recommendation panel views |
+| **Recommendation precision** | >70% | User ratings of usefulness |
+
+### Conclusion
+
+The current architecture is **70% ready** for the advisor direction. Key investments needed:
+
+1. **Vector storage** (pgvector) for similarity detection
+2. **Recommendation tracking** for feedback loops
+3. **MCP registry** for external tool recommendations
+4. **Enhanced aggregation** for cross-conversation patterns
+
+The modular design (parsers, insights, repositories) makes it relatively straightforward to add the advisor layer without major refactoring. The biggest architectural change is adding embeddings/similarity search, which is a common enhancement pattern.
 
 ---
 
