@@ -603,16 +603,22 @@ class FileWatcher(FileSystemEventHandler):
         # Parse the file
         parsed = self.parser_registry.parse(file_path)
 
-        # Generate a session ID from the file path for consistent tracking
-        session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(file_path)))
+        # Use parsed session_id if available (from log file), otherwise generate from path
+        # Using the real session_id is critical for parent-child linking to work
+        session_id = getattr(parsed, 'session_id', None)
+        if not session_id:
+            # Fallback to UUID from file path if parser didn't extract session_id
+            session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(file_path)))
+            logger.debug(f"No session_id in parsed data, using generated: {session_id}")
 
         # Extract agent info from parsed conversation
         agent_type = getattr(parsed, 'agent_type', 'claude-code')
         agent_version = getattr(parsed, 'agent_version', 'unknown')
         working_directory = getattr(parsed, 'working_directory', None)
         git_branch = getattr(parsed, 'git_branch', None)
+        parent_session_id = getattr(parsed, 'parent_session_id', None)
 
-        # Send to API
+        # Send to API with all hierarchy information
         result = self._collector_client.ingest_conversation(
             parsed=parsed,
             session_id=session_id,
@@ -620,6 +626,7 @@ class FileWatcher(FileSystemEventHandler):
             agent_version=agent_version,
             working_directory=working_directory,
             git_branch=git_branch,
+            parent_session_id=parent_session_id,
         )
 
         conversation_id = result.get("conversation_id")
