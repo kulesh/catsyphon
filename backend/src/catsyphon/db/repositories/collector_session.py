@@ -104,6 +104,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         git_branch: Optional[str] = None,
         parent_session_id: Optional[str] = None,
         context_semantics: Optional[dict] = None,
+        first_event_timestamp: Optional[datetime] = None,
     ) -> tuple[Conversation, bool]:
         """
         Get existing session or create new one.
@@ -118,6 +119,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             git_branch: Git branch name
             parent_session_id: Parent session ID for sub-agents
             context_semantics: Context sharing settings
+            first_event_timestamp: Timestamp of first event (for accurate start_time)
 
         Returns:
             Tuple of (conversation, created) where created is True if new
@@ -136,8 +138,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         # Get or create project from working directory
         project = self._get_or_create_project(workspace_id, working_directory)
 
-        # Create new conversation
+        # Use first event timestamp for start_time if provided, else now
         now = datetime.now(timezone.utc)
+        start_time = first_event_timestamp or now
+
+        # Create new conversation
         conversation = Conversation(
             workspace_id=workspace_id,
             collector_id=collector_id,
@@ -145,7 +150,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             project_id=project.id if project else None,
             agent_type=agent_type,
             agent_version=agent_version,
-            start_time=now,
+            start_time=start_time,
             status="active",
             last_event_sequence=0,
             server_received_at=now,
@@ -155,6 +160,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                 "session_id": collector_session_id,
                 "working_directory": working_directory,
                 "git_branch": git_branch,
+                "parent_session_id": parent_session_id,  # Store for deferred linking
             },
         )
         self.session.add(conversation)
@@ -164,7 +170,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         epoch = Epoch(
             conversation_id=conversation.id,
             sequence=1,
-            start_time=now,
+            start_time=start_time,
             extra_data={"source": "collector"},
         )
         self.session.add(epoch)
@@ -232,6 +238,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         final_sequence: int,
         outcome: str,
         summary: Optional[str] = None,
+        event_timestamp: Optional[datetime] = None,
     ) -> None:
         """
         Mark a session as completed.
@@ -241,9 +248,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             final_sequence: Expected final sequence number
             outcome: Session outcome (success, partial, failed, abandoned)
             summary: Optional session summary
+            event_timestamp: Timestamp of the session_end event (for accurate end_time)
         """
         conversation.status = "completed"
-        conversation.end_time = datetime.now(timezone.utc)
+        # Use event timestamp if provided, else now
+        conversation.end_time = event_timestamp or datetime.now(timezone.utc)
         conversation.last_event_sequence = max(
             conversation.last_event_sequence, final_sequence
         )
@@ -262,6 +271,70 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             conversation.extra_data = extra
 
         self.session.flush()
+
+    def update_last_activity(
+        self,
+        conversation: Conversation,
+        event_timestamp: datetime,
+    ) -> None:
+        """
+        Update the conversation's last activity timestamp.
+
+        Called after processing events to keep end_time current.
+
+        Args:
+            conversation: Conversation to update
+            event_timestamp: Timestamp of the latest event
+        """
+        # Update end_time to latest event if newer
+        if conversation.end_time is None or event_timestamp > conversation.end_time:
+            conversation.end_time = event_timestamp
+        self.session.flush()
+
+    def link_orphaned_collectors(self, workspace_id: uuid.UUID) -> int:
+        """
+        Link orphaned collector sessions to their parents.
+
+        Finds sessions that have parent_session_id in extra_data but no
+        parent_conversation_id set (parent wasn't created yet when child was).
+
+        Args:
+            workspace_id: Workspace to process
+
+        Returns:
+            Number of sessions linked
+        """
+        linked_count = 0
+
+        # Find sessions without parent_conversation_id that have extra_data
+        # We check parent_session_id in Python to be DB-agnostic (SQLite vs PostgreSQL)
+        orphans = (
+            self.session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == workspace_id,
+                Conversation.parent_conversation_id.is_(None),
+                Conversation.extra_data.isnot(None),
+            )
+            .all()
+        )
+
+        for orphan in orphans:
+            if not orphan.extra_data:
+                continue
+            parent_session_id = orphan.extra_data.get("parent_session_id")
+            if not parent_session_id:
+                continue
+
+            # Look up parent
+            parent = self.get_by_collector_session_id(parent_session_id)
+            if parent:
+                orphan.parent_conversation_id = parent.id
+                linked_count += 1
+
+        if linked_count > 0:
+            self.session.flush()
+
+        return linked_count
 
     def _get_default_epoch(self, conversation: Conversation) -> Epoch:
         """Get or create the default epoch for a conversation."""

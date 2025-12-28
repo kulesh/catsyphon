@@ -243,6 +243,7 @@ def submit_events(
             git_branch=session_data.git_branch,
             parent_session_id=session_data.parent_session_id,
             context_semantics=session_data.context_semantics,
+            first_event_timestamp=first_event.emitted_at,  # Use event timestamp
         )
 
         # Update ingestion job with conversation
@@ -306,9 +307,10 @@ def submit_events(
                     final_sequence=event.sequence,
                     outcome=event.data.outcome or "unknown",
                     summary=event.data.summary,
+                    event_timestamp=event.emitted_at,  # Use event timestamp
                 )
 
-        # Update sequence tracking
+        # Update sequence tracking and last activity timestamp
         if new_events:
             last_seq = max(e["sequence"] for e in new_events)
             session_repo.update_sequence(
@@ -316,6 +318,17 @@ def submit_events(
                 last_sequence=last_seq,
                 event_count_delta=len(new_events),
             )
+            # Update end_time to latest event's timestamp (for "last activity")
+            last_event = max(new_events, key=lambda e: e["event"].emitted_at)
+            session_repo.update_last_activity(
+                conversation=conversation,
+                event_timestamp=last_event["event"].emitted_at,
+            )
+
+        # Try to link any orphaned collector sessions (deferred parent linking)
+        linked = session_repo.link_orphaned_collectors(collector.workspace_id)
+        if linked > 0:
+            logger.info(f"Linked {linked} orphaned collector sessions to parents")
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
