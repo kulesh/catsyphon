@@ -265,9 +265,8 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         }
 
         # Build agent_metadata if this is an agent conversation
-        resolved_agent_metadata: Optional[dict[str, Any]] = None
+        resolved_agent_metadata: dict[str, Any] = agent_metadata or {}
         if parent_session_id:
-            resolved_agent_metadata = agent_metadata or {}
             resolved_agent_metadata["parent_session_id"] = parent_session_id
 
         # Create new conversation (mirrors conversation_repo.create in ingestion.py)
@@ -287,7 +286,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             server_received_at=now,
             parent_conversation_id=parent_conversation_id,
             context_semantics=context_semantics or {},
-            agent_metadata=resolved_agent_metadata,  # NEW: semantic parity
+            agent_metadata=resolved_agent_metadata,  # Never None - always a dict
             extra_data=extra_data,
         )
         self.session.add(conversation)
