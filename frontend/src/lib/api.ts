@@ -317,6 +317,7 @@ export async function startWatching(
 ): Promise<WatchConfigurationResponse> {
   return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}/start`, {
     method: 'POST',
+    body: JSON.stringify({}),  // Explicit empty body to ensure POST method
   });
 }
 
@@ -325,6 +326,7 @@ export async function stopWatching(
 ): Promise<WatchConfigurationResponse> {
   return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}/stop`, {
     method: 'POST',
+    body: JSON.stringify({}),  // Explicit empty body to ensure POST method
   });
 }
 
