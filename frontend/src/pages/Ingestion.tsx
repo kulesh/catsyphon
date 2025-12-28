@@ -574,6 +574,10 @@ function WatchDirectoriesTab() {
       setEnableTagging(false);
       setUseApiMode(false);
     },
+    onError: (error) => {
+      console.error('Failed to create watch config:', error);
+      alert(`Failed to create watch config: ${error.message}`);
+    },
   });
 
   // Start watching mutation
@@ -581,6 +585,10 @@ function WatchDirectoriesTab() {
     mutationFn: startWatching,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchConfigs'] });
+    },
+    onError: (error) => {
+      console.error('Failed to start watching:', error);
+      alert(`Failed to start watching: ${error.message}`);
     },
   });
 
@@ -590,6 +598,10 @@ function WatchDirectoriesTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchConfigs'] });
     },
+    onError: (error) => {
+      console.error('Failed to stop watching:', error);
+      alert(`Failed to stop watching: ${error.message}`);
+    },
   });
 
   // Delete watch config mutation
@@ -597,6 +609,10 @@ function WatchDirectoriesTab() {
     mutationFn: deleteWatchConfig,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchConfigs'] });
+    },
+    onError: (error) => {
+      console.error('Failed to delete watch config:', error);
+      alert(`Failed to delete watch config: ${error.message}`);
     },
   });
 
