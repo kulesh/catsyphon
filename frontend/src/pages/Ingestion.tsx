@@ -556,6 +556,7 @@ function WatchDirectoriesTab() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newDirectory, setNewDirectory] = useState('');
   const [enableTagging, setEnableTagging] = useState(false);
+  const [useApiMode, setUseApiMode] = useState(false);
 
   // Fetch watch configs
   const { data: configs, isLoading, error } = useQuery({
@@ -571,6 +572,7 @@ function WatchDirectoriesTab() {
       setShowAddForm(false);
       setNewDirectory('');
       setEnableTagging(false);
+      setUseApiMode(false);
     },
   });
 
@@ -604,6 +606,7 @@ function WatchDirectoriesTab() {
     createMutation.mutate({
       directory: newDirectory.trim(),
       enable_tagging: enableTagging,
+      extra_config: useApiMode ? { use_api: true } : undefined,
     });
   };
 
@@ -673,6 +676,24 @@ function WatchDirectoriesTab() {
                 Enable AI tagging (uses OpenAI API)
               </label>
             </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useApiMode"
+                checked={useApiMode}
+                onChange={(e) => setUseApiMode(e.target.checked)}
+                className="w-4 h-4 rounded border-border"
+              />
+              <label htmlFor="useApiMode" className="text-sm">
+                Use API mode (push events via Collector API)
+              </label>
+            </div>
+            {useApiMode && (
+              <p className="text-xs text-muted-foreground ml-6">
+                API mode uses the built-in collector to push events via HTTP API.
+                Credentials are managed automatically.
+              </p>
+            )}
             <div className="flex gap-3">
               <button
                 onClick={handleCreateConfig}
@@ -693,6 +714,7 @@ function WatchDirectoriesTab() {
                   setShowAddForm(false);
                   setNewDirectory('');
                   setEnableTagging(false);
+                  setUseApiMode(false);
                 }}
                 className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
               >
@@ -791,6 +813,9 @@ function WatchConfigCard({
           <div className="ml-8 space-y-1 text-sm text-muted-foreground">
             {config.enable_tagging && (
               <p>✓ AI tagging enabled</p>
+            )}
+            {config.extra_config?.use_api && (
+              <p>✓ API mode enabled</p>
             )}
             {config.last_started_at && (
               <p>

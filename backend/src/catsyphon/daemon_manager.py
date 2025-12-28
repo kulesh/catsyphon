@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 import psutil
+import requests
 
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
@@ -79,6 +80,38 @@ class DaemonEntry:
     pid: Optional[int] = None
     started_at: datetime = field(default_factory=datetime.now)
     restart_policy: RestartPolicy = field(default_factory=RestartPolicy)
+
+
+def fetch_builtin_credentials(
+    workspace_id: UUID,
+    api_url: str = "http://localhost:8000",
+) -> tuple[str, str]:
+    """
+    Fetch built-in collector credentials from the API.
+
+    Args:
+        workspace_id: Workspace UUID
+        api_url: Base URL of the CatSyphon API
+
+    Returns:
+        Tuple of (collector_id, api_key)
+
+    Raises:
+        Exception: If credentials cannot be fetched
+    """
+    url = f"{api_url.rstrip('/')}/collectors/builtin/credentials"
+    try:
+        response = requests.get(
+            url,
+            params={"workspace_id": str(workspace_id)},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return str(data["collector_id"]), data["api_key"]
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch builtin credentials: {e}")
+        raise Exception(f"Failed to fetch builtin credentials: {e}") from e
 
 
 class DaemonManager:
@@ -239,6 +272,25 @@ class DaemonManager:
         api_key = extra_config.get("api_key", "")
         collector_id = extra_config.get("collector_id", "")
         api_batch_size = extra_config.get("api_batch_size", 20)
+
+        # Auto-fetch builtin credentials if API mode enabled but no credentials provided
+        if use_api and (not api_key or not collector_id):
+            logger.info(
+                f"API mode enabled for {config.directory} - fetching builtin credentials"
+            )
+            try:
+                collector_id, api_key = fetch_builtin_credentials(
+                    workspace_id=config.workspace_id,
+                    api_url=api_url,
+                )
+                logger.info(
+                    f"✓ Fetched builtin collector credentials (id: {collector_id[:8]}...)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to fetch builtin credentials: {e}")
+                raise ValueError(
+                    f"API mode enabled but failed to fetch credentials: {e}"
+                ) from e
 
         # Create stats queue for IPC
         stats_queue: "Queue[dict[str, Any]]" = Queue()

@@ -196,10 +196,15 @@ class CollectorConfig(Base):
     # Authentication (single API key per collector)
     api_key_hash: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True, index=True
-    )  # bcrypt hash
+    )  # SHA-256 hash
     api_key_prefix: Mapped[str] = mapped_column(
         String(10), nullable=False
     )  # First 8 chars for display (e.g., "cs_abc123...")
+
+    # Built-in collector flag (for local watcher)
+    is_builtin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", index=True
+    )  # True for auto-created local watcher collector
 
     # Status
     is_active: Mapped[bool] = mapped_column(

@@ -560,3 +560,105 @@ class TestEventValidation:
         )
 
         assert response.status_code == 422  # Validation error
+
+
+class TestBuiltinCredentials:
+    """Tests for GET /collectors/builtin/credentials endpoint."""
+
+    def test_get_builtin_credentials_creates_new(self, client, db_session, sample_workspace):
+        """Test getting builtin credentials creates new collector if none exists."""
+        response = client.get(
+            "/collectors/builtin/credentials",
+            params={"workspace_id": str(sample_workspace.id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return valid credentials
+        assert "collector_id" in data
+        assert "api_key" in data
+        assert "api_key_prefix" in data
+        assert "created_at" in data
+
+        # API key should have correct format
+        assert data["api_key"].startswith("cs_live_")
+        assert data["api_key_prefix"].startswith("cs_live_")
+
+        # Verify the collector was created in DB
+        collector_repo = CollectorRepository(db_session)
+        builtin = collector_repo.get_builtin(sample_workspace.id)
+        assert builtin is not None
+        assert builtin.is_builtin is True
+        assert str(builtin.id) == data["collector_id"]
+
+    def test_get_builtin_credentials_returns_existing(
+        self, client, db_session, sample_workspace
+    ):
+        """Test getting builtin credentials returns existing collector."""
+        # First call creates the builtin
+        response1 = client.get(
+            "/collectors/builtin/credentials",
+            params={"workspace_id": str(sample_workspace.id)},
+        )
+        assert response1.status_code == 200
+        data1 = response1.json()
+
+        # Second call should return same collector
+        response2 = client.get(
+            "/collectors/builtin/credentials",
+            params={"workspace_id": str(sample_workspace.id)},
+        )
+        assert response2.status_code == 200
+        data2 = response2.json()
+
+        # Same collector_id and api_key
+        assert data1["collector_id"] == data2["collector_id"]
+        assert data1["api_key"] == data2["api_key"]
+
+    def test_get_builtin_credentials_invalid_workspace(self, client):
+        """Test getting builtin credentials with invalid workspace returns 404."""
+        response = client.get(
+            "/collectors/builtin/credentials",
+            params={"workspace_id": str(uuid.uuid4())},  # Non-existent
+        )
+
+        assert response.status_code == 404
+        assert "Workspace" in response.json()["detail"]
+
+    def test_builtin_credentials_can_authenticate(
+        self, client, db_session, sample_workspace
+    ):
+        """Test that builtin credentials can be used to authenticate API calls."""
+        # Get builtin credentials
+        creds_response = client.get(
+            "/collectors/builtin/credentials",
+            params={"workspace_id": str(sample_workspace.id)},
+        )
+        assert creds_response.status_code == 200
+        creds = creds_response.json()
+
+        # Use credentials to submit events
+        session_id = f"test-builtin-{uuid.uuid4()}"
+        events = [
+            {
+                "sequence": 1,
+                "type": "session_start",
+                "emitted_at": datetime.now(timezone.utc).isoformat(),
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "data": {"agent_type": "claude-code"},
+            },
+        ]
+
+        response = client.post(
+            "/collectors/events",
+            json={"session_id": session_id, "events": events},
+            headers={
+                "Authorization": f"Bearer {creds['api_key']}",
+                "X-Collector-ID": creds["collector_id"],
+            },
+        )
+
+        # Should successfully authenticate and accept events
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 1

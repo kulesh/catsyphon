@@ -240,3 +240,86 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
         if workspace_id:
             query = query.filter(CollectorConfig.workspace_id == workspace_id)
         return query.all()
+
+    def get_builtin(self, workspace_id: uuid.UUID) -> Optional[CollectorConfig]:
+        """
+        Get the built-in collector for a workspace.
+
+        Args:
+            workspace_id: Workspace UUID
+
+        Returns:
+            CollectorConfig with is_builtin=True or None
+        """
+        return (
+            self.session.query(CollectorConfig)
+            .filter(
+                CollectorConfig.workspace_id == workspace_id,
+                CollectorConfig.is_builtin.is_(True),
+            )
+            .first()
+        )
+
+    def create_builtin(
+        self,
+        workspace_id: uuid.UUID,
+        api_key_hash: str,
+        api_key_prefix: str,
+        api_key_plaintext: str,
+    ) -> CollectorConfig:
+        """
+        Create the built-in collector for a workspace.
+
+        The plaintext API key is stored in extra_data for internal use
+        by watch daemons that need to authenticate via API.
+
+        Args:
+            workspace_id: Workspace UUID
+            api_key_hash: SHA-256 hash of the API key
+            api_key_prefix: First 8 chars for display
+            api_key_plaintext: Full API key (stored in extra_data)
+
+        Returns:
+            Created CollectorConfig
+        """
+        collector = CollectorConfig(
+            workspace_id=workspace_id,
+            name="CatSyphon Built-in Watcher",
+            collector_type="builtin-watcher",
+            api_key_hash=api_key_hash,
+            api_key_prefix=api_key_prefix,
+            is_builtin=True,
+            is_active=True,
+            extra_data={"_api_key_plaintext": api_key_plaintext},
+        )
+        self.session.add(collector)
+        self.session.flush()
+        return collector
+
+    def get_or_create_builtin(
+        self,
+        workspace_id: uuid.UUID,
+        api_key_generator: callable,
+    ) -> tuple[CollectorConfig, bool]:
+        """
+        Get or create the built-in collector for a workspace.
+
+        Args:
+            workspace_id: Workspace UUID
+            api_key_generator: Function that returns (api_key, hash, prefix) tuple
+
+        Returns:
+            Tuple of (CollectorConfig, created: bool)
+        """
+        existing = self.get_builtin(workspace_id)
+        if existing:
+            return existing, False
+
+        api_key, api_key_hash, api_key_prefix = api_key_generator()
+        collector = self.create_builtin(
+            workspace_id=workspace_id,
+            api_key_hash=api_key_hash,
+            api_key_prefix=api_key_prefix,
+            api_key_plaintext=api_key,
+        )
+        return collector, True

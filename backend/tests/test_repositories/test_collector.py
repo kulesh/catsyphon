@@ -460,3 +460,156 @@ class TestCollectorRepository:
         # Verify it's gone
         collector = repo.get(sample_collector.id)
         assert collector is None
+
+
+class TestBuiltinCollector:
+    """Test builtin collector methods."""
+
+    def test_get_builtin_returns_none_when_not_exists(
+        self, db_session: Session, sample_workspace: Workspace
+    ):
+        """Test get_builtin returns None when no builtin collector exists."""
+        repo = CollectorRepository(db_session)
+        builtin = repo.get_builtin(sample_workspace.id)
+        assert builtin is None
+
+    def test_create_builtin_collector(
+        self, db_session: Session, sample_workspace: Workspace
+    ):
+        """Test creating the builtin collector."""
+        repo = CollectorRepository(db_session)
+
+        builtin = repo.create_builtin(
+            workspace_id=sample_workspace.id,
+            api_key_hash="sha256_hash_here",
+            api_key_prefix="cs_live_abc",
+            api_key_plaintext="cs_live_abcdefg12345",
+        )
+
+        assert builtin is not None
+        assert builtin.workspace_id == sample_workspace.id
+        assert builtin.is_builtin is True
+        assert builtin.is_active is True
+        assert builtin.name == "CatSyphon Built-in Watcher"
+        assert builtin.collector_type == "builtin-watcher"
+        assert builtin.api_key_hash == "sha256_hash_here"
+        assert builtin.api_key_prefix == "cs_live_abc"
+        # Check plaintext key is stored in extra_data
+        assert builtin.extra_data.get("_api_key_plaintext") == "cs_live_abcdefg12345"
+
+    def test_get_builtin_returns_existing(
+        self, db_session: Session, sample_workspace: Workspace
+    ):
+        """Test get_builtin returns existing builtin collector."""
+        repo = CollectorRepository(db_session)
+
+        # Create builtin collector
+        created = repo.create_builtin(
+            workspace_id=sample_workspace.id,
+            api_key_hash="sha256_hash",
+            api_key_prefix="cs_live_xyz",
+            api_key_plaintext="cs_live_xyz12345",
+        )
+        db_session.flush()
+
+        # Retrieve it
+        builtin = repo.get_builtin(sample_workspace.id)
+        assert builtin is not None
+        assert builtin.id == created.id
+        assert builtin.is_builtin is True
+
+    def test_get_or_create_builtin_creates_new(
+        self, db_session: Session, sample_workspace: Workspace
+    ):
+        """Test get_or_create_builtin creates new when none exists."""
+        repo = CollectorRepository(db_session)
+
+        def api_key_generator():
+            return ("cs_live_testkey123", "sha256_hash", "cs_live_tes")
+
+        collector, created = repo.get_or_create_builtin(
+            workspace_id=sample_workspace.id,
+            api_key_generator=api_key_generator,
+        )
+
+        assert created is True
+        assert collector is not None
+        assert collector.is_builtin is True
+        assert collector.api_key_hash == "sha256_hash"
+        assert collector.extra_data.get("_api_key_plaintext") == "cs_live_testkey123"
+
+    def test_get_or_create_builtin_returns_existing(
+        self, db_session: Session, sample_workspace: Workspace
+    ):
+        """Test get_or_create_builtin returns existing when one exists."""
+        repo = CollectorRepository(db_session)
+
+        # Create builtin first
+        existing = repo.create_builtin(
+            workspace_id=sample_workspace.id,
+            api_key_hash="existing_hash",
+            api_key_prefix="cs_live_exi",
+            api_key_plaintext="cs_live_existing_key",
+        )
+        db_session.flush()
+
+        def api_key_generator():
+            # This should NOT be called
+            return ("cs_live_newkey", "new_hash", "cs_live_new")
+
+        collector, created = repo.get_or_create_builtin(
+            workspace_id=sample_workspace.id,
+            api_key_generator=api_key_generator,
+        )
+
+        assert created is False
+        assert collector.id == existing.id
+        assert collector.api_key_hash == "existing_hash"
+
+    def test_builtin_scoped_to_workspace(
+        self, db_session: Session, sample_organization
+    ):
+        """Test that builtin collectors are scoped to workspace."""
+        from catsyphon.db.repositories.workspace import WorkspaceRepository
+
+        workspace_repo = WorkspaceRepository(db_session)
+        collector_repo = CollectorRepository(db_session)
+
+        # Create two workspaces
+        ws1 = workspace_repo.create(
+            organization_id=sample_organization.id,
+            name="WS1 Builtin Test",
+            slug="ws1-builtin-test",
+        )
+        ws2 = workspace_repo.create(
+            organization_id=sample_organization.id,
+            name="WS2 Builtin Test",
+            slug="ws2-builtin-test",
+        )
+        db_session.flush()
+
+        # Create builtin for ws1
+        builtin1 = collector_repo.create_builtin(
+            workspace_id=ws1.id,
+            api_key_hash="hash1",
+            api_key_prefix="cs_ws1",
+            api_key_plaintext="key1",
+        )
+        db_session.flush()
+
+        # ws1 should have builtin, ws2 should not
+        assert collector_repo.get_builtin(ws1.id) is not None
+        assert collector_repo.get_builtin(ws2.id) is None
+
+        # Create builtin for ws2
+        builtin2 = collector_repo.create_builtin(
+            workspace_id=ws2.id,
+            api_key_hash="hash2",
+            api_key_prefix="cs_ws2",
+            api_key_plaintext="key2",
+        )
+        db_session.flush()
+
+        # Both should have different builtins
+        assert collector_repo.get_builtin(ws1.id).id == builtin1.id
+        assert collector_repo.get_builtin(ws2.id).id == builtin2.id

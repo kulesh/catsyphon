@@ -336,6 +336,57 @@ def get_session_status(
     )
 
 
+@router.get(
+    "/builtin/credentials",
+    response_model=CollectorRegisterResponse,
+    summary="Get built-in collector credentials (internal use)",
+)
+def get_builtin_credentials(
+    workspace_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> CollectorRegisterResponse:
+    """
+    Get credentials for the built-in watcher collector.
+
+    This is used internally by watch daemons when API mode is enabled.
+    The built-in collector is automatically created if it doesn't exist.
+    """
+    # Verify workspace exists
+    workspace_repo = WorkspaceRepository(db)
+    workspace = workspace_repo.get(workspace_id)
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workspace {workspace_id} not found",
+        )
+
+    collector_repo = CollectorRepository(db)
+    collector, created = collector_repo.get_or_create_builtin(
+        workspace_id=workspace_id,
+        api_key_generator=generate_api_key,
+    )
+
+    if created:
+        db.commit()
+
+    # Get the plaintext API key from extra_data
+    api_key = collector.extra_data.get("_api_key_plaintext", "")
+    if not api_key:
+        # Collector exists but lost its key - regenerate
+        api_key, api_key_prefix, api_key_hash = generate_api_key()
+        collector.api_key_hash = api_key_hash
+        collector.api_key_prefix = api_key_prefix
+        collector.extra_data = {**collector.extra_data, "_api_key_plaintext": api_key}
+        db.commit()
+
+    return CollectorRegisterResponse(
+        collector_id=collector.id,
+        api_key=api_key,
+        api_key_prefix=collector.api_key_prefix,
+        created_at=collector.created_at,
+    )
+
+
 @router.post(
     "/sessions/{session_id}/complete",
     response_model=CollectorSessionCompleteResponse,
