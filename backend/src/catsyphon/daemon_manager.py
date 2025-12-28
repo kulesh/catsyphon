@@ -233,6 +233,13 @@ class DaemonManager:
         max_retries = extra_config.get("max_retries", 3)
         debounce_seconds = extra_config.get("debounce_seconds", 1.0)
 
+        # Extract API mode options (for --use-api functionality)
+        use_api = extra_config.get("use_api", False)
+        api_url = extra_config.get("api_url", "http://localhost:8000")
+        api_key = extra_config.get("api_key", "")
+        collector_id = extra_config.get("collector_id", "")
+        api_batch_size = extra_config.get("api_batch_size", 20)
+
         # Create stats queue for IPC
         stats_queue: "Queue[dict[str, Any]]" = Queue()
 
@@ -250,6 +257,12 @@ class DaemonManager:
                 debounce_seconds,
                 config.enable_tagging,
                 stats_queue,
+                # API mode options
+                use_api,
+                api_url,
+                api_key,
+                collector_id,
+                api_batch_size,
             ),
             name=f"watcher-{config_id}",
             daemon=False,  # Not a daemon process - we want clean shutdown
