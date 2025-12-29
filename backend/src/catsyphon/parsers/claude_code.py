@@ -29,7 +29,7 @@ from catsyphon.parsers.incremental import (
     calculate_partial_hash,
 )
 from catsyphon.parsers.metadata import ParserCapability, ParserMetadata
-from catsyphon.parsers.types import ProbeResult
+from catsyphon.parsers.types import ParseIssue, ParseIssueSeverity, ProbeResult
 from catsyphon.parsers.utils import (
     extract_text_content,
     extract_thinking_content,
@@ -108,6 +108,54 @@ class ClaudeCodeParser:
             priority=50,
             description="Parser for Claude Code conversation logs (JSONL format)",
         )
+        # Collect parse issues for upstream reporting
+        self._collected_issues: list[ParseIssue] = []
+
+    def _clear_issues(self) -> None:
+        """Clear collected issues before a new parse."""
+        self._collected_issues = []
+
+    def _add_warning(
+        self,
+        message: str,
+        line_number: Optional[int] = None,
+        field: Optional[str] = None,
+        context: Optional[str] = None,
+    ) -> None:
+        """Add a warning and log it."""
+        logger.warning(message)
+        self._collected_issues.append(
+            ParseIssue(
+                severity=ParseIssueSeverity.WARNING,
+                message=message,
+                line_number=line_number,
+                field=field,
+                context=context,
+            )
+        )
+
+    def _add_error(
+        self,
+        message: str,
+        line_number: Optional[int] = None,
+        field: Optional[str] = None,
+        context: Optional[str] = None,
+    ) -> None:
+        """Add an error and log it."""
+        logger.error(message)
+        self._collected_issues.append(
+            ParseIssue(
+                severity=ParseIssueSeverity.ERROR,
+                message=message,
+                line_number=line_number,
+                field=field,
+                context=context,
+            )
+        )
+
+    def get_collected_issues(self) -> list[ParseIssue]:
+        """Get issues collected during the last parse."""
+        return self._collected_issues.copy()
 
     @property
     def metadata(self) -> ParserMetadata:
@@ -198,6 +246,9 @@ class ClaudeCodeParser:
             ParseFormatError: If the file format is invalid
             ParseDataError: If required data is missing
         """
+        # Clear any issues from previous parse
+        self._clear_issues()
+
         if not self.can_parse(file_path):
             raise ParseFormatError(f"File is not a valid Claude Code log: {file_path}")
 
@@ -431,7 +482,10 @@ class ClaudeCodeParser:
                 if parsed_msg:
                     parsed_messages.append(parsed_msg)
             except Exception as e:
-                logger.warning(f"Failed to parse message {msg_data.get('uuid')}: {e}")
+                self._add_warning(
+                    f"Failed to parse message {msg_data.get('uuid')}: {e}",
+                    field="message",
+                )
                 continue
 
         # Sort by timestamp
@@ -498,8 +552,10 @@ class ClaudeCodeParser:
                         data = json.loads(line)
                         messages.append(data)
                     except json.JSONDecodeError as e:
-                        logger.warning(
-                            f"Skipping invalid JSON at {file_path}:{line_num}: {e}"
+                        self._add_warning(
+                            f"Skipping invalid JSON: {e}",
+                            line_number=line_num,
+                            context=line[:100] if line else None,
                         )
                         continue
 
@@ -537,8 +593,10 @@ class ClaudeCodeParser:
                         data = json.loads(line)
                         messages.append(data)
                     except json.JSONDecodeError as e:
-                        logger.warning(
-                            f"Skipping invalid JSON at {file_path}:{line_num}: {e}"
+                        self._add_warning(
+                            f"Skipping invalid JSON: {e}",
+                            line_number=line_num,
+                            context=line[:100] if line else None,
                         )
                         continue
 
@@ -574,7 +632,7 @@ class ClaudeCodeParser:
         ]
 
         if not conversation_messages:
-            logger.warning("No conversational messages found in log")
+            self._add_warning("No conversational messages found in log")
             return []
 
         # Match tool calls with results
@@ -589,7 +647,10 @@ class ClaudeCodeParser:
                 if parsed_msg:
                     parsed_messages.append(parsed_msg)
             except Exception as e:
-                logger.warning(f"Failed to parse message {msg_data.get('uuid')}: {e}")
+                self._add_warning(
+                    f"Failed to parse message {msg_data.get('uuid')}: {e}",
+                    field="message",
+                )
                 continue
 
         # Sort by timestamp
@@ -617,13 +678,19 @@ class ClaudeCodeParser:
         # Extract timestamp
         timestamp_str = msg_data.get("timestamp")
         if not timestamp_str:
-            logger.warning(f"Message {msg_data.get('uuid')} missing timestamp")
+            self._add_warning(
+                f"Message {msg_data.get('uuid')} missing timestamp",
+                field="timestamp",
+            )
             return None
 
         try:
             timestamp = parse_iso_timestamp(timestamp_str)
         except ValueError as e:
-            logger.warning(f"Invalid timestamp in message {msg_data.get('uuid')}: {e}")
+            self._add_warning(
+                f"Invalid timestamp in message {msg_data.get('uuid')}: {e}",
+                field="timestamp",
+            )
             return None
 
         # Extract text content
@@ -765,7 +832,10 @@ class ClaudeCodeParser:
         tool_input = tool_use_item.get("input", {})
 
         if not tool_use_id or not tool_name:
-            logger.warning("Tool call missing id or name")
+            self._add_warning(
+                "Tool call missing id or name",
+                field="tool_use",
+            )
             return None
 
         # Look up result

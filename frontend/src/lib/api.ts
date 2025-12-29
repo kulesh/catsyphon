@@ -21,7 +21,7 @@ import type {
   ProjectFileAggregation,
   ProjectInsightsResponse,
   ProjectListItem,
-  ProjectSession,
+  ProjectSessionsResponse,
   ProjectStats,
   ProjectAnalytics,
   UploadResponse,
@@ -317,6 +317,7 @@ export async function startWatching(
 ): Promise<WatchConfigurationResponse> {
   return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}/start`, {
     method: 'POST',
+    body: JSON.stringify({}),  // Explicit empty body to ensure POST method
   });
 }
 
@@ -325,6 +326,7 @@ export async function stopWatching(
 ): Promise<WatchConfigurationResponse> {
   return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}/stop`, {
     method: 'POST',
+    body: JSON.stringify({}),  // Explicit empty body to ensure POST method
   });
 }
 
@@ -443,7 +445,7 @@ export async function getProjectSessions(
   page = 1,
   pageSize = 20,
   filters?: ProjectSessionFilters
-): Promise<ProjectSession[]> {
+): Promise<ProjectSessionsResponse> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -457,7 +459,7 @@ export async function getProjectSessions(
     });
   }
 
-  return apiFetch<ProjectSession[]>(
+  return apiFetch<ProjectSessionsResponse>(
     `/projects/${projectId}/sessions?${params.toString()}`
   );
 }

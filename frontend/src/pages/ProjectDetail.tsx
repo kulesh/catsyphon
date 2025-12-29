@@ -2037,10 +2037,10 @@ function SessionsTab({ projectId }: { projectId: string }) {
             ))}
           </div>
         </div>
-      ) : sessions && sessions.length > 0 ? (
+      ) : sessions && sessions.items.length > 0 ? (
         <>
           <SessionTable
-            sessions={sessions}
+            sessions={sessions.items}
             columns={columns}
             onRowClick={(id) => navigate(`/conversations/${id}`)}
             variant="observatory"
@@ -2051,11 +2051,11 @@ function SessionsTab({ projectId }: { projectId: string }) {
           <SessionPagination
             currentPage={page}
             pageSize={pageSize}
-            currentPageItemCount={sessions.length}
+            currentPageItemCount={sessions.items.length}
             onPageChange={handlePageChange}
             variant="full"
-            totalItems={sessions.length}
-            totalPages={Math.ceil(sessions.length / pageSize)}
+            totalItems={sessions.total}
+            totalPages={sessions.pages}
           />
         </>
       ) : (

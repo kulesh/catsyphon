@@ -7,6 +7,7 @@ Provides a clean API for CRUD operations on database models.
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.db.repositories.canonical import CanonicalRepository
 from catsyphon.db.repositories.collector import CollectorRepository
+from catsyphon.db.repositories.collector_session import CollectorSessionRepository
 from catsyphon.db.repositories.conversation import ConversationRepository
 from catsyphon.db.repositories.developer import DeveloperRepository
 from catsyphon.db.repositories.epoch import EpochRepository
@@ -23,6 +24,7 @@ __all__ = [
     "BaseRepository",
     "CanonicalRepository",
     "CollectorRepository",
+    "CollectorSessionRepository",
     "ConversationRepository",
     "DeveloperRepository",
     "EpochRepository",

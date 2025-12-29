@@ -545,6 +545,14 @@ export interface ProjectSession {
   plan_status: 'approved' | 'active' | 'abandoned' | null;
 }
 
+export interface ProjectSessionsResponse {
+  items: ProjectSession[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
 export interface ProjectFileAggregation {
   file_path: string;
   modification_count: number;

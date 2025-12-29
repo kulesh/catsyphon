@@ -112,7 +112,21 @@ def _conversation_to_list_item(
 
 def _message_to_response(message) -> MessageResponse:
     """Convert Message model to MessageResponse with extra_data fields extracted."""
-    response = MessageResponse.model_validate(message)
+    # Handle None values that would fail Pydantic validation
+    # Database may have NULL for these JSONB columns
+    response = MessageResponse(
+        id=message.id,
+        role=message.role,
+        content=message.content or "",
+        thinking_content=message.thinking_content,
+        timestamp=message.timestamp,
+        sequence=message.sequence,
+        tool_calls=message.tool_calls or [],
+        tool_results=message.tool_results or [],
+        code_changes=message.code_changes or [],
+        entities=message.entities or {},
+        extra_data=message.extra_data or {},
+    )
 
     # Extract additional fields from extra_data
     if message.extra_data:

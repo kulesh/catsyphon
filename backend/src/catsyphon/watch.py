@@ -55,6 +55,31 @@ ingest_conversation = ingest_log_file
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ApiIngestionConfig:
+    """Configuration for API-based ingestion (--use-api mode)."""
+
+    enabled: bool = False
+    server_url: str = "http://localhost:8000"
+    api_key: str = ""
+    collector_id: str = ""
+    batch_size: int = 20
+
+    @classmethod
+    def from_extra_config(cls, extra_config: Optional[dict[str, Any]]) -> "ApiIngestionConfig":
+        """Create from watch configuration extra_config."""
+        if not extra_config:
+            return cls()
+
+        return cls(
+            enabled=extra_config.get("use_api", False),
+            server_url=extra_config.get("api_url", "http://localhost:8000"),
+            api_key=extra_config.get("api_key", ""),
+            collector_id=extra_config.get("collector_id", ""),
+            batch_size=extra_config.get("api_batch_size", 20),
+        )
+
+
 def retry_on_deadlock(max_retries: int = 3, delay_ms: int = 100):
     """Decorator to retry database operations on deadlock errors.
 
@@ -214,6 +239,7 @@ class FileWatcher(FileSystemEventHandler):
         tagging_pipeline: Optional["TaggingPipeline"] = None,
         config_id: Optional[UUID] = None,
         stats_lock: Optional[threading.Lock] = None,
+        api_config: Optional[ApiIngestionConfig] = None,
     ):
         super().__init__()
         self.project_name = project_name
@@ -224,6 +250,7 @@ class FileWatcher(FileSystemEventHandler):
         self.tagging_pipeline = tagging_pipeline
         self.config_id = config_id  # Watch configuration ID for tracking
         self._stats_lock = stats_lock or threading.Lock()
+        self.api_config = api_config or ApiIngestionConfig()
 
         # Track files being processed to avoid duplicate events
         self.processing: Set[str] = set()
@@ -237,6 +264,11 @@ class FileWatcher(FileSystemEventHandler):
 
         # Parser registry
         self.parser_registry = get_default_registry()
+
+        # Initialize collector client for API mode
+        self._collector_client = None
+        if self.api_config.enabled:
+            self._init_collector_client()
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file creation events."""
@@ -264,6 +296,36 @@ class FileWatcher(FileSystemEventHandler):
 
         # Update database file_path from src to dest
         self._handle_file_rename(src_path, dest_path)
+
+    def _init_collector_client(self) -> None:
+        """Initialize the collector client for API-based ingestion."""
+        if not self.api_config.enabled:
+            return
+
+        if not self.api_config.api_key or not self.api_config.collector_id:
+            logger.error(
+                "API mode enabled but api_key or collector_id not configured. "
+                "Falling back to direct ingestion."
+            )
+            self.api_config.enabled = False
+            return
+
+        try:
+            from catsyphon.collector_client import CollectorClient, CollectorConfig
+
+            config = CollectorConfig(
+                server_url=self.api_config.server_url,
+                api_key=self.api_config.api_key,
+                collector_id=self.api_config.collector_id,
+                batch_size=self.api_config.batch_size,
+            )
+            self._collector_client = CollectorClient(config)
+            logger.info(
+                f"✓ Collector client initialized (server: {self.api_config.server_url})"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize collector client: {e}")
+            self.api_config.enabled = False
 
     def _handle_file_event(self, file_path: Path) -> None:
         """
@@ -375,64 +437,14 @@ class FileWatcher(FileSystemEventHandler):
                         f"Pre-ingest change detection skipped for {file_path.name}: {e}"
                     )
 
-            # Use unified orchestrator for ingest
+            # Use API or direct ingestion based on configuration
             try:
-                # Run tagging if pipeline is configured
-                tags = None
-                if self.tagging_pipeline:
-                    try:
-                        parsed_for_tags = self.parser_registry.parse(file_path)
-                        tags, _llm_metrics = self.tagging_pipeline.tag_conversation(
-                            parsed_for_tags
-                        )
-                        logger.debug(
-                            f"Tagged {file_path.name}: intent={tags.get('intent')}, "
-                            f"sentiment={tags.get('sentiment')}"
-                        )
-                    except Exception as tag_error:
-                        logger.warning(
-                            f"Tagging failed for {file_path.name}: {tag_error}"
-                        )
-                        tags = None  # Continue without tags
-
-                with db_session() as session:
-                    outcome = ingest_conversation(
-                        session=session,
-                        file_path=file_path,
-                        registry=self.parser_registry,
-                        project_name=self.project_name,
-                        developer_username=self.developer_username,
-                        tags=tags,
-                        skip_duplicates=True,
-                        update_mode="skip",
-                        source_type="watch",
-                        source_config_id=self.config_id,
-                        created_by=None,
-                        enable_incremental=True,
-                    )
-                    session.commit()
-
-                status = outcome.status or "success"
-                conversation_id = outcome.conversation_id or (
-                    outcome.conversation.id if outcome.conversation else None
-                )
-                if conversation_id:
-                    logger.info(
-                        f"✓ {status} {file_path.name} → conversation {conversation_id}"
-                    )
+                if self.api_config.enabled and self._collector_client:
+                    # API-based ingestion via Collector Events API
+                    self._process_file_via_api(file_path)
                 else:
-                    logger.info(f"✓ {status} {file_path.name}")
-
-                with self._stats_lock:
-                    if status in {"duplicate", "skipped"}:
-                        self.stats.files_skipped += 1
-                    else:
-                        self.stats.files_processed += 1
-                    self.stats.last_activity = datetime.now()
-
-                # Remove from retry queue if present
-                if self.retry_queue:
-                    self.retry_queue.remove(file_path)
+                    # Direct ingestion via database
+                    self._process_file_direct(file_path)
 
             except DuplicateFileError:
                 logger.debug(f"Skipped {file_path.name} (duplicate detected)")
@@ -511,6 +523,138 @@ class FileWatcher(FileSystemEventHandler):
             # Fallback: process as new file
             self._handle_file_event(dest_path)
 
+    def _process_file_direct(self, file_path: Path) -> None:
+        """Process file using direct database ingestion."""
+        # Run tagging if pipeline is configured
+        tags = None
+        if self.tagging_pipeline:
+            try:
+                parsed_for_tags = self.parser_registry.parse(file_path)
+                tags, _llm_metrics = self.tagging_pipeline.tag_conversation(
+                    parsed_for_tags
+                )
+                logger.debug(
+                    f"Tagged {file_path.name}: intent={tags.get('intent')}, "
+                    f"sentiment={tags.get('sentiment')}"
+                )
+            except Exception as tag_error:
+                logger.warning(
+                    f"Tagging failed for {file_path.name}: {tag_error}"
+                )
+                tags = None  # Continue without tags
+
+        with db_session() as session:
+            outcome = ingest_conversation(
+                session=session,
+                file_path=file_path,
+                registry=self.parser_registry,
+                project_name=self.project_name,
+                developer_username=self.developer_username,
+                tags=tags,
+                skip_duplicates=True,
+                update_mode="skip",
+                source_type="watch",
+                source_config_id=self.config_id,
+                created_by=None,
+                enable_incremental=True,
+            )
+            session.commit()
+
+        status = outcome.status or "success"
+        conversation_id = outcome.conversation_id or (
+            outcome.conversation.id if outcome.conversation else None
+        )
+
+        # Compute fingerprint for reconciliation
+        fingerprint = None
+        if outcome.conversation and hasattr(outcome.conversation, 'messages'):
+            from catsyphon.collector_client import compute_ingestion_fingerprint
+            try:
+                fingerprint = compute_ingestion_fingerprint(outcome.conversation.messages)
+                logger.debug(f"Ingestion fingerprint (direct): {fingerprint[:16]}...")
+            except Exception as fp_error:
+                logger.debug(f"Could not compute fingerprint: {fp_error}")
+
+        if conversation_id:
+            logger.info(
+                f"✓ {status} {file_path.name} → conversation {conversation_id}"
+                + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
+            )
+        else:
+            logger.info(f"✓ {status} {file_path.name}")
+
+        with self._stats_lock:
+            if status in {"duplicate", "skipped"}:
+                self.stats.files_skipped += 1
+            else:
+                self.stats.files_processed += 1
+            self.stats.last_activity = datetime.now()
+
+        # Remove from retry queue if present
+        if self.retry_queue:
+            self.retry_queue.remove(file_path)
+
+    def _process_file_via_api(self, file_path: Path) -> None:
+        """Process file using the Collector Events API."""
+        import uuid
+
+        from catsyphon.collector_client import compute_ingestion_fingerprint
+
+        # Parse the file
+        parsed = self.parser_registry.parse(file_path)
+
+        # Use parsed session_id if available (from log file), otherwise generate from path
+        # Using the real session_id is critical for parent-child linking to work
+        session_id = getattr(parsed, 'session_id', None)
+        if not session_id:
+            # Fallback to UUID from file path if parser didn't extract session_id
+            session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(file_path)))
+            logger.debug(f"No session_id in parsed data, using generated: {session_id}")
+
+        # Extract agent info from parsed conversation
+        agent_type = getattr(parsed, 'agent_type', 'claude-code')
+        agent_version = getattr(parsed, 'agent_version', 'unknown')
+        working_directory = getattr(parsed, 'working_directory', None)
+        git_branch = getattr(parsed, 'git_branch', None)
+        parent_session_id = getattr(parsed, 'parent_session_id', None)
+
+        # Send to API with all hierarchy information
+        result = self._collector_client.ingest_conversation(
+            parsed=parsed,
+            session_id=session_id,
+            agent_type=agent_type,
+            agent_version=agent_version,
+            working_directory=working_directory,
+            git_branch=git_branch,
+            parent_session_id=parent_session_id,
+        )
+
+        conversation_id = result.get("conversation_id")
+        accepted = result.get("accepted", 0)
+
+        # Compute fingerprint for reconciliation
+        fingerprint = None
+        if parsed.messages:
+            try:
+                fingerprint = compute_ingestion_fingerprint(parsed.messages)
+                logger.debug(f"Ingestion fingerprint (API): {fingerprint[:16]}...")
+            except Exception as fp_error:
+                logger.debug(f"Could not compute fingerprint: {fp_error}")
+
+        logger.info(
+            f"✓ API {file_path.name} → conversation {conversation_id} "
+            f"({accepted} events)"
+            + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
+        )
+
+        with self._stats_lock:
+            self.stats.files_processed += 1
+            self.stats.last_activity = datetime.now()
+
+        # Remove from retry queue if present
+        if self.retry_queue:
+            self.retry_queue.remove(file_path)
+
 
 class WatcherDaemon:
     """
@@ -532,6 +676,7 @@ class WatcherDaemon:
         enable_tagging: bool = False,
         config_id: Optional[UUID] = None,
         stats_queue: Optional["Queue[dict[str, Any]]"] = None,
+        api_config: Optional[ApiIngestionConfig] = None,
     ):
         self.directory = directory
         self.project_name = project_name
@@ -543,7 +688,12 @@ class WatcherDaemon:
         self.enable_tagging = enable_tagging
         self.config_id = config_id
         self.stats_queue = stats_queue
+        self.api_config = api_config or ApiIngestionConfig()
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
+
+        # Log API mode if enabled
+        if self.api_config.enabled:
+            logger.info(f"✓ API mode enabled (server: {self.api_config.server_url})")
 
         # Initialize tagging pipeline if enabled
         tagging_pipeline = None
@@ -575,6 +725,7 @@ class WatcherDaemon:
             tagging_pipeline=tagging_pipeline,
             config_id=config_id,
             stats_lock=self._stats_lock,
+            api_config=self.api_config,
         )
 
         # Watchdog observer
@@ -895,6 +1046,12 @@ def run_daemon_process(
     debounce_seconds: float,
     enable_tagging: bool,
     stats_queue: Optional["Queue[dict[str, Any]]"] = None,
+    # API mode options (from extra_config)
+    use_api: bool = False,
+    api_url: str = "http://localhost:8000",
+    api_key: str = "",
+    collector_id: str = "",
+    api_batch_size: int = 20,
 ) -> None:
     """
     Entry point for running WatcherDaemon in a separate process.
@@ -912,12 +1069,26 @@ def run_daemon_process(
         max_retries: Maximum retry attempts for failed files
         debounce_seconds: Debounce time for file events
         enable_tagging: Whether to enable AI tagging
+        use_api: Whether to use Collector Events API for ingestion
+        api_url: CatSyphon server URL for API mode
+        api_key: Collector API key for authentication
+        collector_id: Registered collector ID
+        api_batch_size: Number of events per batch
     """
     # Setup logging for child process with context-specific log file
     setup_logging(context="watch", config_id=config_id)
 
     logger.info(
         f"Watch daemon process starting (PID: {os.getpid()}, config: {config_id})"
+    )
+
+    # Build API config if enabled
+    api_config = ApiIngestionConfig(
+        enabled=use_api,
+        server_url=api_url,
+        api_key=api_key,
+        collector_id=collector_id,
+        batch_size=api_batch_size,
     )
 
     # Create daemon instance
@@ -932,6 +1103,7 @@ def run_daemon_process(
         enable_tagging=enable_tagging,
         config_id=config_id,
         stats_queue=stats_queue,
+        api_config=api_config,
     )
 
     # Setup signal handlers for graceful shutdown

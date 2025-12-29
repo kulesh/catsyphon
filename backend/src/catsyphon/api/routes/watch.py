@@ -261,6 +261,8 @@ async def start_watching(
         HTTPException: 404 if configuration not found
         HTTPException: 400 if daemon fails to start
     """
+    import asyncio
+
     repo = WatchConfigurationRepository(session)
     workspace_id = _get_default_workspace_id(session)
 
@@ -286,9 +288,11 @@ async def start_watching(
     # Get DaemonManager from app state
     daemon_manager: DaemonManager = request.app.state.daemon_manager
 
-    # Start the daemon
+    # Start the daemon in a thread pool to avoid blocking the event loop
+    # This is important because start_daemon makes HTTP requests that need
+    # to be handled by the same uvicorn instance
     try:
-        daemon_manager.start_daemon(updated_config)
+        await asyncio.to_thread(daemon_manager.start_daemon, updated_config)
         logger.info(f"Started daemon for config {config_id}")
     except Exception as e:
         logger.error(
@@ -333,6 +337,8 @@ async def stop_watching(
         HTTPException: 404 if configuration not found
         HTTPException: 400 if daemon not running
     """
+    import asyncio
+
     repo = WatchConfigurationRepository(session)
     workspace_id = _get_default_workspace_id(session)
 
@@ -354,9 +360,9 @@ async def stop_watching(
     # Get DaemonManager from app state
     daemon_manager: DaemonManager = request.app.state.daemon_manager
 
-    # Stop the daemon
+    # Stop the daemon in a thread pool to avoid blocking the event loop
     try:
-        daemon_manager.stop_daemon(config_id, save_stats=True)
+        await asyncio.to_thread(daemon_manager.stop_daemon, config_id, True)
         logger.info(f"Stopped daemon for config {config_id}")
     except Exception as e:
         logger.error(

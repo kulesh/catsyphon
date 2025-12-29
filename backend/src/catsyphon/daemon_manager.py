@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 import psutil
+import requests
 
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
@@ -79,6 +80,59 @@ class DaemonEntry:
     pid: Optional[int] = None
     started_at: datetime = field(default_factory=datetime.now)
     restart_policy: RestartPolicy = field(default_factory=RestartPolicy)
+
+
+def _fetch_credentials_http(workspace_id: UUID, api_url: str) -> tuple[str, str]:
+    """
+    Make the actual HTTP request to fetch credentials.
+
+    This is run in a thread pool to avoid blocking the main request handler.
+    """
+    url = f"{api_url}/collectors/builtin/credentials"
+    params = {"workspace_id": str(workspace_id)}
+    response = requests.get(url, params=params, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data["collector_id"], data["api_key"]
+
+
+def fetch_builtin_credentials(
+    workspace_id: UUID,
+    api_url: str = "http://localhost:8000",
+) -> tuple[str, str]:
+    """
+    Fetch built-in collector credentials via HTTP API.
+
+    Uses a ThreadPoolExecutor to avoid blocking the main request handler
+    when the server makes a request to itself.
+
+    Args:
+        workspace_id: Workspace UUID
+        api_url: Base URL of the CatSyphon API
+
+    Returns:
+        Tuple of (collector_id, api_key)
+
+    Raises:
+        Exception: If credentials cannot be fetched
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+    try:
+        # Run HTTP request in a separate thread to avoid blocking the main worker
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_fetch_credentials_http, workspace_id, api_url)
+            return future.result(timeout=35)  # Slightly longer than HTTP timeout
+    except FuturesTimeoutError:
+        raise Exception(
+            f"Timeout fetching builtin credentials from {api_url}"
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to fetch builtin credentials: {e}")
+        raise Exception(f"Failed to fetch builtin credentials: {e}") from e
+    except Exception as e:
+        logger.error(f"Failed to fetch builtin credentials: {e}")
+        raise Exception(f"Failed to fetch builtin credentials: {e}") from e
 
 
 class DaemonManager:
@@ -233,6 +287,32 @@ class DaemonManager:
         max_retries = extra_config.get("max_retries", 3)
         debounce_seconds = extra_config.get("debounce_seconds", 1.0)
 
+        # Extract API mode options (for --use-api functionality)
+        use_api = extra_config.get("use_api", False)
+        api_url = extra_config.get("api_url", "http://localhost:8000")
+        api_key = extra_config.get("api_key", "")
+        collector_id = extra_config.get("collector_id", "")
+        api_batch_size = extra_config.get("api_batch_size", 20)
+
+        # Auto-fetch builtin credentials if API mode enabled but no credentials provided
+        if use_api and (not api_key or not collector_id):
+            logger.info(
+                f"API mode enabled for {config.directory} - fetching builtin credentials"
+            )
+            try:
+                collector_id, api_key = fetch_builtin_credentials(
+                    workspace_id=config.workspace_id,
+                    api_url=api_url,
+                )
+                logger.info(
+                    f"✓ Fetched builtin collector credentials (id: {collector_id[:8]}...)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to fetch builtin credentials: {e}")
+                raise ValueError(
+                    f"API mode enabled but failed to fetch credentials: {e}"
+                ) from e
+
         # Create stats queue for IPC
         stats_queue: "Queue[dict[str, Any]]" = Queue()
 
@@ -250,6 +330,12 @@ class DaemonManager:
                 debounce_seconds,
                 config.enable_tagging,
                 stats_queue,
+                # API mode options
+                use_api,
+                api_url,
+                api_key,
+                collector_id,
+                api_batch_size,
             ),
             name=f"watcher-{config_id}",
             daemon=False,  # Not a daemon process - we want clean shutdown

@@ -162,15 +162,23 @@ class ParserRegistry:
 
             metrics = {"parse_duration_ms": parse_duration_ms}
 
-            return ParseResult(
+            # Retrieve collected issues from parser if available
+            collected_issues = []
+            if hasattr(parser, "get_collected_issues"):
+                collected_issues = parser.get_collected_issues()
+
+            result = ParseResult(
                 conversation=parsed,
                 parser_name=parser_meta_name,
                 parser_version=parser_meta_version,
                 parse_method="full",
                 change_type=None,
                 metrics=metrics,
-                warnings=[],
+                warnings=[],  # Legacy field
+                issues=collected_issues,
             )
+
+            return result
 
         # No parser could handle this file
         attempted = (

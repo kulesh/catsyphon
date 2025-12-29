@@ -185,6 +185,16 @@ class ProjectSession(BaseModel):
     plan_status: Optional[str] = None  # 'approved', 'active', or 'abandoned'
 
 
+class ProjectSessionsResponse(BaseModel):
+    """Response schema for paginated project sessions list."""
+
+    items: list[ProjectSession]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class ProjectFileAggregation(BaseModel):
     """Aggregated file modification data across project sessions."""
 
@@ -1164,3 +1174,198 @@ class HealthReportResponse(BaseModel):
     cached: bool = Field(
         default=False, description="Whether this was served from cache"
     )
+
+
+# ===== Collector Events API Schemas =====
+
+
+class CollectorRegisterRequest(BaseModel):
+    """Request schema for registering a new collector."""
+
+    collector_type: str = Field(
+        ..., description="Type of collector (aiobscura, watcher, sdk)"
+    )
+    collector_version: str = Field(..., description="Version of the collector")
+    hostname: str = Field(..., description="Hostname of the collector machine")
+    workspace_id: UUID = Field(..., description="Workspace ID for multi-tenancy")
+    metadata: Optional[dict[str, Any]] = Field(
+        None, description="Optional metadata (os, user, etc.)"
+    )
+
+
+class CollectorRegisterResponse(BaseModel):
+    """Response schema for collector registration."""
+
+    collector_id: UUID
+    api_key: str = Field(..., description="API key (only returned once)")
+    api_key_prefix: str = Field(..., description="API key prefix for identification")
+    created_at: datetime
+
+
+class EventData(BaseModel):
+    """Base event data - type-specific payload."""
+
+    # Common fields that may appear in various event types
+    # Message events
+    author_role: Optional[str] = Field(
+        None, description="Who produced the message (human, assistant, agent, tool, system)"
+    )
+    message_type: Optional[str] = Field(
+        None, description="Semantic type (prompt, response, tool_call, tool_result, context, error)"
+    )
+    content: Optional[str] = Field(None, description="Message content")
+    model: Optional[str] = Field(None, description="LLM model used")
+    token_usage: Optional[dict[str, int]] = Field(None, description="Token consumption stats")
+    thinking_content: Optional[str] = Field(None, description="Extended thinking blocks")
+    thinking_metadata: Optional[dict[str, Any]] = Field(None, description="Thinking level settings")
+    stop_reason: Optional[str] = Field(None, description="Why generation stopped")
+    raw_data: Optional[dict[str, Any]] = Field(None, description="Original message data")
+
+    # Tool call events
+    tool_name: Optional[str] = Field(None, description="Name of the tool")
+    tool_use_id: Optional[str] = Field(None, description="Tool use identifier")
+    parameters: Optional[dict[str, Any]] = Field(None, description="Tool parameters")
+
+    # Tool result events
+    success: Optional[bool] = Field(None, description="Whether tool succeeded")
+    result: Optional[str] = Field(None, description="Tool result content")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+
+    # Session start events
+    agent_type: Optional[str] = Field(None, description="Type of agent")
+    agent_version: Optional[str] = Field(None, description="Agent version")
+    working_directory: Optional[str] = Field(None, description="Working directory")
+    git_branch: Optional[str] = Field(None, description="Git branch")
+    parent_session_id: Optional[str] = Field(None, description="Parent session ID")
+    context_semantics: Optional[dict[str, Any]] = Field(None, description="Context sharing settings")
+
+    # Session start events - metadata for semantic parity
+    slug: Optional[str] = Field(None, description="Human-readable session name")
+    summaries: Optional[list[dict[str, Any]]] = Field(
+        None, description="Session checkpoint summaries"
+    )
+    compaction_events: Optional[list[dict[str, Any]]] = Field(
+        None, description="Context compaction events"
+    )
+
+    # Session end events
+    outcome: Optional[str] = Field(
+        None, description="Session outcome (success, partial, failed, abandoned)"
+    )
+    summary: Optional[str] = Field(None, description="Session summary")
+    total_messages: Optional[int] = Field(None, description="Total message count")
+    total_tool_calls: Optional[int] = Field(None, description="Total tool calls")
+
+    # Session end events - data for semantic parity
+    plans: Optional[list[dict[str, Any]]] = Field(
+        None, description="Plan data from session (list of PlanInfo dicts)"
+    )
+    files_touched: Optional[list[str]] = Field(
+        None, description="All files touched during session"
+    )
+
+    class Config:
+        extra = "allow"  # Allow additional fields for extensibility
+
+
+class CollectorEvent(BaseModel):
+    """Single event in an event batch."""
+
+    sequence: int = Field(..., ge=1, description="Monotonic sequence number (1-based)")
+    type: str = Field(
+        ...,
+        description="Event type (session_start, session_end, message, tool_call, tool_result, thinking, error, metadata)",
+    )
+    emitted_at: datetime = Field(
+        ..., description="When the event was originally produced by the source"
+    )
+    observed_at: datetime = Field(
+        ..., description="When the collector observed the event"
+    )
+    data: EventData = Field(..., description="Type-specific payload")
+
+    @model_validator(mode="after")
+    def validate_event_data(self) -> "CollectorEvent":
+        """Validate that required fields are present based on event type."""
+        event_type = self.type
+        data = self.data
+
+        if event_type == "session_start":
+            if not data.agent_type:
+                raise ValueError("session_start events require agent_type in data")
+        elif event_type == "message":
+            if not data.author_role:
+                raise ValueError("message events require author_role in data")
+            if not data.message_type:
+                raise ValueError("message events require message_type in data")
+        elif event_type == "tool_call":
+            if not data.tool_name:
+                raise ValueError("tool_call events require tool_name in data")
+            if not data.tool_use_id:
+                raise ValueError("tool_call events require tool_use_id in data")
+        elif event_type == "tool_result":
+            if not data.tool_use_id:
+                raise ValueError("tool_result events require tool_use_id in data")
+        elif event_type == "session_end":
+            if not data.outcome:
+                raise ValueError("session_end events require outcome in data")
+
+        return self
+
+
+class CollectorEventsRequest(BaseModel):
+    """Request schema for submitting event batch."""
+
+    session_id: str = Field(..., description="Unique session identifier from the agent")
+    events: list[CollectorEvent] = Field(
+        ..., min_length=1, max_length=50, description="Batch of events to submit"
+    )
+
+
+class CollectorEventsResponse(BaseModel):
+    """Response schema for event batch submission."""
+
+    accepted: int = Field(..., description="Number of events accepted")
+    last_sequence: int = Field(..., description="Last sequence number received")
+    conversation_id: UUID = Field(..., description="CatSyphon's internal conversation ID")
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal issues")
+
+
+class CollectorSessionStatusResponse(BaseModel):
+    """Response schema for session status check."""
+
+    session_id: str
+    conversation_id: UUID
+    last_sequence: int = Field(..., description="Last received sequence number")
+    event_count: int = Field(..., description="Total events received")
+    first_event_at: datetime
+    last_event_at: datetime
+    status: str = Field(..., description="Session status (active, completed)")
+
+
+class CollectorSessionCompleteRequest(BaseModel):
+    """Request schema for marking session complete."""
+
+    final_sequence: int = Field(..., description="Expected final sequence number")
+    outcome: str = Field(
+        ..., description="Session outcome (success, partial, failed, abandoned)"
+    )
+    summary: Optional[str] = Field(None, description="Optional session summary")
+
+
+class CollectorSessionCompleteResponse(BaseModel):
+    """Response schema for session completion."""
+
+    session_id: str
+    conversation_id: UUID
+    status: str = Field(default="completed")
+    total_events: int
+
+
+class CollectorSequenceGapError(BaseModel):
+    """Error response for sequence gap."""
+
+    error: str = Field(default="sequence_gap")
+    message: str
+    last_received_sequence: int
+    expected_sequence: int

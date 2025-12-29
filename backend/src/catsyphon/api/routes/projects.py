@@ -28,6 +28,7 @@ from catsyphon.api.schemas import (
     ProjectAnalytics,
     ProjectFileAggregation,
     ProjectSession,
+    ProjectSessionsResponse,
     ProjectStats,
     RoleDynamicsSummary,
     SentimentByAgent,
@@ -782,7 +783,7 @@ async def get_project_health_report(
     return report
 
 
-@router.get("/{project_id}/sessions", response_model=list[ProjectSession])
+@router.get("/{project_id}/sessions", response_model=ProjectSessionsResponse)
 async def list_project_sessions(
     project_id: UUID,
     page: int = Query(1, ge=1, description="Page number"),
@@ -799,7 +800,7 @@ async def list_project_sessions(
     ),
     auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
-) -> list[ProjectSession]:
+) -> ProjectSessionsResponse:
     """
     List all sessions (conversations) for a project with hierarchical ordering.
 
@@ -853,6 +854,10 @@ async def list_project_sessions(
 
     # Use hierarchical query
     repo = ConversationRepository(session)
+
+    # Get total count for pagination
+    total = repo.count_by_filters(workspace_id=auth.workspace_id, **filters)
+
     results = repo.get_with_counts_hierarchical(
         workspace_id=auth.workspace_id,
         **filters,
@@ -900,7 +905,13 @@ async def list_project_sessions(
             )
         )
 
-    return sessions
+    return ProjectSessionsResponse(
+        items=sessions,
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=(total + page_size - 1) // page_size,  # Ceiling division
+    )
 
 
 @router.get("/{project_id}/files", response_model=list[ProjectFileAggregation])

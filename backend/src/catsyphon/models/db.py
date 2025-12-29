@@ -196,10 +196,15 @@ class CollectorConfig(Base):
     # Authentication (single API key per collector)
     api_key_hash: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True, index=True
-    )  # bcrypt hash
+    )  # SHA-256 hash
     api_key_prefix: Mapped[str] = mapped_column(
-        String(10), nullable=False
-    )  # First 8 chars for display (e.g., "cs_abc123...")
+        String(16), nullable=False
+    )  # Prefix for display (e.g., "cs_live_xxxx")
+
+    # Built-in collector flag (for local watcher)
+    is_builtin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", index=True
+    )  # True for auto-created local watcher collector
 
     # Status
     is_active: Mapped[bool] = mapped_column(
@@ -419,6 +424,17 @@ class Conversation(Base):
     iteration_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1"
     )
+
+    # Collector events protocol fields (for resumption tracking)
+    collector_session_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, index=True, unique=True
+    )  # Original session_id from collector
+    last_event_sequence: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )  # Last received sequence number
+    server_received_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # When last event was received
 
     # Denormalized counts for performance (avoid Cartesian product joins)
     message_count: Mapped[int] = mapped_column(

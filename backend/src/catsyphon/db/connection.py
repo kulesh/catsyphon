@@ -37,10 +37,11 @@ if settings.database_url.startswith("sqlite"):
 else:
     engine = create_engine(
         settings.database_url,
-        echo=settings.environment == "development",  # SQL logging in dev
-        pool_size=10,
-        max_overflow=20,
+        echo=False,  # Disable SQL logging for performance
+        pool_size=20,  # Increased for concurrent collector + UI requests
+        max_overflow=30,
         pool_pre_ping=True,  # Verify connections before using
+        pool_timeout=10,  # Faster timeout to fail fast
     )
 
 # Create session factory
