@@ -57,12 +57,23 @@ async def lifespan(app: FastAPI):
     daemon_manager.start()
     logger.info("✓ DaemonManager started")
 
-    # Load and start active watch configurations
-    try:
-        daemon_manager.load_active_configs()
-        logger.info("✓ Active watch configurations loaded")
-    except Exception as e:
-        logger.error(f"Failed to load active configs: {e}", exc_info=True)
+    # Defer loading active configs until server is ready to handle requests.
+    # This prevents deadlock when watch configs with use_api=True try to
+    # fetch credentials from localhost during startup.
+    import threading
+
+    def deferred_load_configs() -> None:
+        import time
+
+        time.sleep(2)  # Wait for server to be ready
+        try:
+            daemon_manager.load_active_configs()
+            logger.info("✓ Active watch configurations loaded (deferred)")
+        except Exception as e:
+            logger.error(f"Failed to load active configs: {e}", exc_info=True)
+
+    config_thread = threading.Thread(target=deferred_load_configs, daemon=True)
+    config_thread.start()
 
     logger.info("Application startup complete")
 
