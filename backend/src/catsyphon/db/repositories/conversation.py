@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from catsyphon.db.repositories.base import BaseRepository
-from catsyphon.models.db import Conversation
+from catsyphon.models.db import Conversation, Message
 
 
 class ConversationRepository(BaseRepository[Conversation]):
@@ -489,20 +489,21 @@ class ConversationRepository(BaseRepository[Conversation]):
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         collector_id: Optional[uuid.UUID] = None,
-        order_by: str = "start_time",
+        order_by: str = "last_activity",
         order_dir: str = "desc",
         limit: Optional[int] = None,
         offset: int = 0,
-    ) -> List[Tuple[Conversation, int, int, int, int, int]]:
+    ) -> List[Tuple[Conversation, int, int, int, int, Optional[datetime], int]]:
         """
         Get conversations with hierarchical ordering (parents followed by children).
 
         Returns conversations organized hierarchically: each parent conversation is
         immediately followed by its child conversations. Parents are sorted by the
-        specified column, children are sorted by start_time ascending.
+        specified column (with secondary sort by message_count desc), children are
+        sorted by start_time ascending.
 
         Returns list of (conversation, message_count, epoch_count, files_count,
-        children_count, depth_level) tuples.
+        children_count, last_activity, depth_level) tuples.
 
         Args:
             workspace_id: Workspace UUID (required)
@@ -514,15 +515,16 @@ class ConversationRepository(BaseRepository[Conversation]):
             start_date: Filter by start date (>=)
             end_date: Filter by end date (<=)
             collector_id: Filter by collector
-            order_by: Column to order parents by
+            order_by: Column to order parents by (last_activity, start_time, message_count)
             order_dir: Order direction for parents ('asc' or 'desc')
             limit: Maximum number of parent conversations (children not counted)
             offset: Number of parent conversations to skip
 
         Returns:
             List of (Conversation, message_count, epoch_count, files_count,
-                    children_count, depth_level) tuples where depth_level is 0
-                    for parents and 1 for children
+                    children_count, last_activity, depth_level) tuples where depth_level is 0
+                    for parents and 1 for children, and last_activity is the timestamp of
+                    the most recent message (or None if no messages)
         """
         # First, build query for parent conversations only
         # Calculate children_count dynamically using subquery
@@ -533,6 +535,15 @@ class ConversationRepository(BaseRepository[Conversation]):
             .scalar_subquery()
         )
 
+        # Calculate last_activity from most recent message timestamp
+        # Use Message.timestamp (actual event time), not created_at (DB insertion time)
+        last_activity_subq = (
+            select(func.max(Message.timestamp))
+            .where(Message.conversation_id == Conversation.id)
+            .correlate(Conversation)
+            .scalar_subquery()
+        )
+
         parent_query = (
             self.session.query(
                 Conversation,
@@ -540,6 +551,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.epoch_count,
                 Conversation.files_count,
                 children_count_subq,
+                last_activity_subq.label("last_activity"),
             )
             .filter(
                 Conversation.workspace_id == workspace_id,
@@ -575,11 +587,23 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.collector_id == collector_id
             )
 
-        # Order parents
-        order_col = getattr(Conversation, order_by, Conversation.start_time)
-        parent_query = parent_query.order_by(
-            order_col.desc() if order_dir == "desc" else order_col.asc()
-        )
+        # Order parents with secondary sort by message_count
+        if order_by == "last_activity":
+            # Use coalesce to fall back to start_time if no messages
+            order_col = func.coalesce(last_activity_subq, Conversation.start_time)
+        else:
+            order_col = getattr(Conversation, order_by, Conversation.start_time)
+
+        if order_dir == "desc":
+            parent_query = parent_query.order_by(
+                order_col.desc(),
+                Conversation.message_count.desc(),
+            )
+        else:
+            parent_query = parent_query.order_by(
+                order_col.asc(),
+                Conversation.message_count.desc(),
+            )
 
         # Paginate parents only
         if limit:
@@ -595,11 +619,20 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         parent_ids = [p[0].id for p in parents]
 
-        # For children, calculate children_count dynamically (usually 0 for leaf nodes)
+        # For children, calculate children_count and last_activity dynamically
         child_conv2 = aliased(Conversation)
         children_count_subq2 = (
             select(func.count(child_conv2.id))
             .where(child_conv2.parent_conversation_id == Conversation.id)
+            .scalar_subquery()
+        )
+
+        # Also calculate last_activity for children
+        # Use Message.timestamp (actual event time), not created_at (DB insertion time)
+        last_activity_subq2 = (
+            select(func.max(Message.timestamp))
+            .where(Message.conversation_id == Conversation.id)
+            .correlate(Conversation)
             .scalar_subquery()
         )
 
@@ -610,6 +643,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.epoch_count,
                 Conversation.files_count,
                 children_count_subq2,
+                last_activity_subq2.label("last_activity"),
             )
             .filter(
                 Conversation.workspace_id == workspace_id,
@@ -634,15 +668,19 @@ class ConversationRepository(BaseRepository[Conversation]):
             children_by_parent[parent_id].append(child_tuple)
 
         # Build final result: parent followed by its children
-        result: List[Tuple[Conversation, int, int, int, int, int]] = []
+        # Tuple: (conv, msg_count, epoch_count, files_count, children_count,
+        #         last_activity, depth_level)
+        result: List[Tuple[Conversation, int, int, int, int, Optional[datetime], int]] = []
         for parent_tuple in parents:
             parent_conv = parent_tuple[0]
-            # Add parent with depth_level = 0
+            # parent_tuple is (conv, msg, epoch, files, children_count, last_activity)
+            # Add depth_level = 0 at the end
             result.append((*parent_tuple, 0))
 
             # Add children with depth_level = 1
             if parent_conv.id in children_by_parent:
                 for child_tuple in children_by_parent[parent_conv.id]:
+                    # child_tuple is (conv, msg, epoch, files, children_count, last_activity)
                     result.append((*child_tuple, 1))
 
         return result

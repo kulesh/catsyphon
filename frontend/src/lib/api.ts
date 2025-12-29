@@ -451,7 +451,7 @@ export interface ProjectSessionFilters {
   outcome?: 'success' | 'failed' | 'partial';
   date_from?: string;
   date_to?: string;
-  sort_by?: 'start_time' | 'duration' | 'messages';
+  sort_by?: 'last_activity' | 'start_time' | 'message_count';
   order?: 'asc' | 'desc';
 }
 

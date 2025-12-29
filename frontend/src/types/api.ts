@@ -527,6 +527,7 @@ export interface ProjectSession {
   id: string;
   start_time: string;
   end_time: string | null;
+  last_activity: string | null;  // Actual last message timestamp
   duration_seconds: number | null;
   status: string;
   success: boolean | null;

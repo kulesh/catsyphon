@@ -1866,9 +1866,32 @@ function SessionsTab({ projectId }: { projectId: string }) {
   // Filters and sorting
   const [developer, setDeveloper] = useState<string>('');
   const [outcome, setOutcome] = useState<'success' | 'failed' | 'partial' | ''>('');
+  const [sortBy, setSortBy] = useState<'last_activity' | 'start_time' | 'message_count'>('last_activity');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const page = parseInt(searchParams.get('page') || '1');
   const pageSize = 20;
+
+  // Handle column header click for sorting
+  const handleSort = (columnId: string) => {
+    // Map column ids to API sort_by values
+    const sortByMap: Record<string, 'last_activity' | 'start_time' | 'message_count'> = {
+      'last_activity': 'last_activity',
+      'start_time': 'start_time',
+      'messages': 'message_count',
+    };
+    const newSortBy = sortByMap[columnId];
+    if (!newSortBy) return;
+
+    if (newSortBy === sortBy) {
+      // Toggle direction if same column
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to desc
+      setSortBy(newSortBy);
+      setSortOrder('desc');
+    }
+  };
 
   // Get stats to extract unique developers
   const { data: stats } = useQuery({
@@ -1876,14 +1899,16 @@ function SessionsTab({ projectId }: { projectId: string }) {
     queryFn: () => getProjectStats(projectId),
   });
 
-  // Build filters object
+  // Build filters object (includes sort params)
   const filters: ProjectSessionFilters = {
     ...(developer && { developer }),
     ...(outcome && { outcome }),
+    sort_by: sortBy,
+    order: sortOrder,
   };
 
   const { data: sessions, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
-    queryKey: ['projects', projectId, 'sessions', { page, pageSize, filters }],
+    queryKey: ['projects', projectId, 'sessions', { page, pageSize, sortBy, sortOrder, developer, outcome }],
     queryFn: () => getProjectSessions(projectId, page, pageSize, filters),
     refetchInterval: 15000, // Auto-refresh
     staleTime: 0,
@@ -1903,11 +1928,13 @@ function SessionsTab({ projectId }: { projectId: string }) {
     {
       id: 'start_time',
       label: 'Start Time',
+      sortable: true,
       render: (session) => renderHelpers.startTime(session, 'observatory'),
     },
     {
       id: 'last_activity',
       label: 'Last Activity',
+      sortable: true,
       render: renderHelpers.lastActivity,
     },
     {
@@ -1935,6 +1962,7 @@ function SessionsTab({ projectId }: { projectId: string }) {
       id: 'messages',
       label: 'Messages',
       align: 'right' as const,
+      sortable: true,
       render: (session) => renderHelpers.messageCount(session, 'observatory'),
     },
     {
@@ -2046,6 +2074,11 @@ function SessionsTab({ projectId }: { projectId: string }) {
             variant="observatory"
             emptyMessage="No archive entries found"
             emptyHint="Sessions will appear here once you ingest conversation logs"
+            sorting={{
+              sortBy: sortBy === 'message_count' ? 'messages' : sortBy,  // Map API param back to column id
+              order: sortOrder,
+              onSort: handleSort,
+            }}
           />
 
           <SessionPagination

@@ -191,12 +191,13 @@ export const renderHelpers = {
     </span>
   ),
 
-  /** Format last activity / end time */
+  /** Format last activity (actual last message timestamp) with fallback to end_time */
   lastActivity: (session: Session) => {
-    const conv = session as ConversationListItem;
+    // Prefer last_activity (actual message timestamp), fall back to end_time
+    const timestamp = (session as ProjectSession).last_activity || (session as ConversationListItem).end_time;
     return (
       <span className="font-mono text-xs text-muted-foreground">
-        {conv.end_time ? format(new Date(conv.end_time), 'MMM dd, yyyy HH:mm') : '---'}
+        {timestamp ? format(new Date(timestamp), 'MMM dd, yyyy HH:mm') : '---'}
       </span>
     );
   },

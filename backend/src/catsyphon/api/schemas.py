@@ -167,6 +167,7 @@ class ProjectSession(BaseModel):
     id: UUID
     start_time: datetime
     end_time: Optional[datetime] = None
+    last_activity: Optional[datetime] = None  # Actual last message timestamp
     duration_seconds: Optional[int] = None
     status: str
     success: Optional[bool] = None

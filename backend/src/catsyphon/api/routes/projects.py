@@ -798,6 +798,11 @@ async def list_project_sessions(
     date_to: Optional[str] = Query(
         None, description="Filter sessions to this date (ISO format: YYYY-MM-DD)"
     ),
+    sort_by: str = Query(
+        "last_activity",
+        description="Sort by: last_activity, start_time, message_count",
+    ),
+    order: str = Query("desc", description="Sort order: asc, desc"),
     auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> ProjectSessionsResponse:
@@ -805,12 +810,15 @@ async def list_project_sessions(
     List all sessions (conversations) for a project with hierarchical ordering.
 
     Returns paginated list of conversations in hierarchical order (parents followed by children)
-    with lightweight metadata.
+    with lightweight metadata. Default sort is by last_activity (most recent first) with
+    secondary sort by message_count (more content first).
 
     Filters:
     - developer: Filter by developer username
     - outcome: Filter by success/failed status
     - date_from/date_to: Filter by date range
+    - sort_by: Column to sort by (last_activity, start_time, message_count)
+    - order: Sort direction (asc, desc)
     """
     from datetime import datetime
 
@@ -861,13 +869,16 @@ async def list_project_sessions(
     results = repo.get_with_counts_hierarchical(
         workspace_id=auth.workspace_id,
         **filters,
+        order_by=sort_by,
+        order_dir=order,
         limit=page_size,
         offset=(page - 1) * page_size,
     )
 
     # Build response
+    # Tuple order: (conv, msg_count, epoch_count, files_count, children_count, last_activity, depth)
     sessions = []
-    for conv, msg_count, epoch_count, files_count, child_count, depth in results:
+    for conv, msg_count, epoch_count, files_count, child_count, last_activity, depth in results:
         duration_seconds = None
         if conv.end_time and conv.start_time:
             duration_seconds = int((conv.end_time - conv.start_time).total_seconds())
@@ -890,6 +901,7 @@ async def list_project_sessions(
                 id=conv.id,
                 start_time=conv.start_time,
                 end_time=conv.end_time,
+                last_activity=last_activity,
                 duration_seconds=duration_seconds,
                 status=conv.status,
                 success=conv.success,
