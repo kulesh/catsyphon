@@ -1229,6 +1229,15 @@ class EventData(BaseModel):
     parent_session_id: Optional[str] = Field(None, description="Parent session ID")
     context_semantics: Optional[dict[str, Any]] = Field(None, description="Context sharing settings")
 
+    # Session start events - metadata for semantic parity
+    slug: Optional[str] = Field(None, description="Human-readable session name")
+    summaries: Optional[list[dict[str, Any]]] = Field(
+        None, description="Session checkpoint summaries"
+    )
+    compaction_events: Optional[list[dict[str, Any]]] = Field(
+        None, description="Context compaction events"
+    )
+
     # Session end events
     outcome: Optional[str] = Field(
         None, description="Session outcome (success, partial, failed, abandoned)"
@@ -1236,6 +1245,14 @@ class EventData(BaseModel):
     summary: Optional[str] = Field(None, description="Session summary")
     total_messages: Optional[int] = Field(None, description="Total message count")
     total_tool_calls: Optional[int] = Field(None, description="Total tool calls")
+
+    # Session end events - data for semantic parity
+    plans: Optional[list[dict[str, Any]]] = Field(
+        None, description="Plan data from session (list of PlanInfo dicts)"
+    )
+    files_touched: Optional[list[str]] = Field(
+        None, description="All files touched during session"
+    )
 
     class Config:
         extra = "allow"  # Allow additional fields for extensibility

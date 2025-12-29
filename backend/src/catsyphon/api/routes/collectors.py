@@ -233,6 +233,24 @@ def submit_events(
         first_event = sorted_events[0]
         session_data = first_event.data
 
+        # Extract known fields and additional metadata for semantic parity
+        # session_data.model_dump() gives us all fields including extra ones
+        session_data_dict = session_data.model_dump(exclude_none=True)
+        known_fields = {
+            "agent_type",
+            "agent_version",
+            "working_directory",
+            "git_branch",
+            "parent_session_id",
+            "context_semantics",
+            "slug",
+            "summaries",
+            "compaction_events",
+        }
+        session_metadata = {
+            k: v for k, v in session_data_dict.items() if k not in known_fields
+        }
+
         conversation, created = session_repo.get_or_create_session(
             collector_session_id=request.session_id,
             workspace_id=collector.workspace_id,
@@ -244,6 +262,11 @@ def submit_events(
             parent_session_id=session_data.parent_session_id,
             context_semantics=session_data.context_semantics,
             first_event_timestamp=first_event.emitted_at,  # Use event timestamp
+            # New fields for semantic parity
+            slug=session_data.slug,
+            summaries=session_data.summaries,
+            compaction_events=session_data.compaction_events,
+            session_metadata=session_metadata if session_metadata else None,
         )
 
         # Update ingestion job with conversation
@@ -338,7 +361,7 @@ def submit_events(
                             )
                             files_touched += 1
 
-            # Handle session_end
+            # Handle session_end - include plans and files for semantic parity
             if event.type == "session_end":
                 session_repo.complete_session(
                     conversation=conversation,
@@ -346,6 +369,9 @@ def submit_events(
                     outcome=event.data.outcome or "unknown",
                     summary=event.data.summary,
                     event_timestamp=event.emitted_at,  # Use event timestamp
+                    # New fields for semantic parity
+                    plans=event.data.plans,
+                    files_touched=event.data.files_touched,
                 )
 
         # Update sequence tracking and last activity timestamp

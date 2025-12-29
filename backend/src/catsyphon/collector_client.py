@@ -21,6 +21,24 @@ from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 logger = logging.getLogger(__name__)
 
 
+def _serialize_for_json(obj: Any) -> Any:
+    """
+    Recursively serialize an object for JSON transmission.
+
+    Handles datetime objects and nested structures (dicts, lists).
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_serialize_for_json(item) for item in obj]
+    elif isinstance(obj, UUID):
+        return str(obj)
+    else:
+        return obj
+
+
 @dataclass
 class CollectorConfig:
     """Configuration for the collector client."""
@@ -106,6 +124,7 @@ class CollectorClient:
         resolved_parent_session_id = parent_session_id or parsed.parent_session_id
 
         # Session start event - include parent_session_id for hierarchy
+        # Also include metadata for semantic parity with direct ingestion
         session_start_data: dict[str, Any] = {
             "agent_type": agent_type or parsed.agent_type,
             "agent_version": agent_version or parsed.agent_version or "unknown",
@@ -115,6 +134,20 @@ class CollectorClient:
         # Only include parent_session_id if set (for hierarchy tracking)
         if resolved_parent_session_id:
             session_start_data["parent_session_id"] = resolved_parent_session_id
+
+        # Add metadata for semantic parity with direct ingestion
+        # Use _serialize_for_json to handle datetime objects in nested structures
+        if parsed.slug:
+            session_start_data["slug"] = parsed.slug
+        if parsed.summaries:
+            session_start_data["summaries"] = _serialize_for_json(parsed.summaries)
+        if parsed.compaction_events:
+            session_start_data["compaction_events"] = _serialize_for_json(parsed.compaction_events)
+        # Spread any additional metadata from the parser
+        if parsed.metadata:
+            for key, value in parsed.metadata.items():
+                if key not in session_start_data:
+                    session_start_data[key] = _serialize_for_json(value)
 
         events.append(self._create_event(
             event_type="session_start",
@@ -127,14 +160,23 @@ class CollectorClient:
             events.extend(self._message_to_events(msg))
 
         # Session end event (if we have an end time)
+        # Include plans and files_touched for semantic parity with direct ingestion
         if parsed.end_time:
+            session_end_data: dict[str, Any] = {
+                "outcome": "unknown",
+                "total_messages": len(parsed.messages),
+            }
+            # Add plans for semantic parity (finalized at session end)
+            if parsed.plans:
+                session_end_data["plans"] = [plan.to_dict() for plan in parsed.plans]
+            # Add files_touched for semantic parity
+            if parsed.files_touched:
+                session_end_data["files_touched"] = parsed.files_touched
+
             events.append(self._create_event(
                 event_type="session_end",
                 emitted_at=parsed.end_time,
-                data={
-                    "outcome": "unknown",
-                    "total_messages": len(parsed.messages),
-                },
+                data=session_end_data,
             ))
 
         # Send events in batches
@@ -215,13 +257,17 @@ class CollectorClient:
 
                 # If tool has a result, also create a tool_result event
                 if tool_call.result is not None:
+                    # Ensure result is a string (it may be a list of content blocks)
+                    result_value = tool_call.result
+                    if not isinstance(result_value, str):
+                        result_value = json.dumps(result_value)
                     events.append(self._create_event(
                         event_type="tool_result",
                         emitted_at=tool_event_time,
                         data={
                             "tool_use_id": f"tool_{self.sequence - 1}",  # Match previous tool_call
                             "success": tool_call.success,
-                            "result": tool_call.result,
+                            "result": result_value,
                         },
                     ))
 

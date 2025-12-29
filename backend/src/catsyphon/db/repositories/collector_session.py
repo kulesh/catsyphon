@@ -196,6 +196,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         context_semantics: Optional[dict] = None,
         first_event_timestamp: Optional[datetime] = None,
         agent_metadata: Optional[dict] = None,
+        # New fields for semantic parity with direct ingestion
+        slug: Optional[str] = None,
+        summaries: Optional[list[dict]] = None,
+        compaction_events: Optional[list[dict]] = None,
+        session_metadata: Optional[dict] = None,
     ) -> tuple[Conversation, bool]:
         """
         Get existing session or create new one.
@@ -214,6 +219,10 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             context_semantics: Context sharing settings
             first_event_timestamp: Timestamp of first event (for accurate start_time)
             agent_metadata: Additional agent metadata (for agent conversations)
+            slug: Human-readable session name (semantic parity)
+            summaries: Session checkpoint summaries (semantic parity)
+            compaction_events: Context compaction events (semantic parity)
+            session_metadata: Additional metadata fields to spread into extra_data
 
         Returns:
             Tuple of (conversation, created) where created is True if new
@@ -263,6 +272,18 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             "git_branch": git_branch,
             "parent_session_id": parent_session_id,  # Store for deferred linking
         }
+        # Add metadata for semantic parity with direct ingestion
+        if slug:
+            extra_data["slug"] = slug
+        if summaries:
+            extra_data["summaries"] = summaries
+        if compaction_events:
+            extra_data["compaction_events"] = compaction_events
+        # Spread any additional metadata from the collector
+        if session_metadata:
+            for key, value in session_metadata.items():
+                if key not in extra_data:
+                    extra_data[key] = value
 
         # Build agent_metadata if this is an agent conversation
         resolved_agent_metadata: dict[str, Any] = agent_metadata or {}
@@ -365,6 +386,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         outcome: str,
         summary: Optional[str] = None,
         event_timestamp: Optional[datetime] = None,
+        # New fields for semantic parity with direct ingestion
+        plans: Optional[list[dict]] = None,
+        files_touched: Optional[list[str]] = None,
     ) -> None:
         """
         Mark a session as completed.
@@ -375,10 +399,13 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             outcome: Session outcome (success, partial, failed, abandoned)
             summary: Optional session summary
             event_timestamp: Timestamp of the session_end event (for accurate end_time)
+            plans: Plan data from session (semantic parity)
+            files_touched: All files touched during session (semantic parity)
         """
         conversation.status = "completed"
         # Use event timestamp if provided, else now
-        conversation.end_time = event_timestamp or datetime.now(timezone.utc)
+        end_time = event_timestamp or datetime.now(timezone.utc)
+        conversation.end_time = end_time
         conversation.last_event_sequence = max(
             conversation.last_event_sequence, final_sequence
         )
@@ -390,11 +417,18 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             conversation.success = False
         # partial and other outcomes leave success as None
 
-        # Store summary in extra_data if provided
-        if summary:
+        # Store summary and plans in extra_data if provided
+        if summary or plans:
             extra = dict(conversation.extra_data or {})
-            extra["summary"] = summary
+            if summary:
+                extra["summary"] = summary
+            if plans:
+                extra["plans"] = plans
             conversation.extra_data = extra
+
+        # Create FileTouched records for files not already tracked
+        if files_touched:
+            self._add_batch_files_touched(conversation, files_touched, end_time)
 
         self.session.flush()
 
@@ -629,6 +663,55 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         conversation.files_count = (conversation.files_count or 0) + 1
 
         return file_touched
+
+    def _add_batch_files_touched(
+        self,
+        conversation: Conversation,
+        file_paths: list[str],
+        timestamp: datetime,
+    ) -> int:
+        """
+        Add batch of file touched records, deduplicating against existing records.
+
+        Used by complete_session to add files from the parsed.files_touched list
+        that weren't already tracked via tool_call events.
+
+        Args:
+            conversation: Parent conversation
+            file_paths: List of file paths to add
+            timestamp: When the files were touched
+
+        Returns:
+            Number of new files added
+        """
+        epoch = self._get_default_epoch(conversation)
+
+        # Get existing file paths to avoid duplicates
+        existing_paths = {
+            ft.file_path
+            for ft in self.session.query(FileTouched)
+            .filter(FileTouched.conversation_id == conversation.id)
+            .all()
+        }
+
+        added_count = 0
+        for file_path in file_paths:
+            if file_path not in existing_paths:
+                file_touched = FileTouched(
+                    conversation_id=conversation.id,
+                    epoch_id=epoch.id,
+                    file_path=file_path,
+                    change_type="read",  # Default to 'read' for global list
+                    timestamp=timestamp,
+                )
+                self.session.add(file_touched)
+                added_count += 1
+
+        # Update denormalized count
+        if added_count > 0:
+            conversation.files_count = (conversation.files_count or 0) + added_count
+
+        return added_count
 
     def _derive_role(self, event_type: str, data: dict) -> str:
         """Derive message role from event type and data."""
