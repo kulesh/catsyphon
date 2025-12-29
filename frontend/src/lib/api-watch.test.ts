@@ -25,6 +25,29 @@ import type {
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// Mock localStorage for workspace header
+const TEST_WORKSPACE_ID = 'test-workspace-123';
+const localStorageMock = {
+  getItem: vi.fn((key: string) => {
+    if (key === 'catsyphon_current_workspace_id') {
+      return TEST_WORKSPACE_ID;
+    }
+    return null;
+  }),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  length: 0,
+  key: vi.fn(),
+};
+Object.defineProperty(global, 'localStorage', { value: localStorageMock });
+
+// Expected headers with workspace
+const expectedHeaders = {
+  'Content-Type': 'application/json',
+  'X-Workspace-Id': TEST_WORKSPACE_ID,
+};
+
 describe('Watch Configuration API', () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -56,7 +79,7 @@ describe('Watch Configuration API', () => {
       const result = await getWatchConfigs();
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockConfigs);
     });
@@ -70,7 +93,7 @@ describe('Watch Configuration API', () => {
       await getWatchConfigs(true);
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs?active_only=true', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
     });
 
@@ -110,7 +133,7 @@ describe('Watch Configuration API', () => {
       const result = await getWatchConfig('config-1');
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs/config-1', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockConfig);
     });
@@ -158,7 +181,7 @@ describe('Watch Configuration API', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs', {
         method: 'POST',
         body: JSON.stringify(createData),
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockResponse);
     });
@@ -232,7 +255,7 @@ describe('Watch Configuration API', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs/config-1', {
         method: 'PUT',
         body: JSON.stringify(updateData),
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockResponse);
       expect(result.enable_tagging).toBe(true);
@@ -263,7 +286,7 @@ describe('Watch Configuration API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs/config-1', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
     });
 
@@ -315,7 +338,8 @@ describe('Watch Configuration API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs/config-1/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockResponse);
       expect(result.is_active).toBe(true);
@@ -370,7 +394,8 @@ describe('Watch Configuration API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/configs/config-1/stop', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockResponse);
       expect(result.is_active).toBe(false);
@@ -444,7 +469,7 @@ describe('Watch Configuration API', () => {
       const result = await getWatchStatus();
 
       expect(mockFetch).toHaveBeenCalledWith('/api/watch/status', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockStatus);
       expect(result.total_configs).toBe(5);
