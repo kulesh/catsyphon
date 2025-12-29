@@ -94,15 +94,13 @@ class TestGetAuthContext:
         assert ctx.workspace_id == workspace.id
         assert ctx.organization_id == workspace.organization_id
 
-    def test_fallback_to_first_workspace(self, db_session: Session, org_and_workspace):
-        """get_auth_context should fall back to first workspace if no header."""
-        _, workspace = org_and_workspace
+    def test_missing_header_raises_401(self, db_session: Session, org_and_workspace):
+        """get_auth_context should raise 401 when header is missing (no fallback)."""
+        with pytest.raises(HTTPException) as exc_info:
+            get_auth_context(x_workspace_id=None, session=db_session)
 
-        ctx = get_auth_context(x_workspace_id=None, session=db_session)
-
-        # Should get the first workspace
-        assert ctx.workspace_id is not None
-        assert ctx.organization_id is not None
+        assert exc_info.value.status_code == 401
+        assert "X-Workspace-Id header is required" in exc_info.value.detail
 
     def test_invalid_workspace_id_format(self, db_session: Session, org_and_workspace):
         """get_auth_context should reject invalid UUID format."""
@@ -136,7 +134,7 @@ class TestGetAuthContext:
         assert "inactive" in exc_info.value.detail.lower()
 
     def test_no_workspaces_available(self, db_session: Session):
-        """get_auth_context should 401 if no workspaces exist and no header."""
+        """get_auth_context should 401 if no header provided (even if no workspaces)."""
         # Clear all workspaces first
         db_session.query(Workspace).delete()
         db_session.query(Organization).delete()
@@ -145,8 +143,9 @@ class TestGetAuthContext:
         with pytest.raises(HTTPException) as exc_info:
             get_auth_context(x_workspace_id=None, session=db_session)
 
+        # Should still require header even with empty database
         assert exc_info.value.status_code == 401
-        assert "No workspace available" in exc_info.value.detail
+        assert "X-Workspace-Id header is required" in exc_info.value.detail
 
 
 class TestRequireAuthContext:

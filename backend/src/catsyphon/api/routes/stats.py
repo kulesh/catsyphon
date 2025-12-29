@@ -6,46 +6,27 @@ Endpoints for querying analytics and statistics about conversations.
 
 from datetime import datetime, timedelta
 from typing import Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import OverviewStats
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
     ConversationRepository,
     DeveloperRepository,
     ProjectRepository,
-    WorkspaceRepository,
 )
 from catsyphon.models.db import Conversation, Message
 
 router = APIRouter()
 
 
-def _get_default_workspace_id(session: Session) -> Optional[UUID]:
-    """
-    Get default workspace ID for API operations.
-
-    This is a temporary helper until proper authentication is implemented.
-    Returns the first workspace in the database, or None if no workspaces exist.
-
-    Returns:
-        UUID of the first workspace, or None if no workspaces exist
-    """
-    workspace_repo = WorkspaceRepository(session)
-    workspaces = workspace_repo.get_all(limit=1)
-
-    if not workspaces:
-        return None
-
-    return workspaces[0].id
-
-
 @router.get("/overview", response_model=OverviewStats)
 async def get_overview_stats(
+    auth: AuthContext = Depends(get_auth_context),
     start_date: Optional[datetime] = Query(None, description="Filter start date"),
     end_date: Optional[datetime] = Query(None, description="Filter end date"),
     session: Session = Depends(get_db),
@@ -55,24 +36,13 @@ async def get_overview_stats(
 
     Returns high-level metrics about conversations, messages, projects, and developers.
     Optionally filtered by date range.
+
+    Requires X-Workspace-Id header.
     """
     conv_repo = ConversationRepository(session)
     proj_repo = ProjectRepository(session)
     dev_repo = DeveloperRepository(session)
-    workspace_id = _get_default_workspace_id(session)
-
-    # If no workspace, return empty stats
-    if workspace_id is None:
-        return OverviewStats(
-            total_conversations=0,
-            total_messages=0,
-            total_projects=0,
-            total_developers=0,
-            conversations_by_status={},
-            conversations_by_agent={},
-            recent_conversations=0,
-            success_rate=None,
-        )
+    workspace_id = auth.workspace_id
 
     # Build date filter
     date_filter = {"workspace_id": workspace_id}

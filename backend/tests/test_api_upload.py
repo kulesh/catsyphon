@@ -3,15 +3,6 @@
 import io
 
 import pytest
-from fastapi.testclient import TestClient
-
-from catsyphon.api.app import app
-
-
-@pytest.fixture
-def client():
-    """Create a test client."""
-    return TestClient(app)
 
 
 @pytest.fixture
@@ -26,7 +17,7 @@ class TestFileUpload:
     """Tests for file upload endpoint."""
 
     def test_upload_valid_file(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test uploading a valid conversation log file."""
         files = [
@@ -40,7 +31,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         assert response.status_code == 200
         result = response.json()
@@ -51,17 +42,17 @@ class TestFileUpload:
         assert result["results"][0]["conversation_id"] is not None
         assert result["results"][0]["filename"] == "conversation.jsonl"
 
-    def test_upload_without_file(self, client: TestClient):
+    def test_upload_without_file(self, api_client):
         """Test upload endpoint without file."""
-        response = client.post("/upload")
+        response = api_client.post("/upload")
 
         assert response.status_code == 422  # Validation error - no files provided
 
-    def test_upload_non_jsonl_file(self, client: TestClient):
+    def test_upload_non_jsonl_file(self, api_client):
         """Test uploading non-JSONL file."""
         files = [("files", ("test.txt", io.BytesIO(b"Not a JSONL file"), "text/plain"))]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         assert response.status_code == 200  # Endpoint processes the request
         result = response.json()
@@ -70,11 +61,11 @@ class TestFileUpload:
         assert result["results"][0]["status"] == "error"
         assert "Only .jsonl files are supported" in result["results"][0]["error"]
 
-    def test_upload_empty_file(self, client: TestClient):
+    def test_upload_empty_file(self, api_client):
         """Test uploading empty file."""
         files = [("files", ("empty.jsonl", io.BytesIO(b""), "application/json"))]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         # Empty file will be skipped (metadata-only, no conversation messages)
         assert response.status_code == 200
@@ -83,7 +74,7 @@ class TestFileUpload:
         assert result["results"][0]["status"] == "skipped"
 
     def test_upload_without_project_name(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test upload without project name - should auto-extract from log."""
         files = [
@@ -97,7 +88,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         # Should succeed - project_name is auto-extracted from log
         assert response.status_code == 200
@@ -105,7 +96,7 @@ class TestFileUpload:
         assert result["success_count"] == 1
 
     def test_upload_with_developer_username(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test upload - developer username is auto-extracted from log."""
         files = [
@@ -119,7 +110,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         # Should succeed - developer info is auto-extracted
         assert response.status_code == 200
@@ -128,7 +119,7 @@ class TestFileUpload:
         assert result["results"][0]["conversation_id"] is not None
 
     def test_upload_duplicate_file_returns_error(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test that uploading the same file twice handles duplicates gracefully."""
         files1 = [
@@ -143,7 +134,7 @@ class TestFileUpload:
         ]
 
         # First upload should succeed
-        response1 = client.post("/upload", files=files1)
+        response1 = api_client.post("/upload", files=files1)
         assert response1.status_code == 200
         result1 = response1.json()
         assert result1["success_count"] == 1
@@ -161,7 +152,7 @@ class TestFileUpload:
                 ),
             )
         ]
-        response2 = client.post("/upload", files=files2)
+        response2 = api_client.post("/upload", files=files2)
 
         assert response2.status_code == 200
         result2 = response2.json()
@@ -171,12 +162,12 @@ class TestFileUpload:
         # Status may be "duplicate" or "success" depending on timing
         assert result2["results"][0]["status"] in ["duplicate", "success"]
 
-    def test_upload_malformed_jsonl(self, client: TestClient):
+    def test_upload_malformed_jsonl(self, api_client):
         """Test uploading malformed JSONL content."""
         malformed = b'{"invalid json without closing brace'
         files = [("files", ("bad.jsonl", io.BytesIO(malformed), "application/json"))]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         # Malformed JSON is treated as skipped (no valid conversation messages found)
         assert response.status_code == 200
@@ -184,7 +175,7 @@ class TestFileUpload:
         assert result["skipped_count"] == 1
         assert result["results"][0]["status"] == "skipped"
 
-    def test_upload_very_large_file(self, client: TestClient):
+    def test_upload_very_large_file(self, api_client):
         """Test uploading a large file (size limits)."""
         # Create a large file with valid JSONL content
         large_content = b'{"type":"message","content":"x"}\n' * 100000
@@ -192,7 +183,7 @@ class TestFileUpload:
             ("files", ("large.jsonl", io.BytesIO(large_content), "application/json"))
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         # Should either succeed (if parser handles it) or fail with error
         assert response.status_code in [200, 413]
@@ -202,7 +193,7 @@ class TestFileUpload:
             assert "results" in result
 
     def test_upload_response_structure(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test that upload response has correct structure."""
         files = [
@@ -216,7 +207,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         assert response.status_code == 200
         result = response.json()
@@ -235,7 +226,7 @@ class TestFileUpload:
             assert "files_count" in result["results"][0]
 
     def test_upload_with_special_characters_in_filename(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test uploading file with special characters in filename."""
         files = [
@@ -249,7 +240,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         # Should handle special characters gracefully
         assert response.status_code == 200
@@ -259,7 +250,7 @@ class TestFileUpload:
             result["results"][0]["filename"] == "conversation (2025-01-01) [test].jsonl"
         )
 
-    def test_upload_file_with_unicode_content(self, client: TestClient, db_session):
+    def test_upload_file_with_unicode_content(self, api_client, db_session):
         """Test uploading file with Unicode content."""
         unicode_content = """{"parentUuid":"00000000-0000-0000-0000-000000000000","isSidechain":false,"userType":"external","cwd":"/Users/test/project","sessionId":"test-session-unicode","version":"2.0.17","gitBranch":"main","type":"user","message":{"role":"user","content":"Help me with 日本語 content"},"uuid":"msg-unicode-001","timestamp":"2025-10-16T19:12:28.024Z"}
 {"parentUuid":"msg-unicode-001","isSidechain":false,"userType":"external","cwd":"/Users/test/project","sessionId":"test-session-unicode","version":"2.0.17","gitBranch":"main","type":"assistant","message":{"model":"claude-sonnet-4-5-20250929","id":"msg_124","type":"message","role":"assistant","content":[{"type":"text","text":"I'll help with émojis 🚀"}],"usage":{"input_tokens":10,"output_tokens":5}},"uuid":"msg-unicode-002","timestamp":"2025-10-16T19:12:29.500Z"}
@@ -275,7 +266,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         assert response.status_code == 200
         result = response.json()
@@ -283,7 +274,7 @@ class TestFileUpload:
         assert result["results"][0]["status"] == "success"
 
     def test_upload_multiple_files(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test uploading multiple files at once."""
         # Create two different files with different session IDs
@@ -312,7 +303,7 @@ class TestFileUpload:
             ),
         ]
 
-        response = client.post("/upload", files=files)
+        response = api_client.post("/upload", files=files)
 
         assert response.status_code == 200
         result = response.json()
@@ -325,7 +316,7 @@ class TestFileUpload:
         assert result["results"][1]["status"] == "success"
 
     def test_upload_with_update_mode_skip(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test upload with update_mode=skip (default behavior)."""
         files = [
@@ -339,7 +330,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload?update_mode=skip", files=files)
+        response = api_client.post("/upload?update_mode=skip", files=files)
 
         assert response.status_code == 200
         result = response.json()
@@ -347,7 +338,7 @@ class TestFileUpload:
         assert result["results"][0]["status"] == "success"
 
     def test_upload_with_update_mode_replace(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test upload with update_mode=replace."""
         files = [
@@ -362,11 +353,11 @@ class TestFileUpload:
         ]
 
         # First upload
-        response1 = client.post("/upload", files=files)
+        response1 = api_client.post("/upload", files=files)
         assert response1.status_code == 200
 
         # Second upload with replace mode
-        response2 = client.post("/upload?update_mode=replace", files=files)
+        response2 = api_client.post("/upload?update_mode=replace", files=files)
 
         assert response2.status_code == 200
         result = response2.json()
@@ -375,7 +366,7 @@ class TestFileUpload:
         assert result["results"][0]["status"] in ["success", "duplicate"]
 
     def test_upload_with_update_mode_append(
-        self, client: TestClient, sample_jsonl_content: str, db_session
+        self, api_client, sample_jsonl_content: str, db_session
     ):
         """Test upload with update_mode=append."""
         files = [
@@ -389,7 +380,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload?update_mode=append", files=files)
+        response = api_client.post("/upload?update_mode=append", files=files)
 
         assert response.status_code == 200
         result = response.json()
@@ -397,7 +388,7 @@ class TestFileUpload:
         assert result["results"][0]["status"] == "success"
 
     def test_upload_with_invalid_update_mode(
-        self, client: TestClient, sample_jsonl_content: str
+        self, api_client, sample_jsonl_content: str
     ):
         """Test upload with invalid update_mode value."""
         files = [
@@ -411,7 +402,7 @@ class TestFileUpload:
             )
         ]
 
-        response = client.post("/upload?update_mode=invalid", files=files)
+        response = api_client.post("/upload?update_mode=invalid", files=files)
 
         # Should fail validation (422 Unprocessable Entity)
         assert response.status_code == 422

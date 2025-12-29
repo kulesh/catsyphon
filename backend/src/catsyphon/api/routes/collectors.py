@@ -30,10 +30,12 @@ from catsyphon.api.schemas import (
     CollectorSessionCompleteResponse,
     CollectorSessionStatusResponse,
 )
+from catsyphon.config import settings
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
     CollectorRepository,
     CollectorSessionRepository,
+    ConversationRepository,
     WorkspaceRepository,
 )
 from catsyphon.models.db import CollectorConfig, IngestionJob
@@ -41,6 +43,83 @@ from catsyphon.models.db import CollectorConfig, IngestionJob
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collectors", tags=["collectors"])
+
+# Lazy-initialized tagging pipeline (only created when needed)
+_tagging_pipeline = None
+
+
+def _get_tagging_pipeline():
+    """Get or create the tagging pipeline (lazy initialization).
+
+    Returns:
+        TaggingPipeline instance, or None if tagging is not configured.
+    """
+    global _tagging_pipeline
+    if _tagging_pipeline is None and settings.openai_api_key:
+        from pathlib import Path
+
+        from catsyphon.tagging import TaggingPipeline
+
+        # Convert cache_dir to Path if it's a string
+        cache_dir = None
+        if settings.tagging_cache_dir:
+            cache_dir = Path(settings.tagging_cache_dir)
+
+        _tagging_pipeline = TaggingPipeline(
+            openai_api_key=settings.openai_api_key,
+            openai_model="gpt-4o-mini",
+            cache_dir=cache_dir,
+            cache_ttl_days=settings.tagging_cache_ttl_days,
+            enable_cache=settings.tagging_enable_cache,
+        )
+        logger.info("TaggingPipeline initialized for collector events")
+    return _tagging_pipeline
+
+
+def _tag_conversation_async(conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session):
+    """Tag a conversation after session completion.
+
+    This runs synchronously but is designed to not block the response.
+    Failures are logged but do not fail the request.
+
+    Args:
+        conversation_id: UUID of the conversation to tag
+        workspace_id: UUID of the workspace
+        db: Database session
+    """
+    pipeline = _get_tagging_pipeline()
+    if not pipeline:
+        return
+
+    try:
+        conv_repo = ConversationRepository(db)
+        conversation = conv_repo.get_with_relations(conversation_id, workspace_id)
+
+        if not conversation:
+            logger.warning(f"Conversation {conversation_id} not found for tagging")
+            return
+
+        # Run tagging pipeline
+        tags, metrics = pipeline.tag_from_canonical(
+            conversation=conversation,
+            session=db,
+            children=[],  # Agent children already have session_end processed separately
+        )
+
+        # Update conversation with tags
+        conversation.tags = tags
+        db.commit()
+
+        logger.info(
+            f"Tagged conversation {conversation_id}: "
+            f"intent={tags.get('intent')}, outcome={tags.get('outcome')}, "
+            f"tokens={metrics.get('llm_total_tokens', 0)}"
+        )
+
+    except Exception as e:
+        logger.warning(f"Tagging failed for conversation {conversation_id}: {e}")
+        # Don't fail the request - tagging is optional
+        db.rollback()
 
 
 def generate_api_key() -> tuple[str, str, str]:
@@ -302,6 +381,7 @@ def submit_events(
         # Track message-like events added
         messages_added = 0
         files_touched = 0
+        session_completed = False  # Track if session_end was processed
 
         # Tools that modify files (for FileTouched tracking)
         # Maps tool_name -> change_type for semantic parity with direct ingestion
@@ -373,6 +453,7 @@ def submit_events(
                     plans=event.data.plans,
                     files_touched=event.data.files_touched,
                 )
+                session_completed = True
 
         # Update sequence tracking and last activity timestamp
         if new_events:
@@ -412,6 +493,11 @@ def submit_events(
         }
 
         db.commit()
+
+        # Run tagging pipeline after session completion (non-blocking)
+        # This provides semantic parity with CLI/Watch/Upload ingestion paths
+        if session_completed and settings.openai_api_key:
+            _tag_conversation_async(conversation.id, collector.workspace_id, db)
 
         logger.debug(
             f"Collector ingestion completed: job={ingestion_job.id}, "
@@ -582,6 +668,10 @@ def complete_session(
     )
 
     db.commit()
+
+    # Run tagging pipeline after session completion (non-blocking)
+    if settings.openai_api_key:
+        _tag_conversation_async(conversation.id, collector.workspace_id, db)
 
     return CollectorSessionCompleteResponse(
         session_id=session_id,

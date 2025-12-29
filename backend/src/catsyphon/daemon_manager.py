@@ -336,6 +336,8 @@ class DaemonManager:
                 api_key,
                 collector_id,
                 api_batch_size,
+                # Multi-tenancy workspace
+                config.workspace_id,
             ),
             name=f"watcher-{config_id}",
             daemon=False,  # Not a daemon process - we want clean shutdown

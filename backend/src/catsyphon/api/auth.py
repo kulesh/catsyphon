@@ -54,7 +54,7 @@ class AuthContext:
 def get_auth_context(
     x_workspace_id: Optional[str] = Header(
         None,
-        description="Workspace UUID for multi-tenant isolation",
+        description="Workspace UUID for multi-tenant isolation (required)",
         alias="X-Workspace-Id",
     ),
     session: Session = Depends(get_db),
@@ -62,9 +62,8 @@ def get_auth_context(
     """
     FastAPI dependency to extract and validate workspace context from request.
 
-    Extracts workspace_id from the X-Workspace-Id header. If not provided,
-    falls back to the first available workspace (temporary behavior until
-    full authentication is implemented in Phase 2).
+    Extracts workspace_id from the X-Workspace-Id header. This header is required
+    for multi-tenant workspace isolation.
 
     Args:
         x_workspace_id: Workspace UUID from X-Workspace-Id header
@@ -74,42 +73,32 @@ def get_auth_context(
         AuthContext with validated workspace and organization IDs
 
     Raises:
-        HTTPException(401): If workspace is invalid or no workspaces exist
-
-    Security Note:
-        This is Phase 1 implementation. In Phase 2, this will be replaced
-        with proper API key authentication that maps to workspaces.
+        HTTPException(401): If workspace header is missing or invalid
+        HTTPException(400): If workspace ID format is invalid
     """
     workspace_repo = WorkspaceRepository(session)
-    workspace = None
 
-    if x_workspace_id:
-        try:
-            workspace_uuid = UUID(x_workspace_id)
-            workspace = workspace_repo.get(workspace_uuid)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid workspace ID format",
-            )
+    # Require workspace header - no fallback to default workspace
+    if not x_workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Workspace-Id header is required",
+        )
 
-        if not workspace:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid workspace ID",
-            )
-    else:
-        # Temporary fallback: use first available workspace
-        # This maintains backward compatibility during Phase 1 migration
-        # and will be removed in Phase 2 when API key auth is implemented
-        workspaces = workspace_repo.get_all(limit=1)
-        if workspaces:
-            workspace = workspaces[0]
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="No workspace available. Please complete setup first.",
-            )
+    try:
+        workspace_uuid = UUID(x_workspace_id)
+        workspace = workspace_repo.get(workspace_uuid)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace ID format",
+        )
+
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid workspace ID",
+        )
 
     if not workspace.is_active:
         raise HTTPException(
