@@ -21,7 +21,7 @@ import type {
   ProjectFileAggregation,
   ProjectInsightsResponse,
   ProjectListItem,
-  ProjectSession,
+  ProjectSessionsResponse,
   ProjectStats,
   ProjectAnalytics,
   UploadResponse,
@@ -445,7 +445,7 @@ export async function getProjectSessions(
   page = 1,
   pageSize = 20,
   filters?: ProjectSessionFilters
-): Promise<ProjectSession[]> {
+): Promise<ProjectSessionsResponse> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -459,7 +459,7 @@ export async function getProjectSessions(
     });
   }
 
-  return apiFetch<ProjectSession[]>(
+  return apiFetch<ProjectSessionsResponse>(
     `/projects/${projectId}/sessions?${params.toString()}`
   );
 }

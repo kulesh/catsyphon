@@ -11,6 +11,7 @@ import * as api from '@/lib/api';
 import type {
   ProjectStats,
   ProjectSession,
+  ProjectSessionsResponse,
   ProjectFileAggregation,
   ProjectListItem,
 } from '@/types/api';
@@ -77,7 +78,7 @@ const mockStats: ProjectStats = {
   sentiment_timeline: [], // Empty by default, tests override as needed
 };
 
-const mockSessions: ProjectSession[] = [
+const mockSessionItems: ProjectSession[] = [
   {
     id: 'session-1',
     start_time: '2025-11-22T14:14:00Z',
@@ -115,6 +116,14 @@ const mockSessions: ProjectSession[] = [
     developer: 'kulesh',
   },
 ];
+
+const mockSessions: ProjectSessionsResponse = {
+  items: mockSessionItems,
+  total: 3,
+  page: 1,
+  page_size: 20,
+  pages: 1,
+};
 
 const mockFiles: ProjectFileAggregation[] = [
   {
@@ -482,7 +491,13 @@ describe('ProjectDetail', () => {
     });
 
     it('should show empty state when no sessions', async () => {
-      vi.mocked(api.getProjectSessions).mockResolvedValue([]);
+      vi.mocked(api.getProjectSessions).mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 20,
+        pages: 0,
+      });
 
       const user = userEvent.setup();
       render(<ProjectDetail />);

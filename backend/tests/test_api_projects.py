@@ -719,7 +719,11 @@ class TestListProjectSessions:
         assert response.status_code == 200
         data = response.json()
 
-        assert data == []
+        assert data["items"] == []
+        assert data["total"] == 0
+        assert data["page"] == 1
+        assert data["page_size"] == 20
+        assert data["pages"] == 0
 
     def test_list_project_sessions_basic(
         self,
@@ -752,8 +756,10 @@ class TestListProjectSessions:
         assert response.status_code == 200
         data = response.json()
 
-        assert len(data) == 1
-        session = data[0]
+        assert len(data["items"]) == 1
+        assert data["total"] == 1
+        assert data["pages"] == 1
+        session = data["items"][0]
 
         assert session["id"] == str(conv.id)
         assert session["agent_type"] == "claude-code"
@@ -793,7 +799,10 @@ class TestListProjectSessions:
 
         assert response1.status_code == 200
         data1 = response1.json()
-        assert len(data1) == 10
+        assert len(data1["items"]) == 10
+        assert data1["total"] == 25
+        assert data1["pages"] == 3
+        assert data1["page"] == 1
 
         # Get second page
         response2 = api_client.get(
@@ -802,11 +811,12 @@ class TestListProjectSessions:
 
         assert response2.status_code == 200
         data2 = response2.json()
-        assert len(data2) == 10
+        assert len(data2["items"]) == 10
+        assert data2["page"] == 2
 
         # Pages should have different sessions
-        ids1 = {s["id"] for s in data1}
-        ids2 = {s["id"] for s in data2}
+        ids1 = {s["id"] for s in data1["items"]}
+        ids2 = {s["id"] for s in data2["items"]}
         assert len(ids1 & ids2) == 0
 
     def test_list_project_sessions_sorted_by_start_time(
@@ -840,7 +850,7 @@ class TestListProjectSessions:
         data = response.json()
 
         # Should be sorted newest first
-        start_times = [s["start_time"] for s in data]
+        start_times = [s["start_time"] for s in data["items"]]
         assert start_times == sorted(start_times, reverse=True)
 
     def test_list_project_sessions_only_for_project(
@@ -889,7 +899,7 @@ class TestListProjectSessions:
         assert response.status_code == 200
         data = response.json()
 
-        session_ids = [s["id"] for s in data]
+        session_ids = [s["id"] for s in data["items"]]
         assert str(conv1.id) in session_ids
         assert str(conv2.id) not in session_ids
 
@@ -945,9 +955,10 @@ class TestListProjectSessions:
         data = response.json()
 
         # Should only return conv1
-        assert len(data) == 1
-        assert data[0]["id"] == str(conv1.id)
-        assert data[0]["developer"] == sample_developer.username
+        assert len(data["items"]) == 1
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == str(conv1.id)
+        assert data["items"][0]["developer"] == sample_developer.username
 
     def test_list_project_sessions_filter_by_outcome(
         self,
@@ -991,9 +1002,10 @@ class TestListProjectSessions:
         data = response.json()
 
         # Should only return successful conversation
-        assert len(data) == 1
-        assert data[0]["id"] == str(conv_success.id)
-        assert data[0]["success"] is True
+        assert len(data["items"]) == 1
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == str(conv_success.id)
+        assert data["items"][0]["success"] is True
 
         # Filter by failed
         response = api_client.get(
@@ -1003,9 +1015,10 @@ class TestListProjectSessions:
         assert response.status_code == 200
         data = response.json()
 
-        assert len(data) == 1
-        assert data[0]["id"] == str(conv_failed.id)
-        assert data[0]["success"] is False
+        assert len(data["items"]) == 1
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == str(conv_failed.id)
+        assert data["items"][0]["success"] is False
 
     def test_list_project_sessions_filter_combined(
         self,
@@ -1072,8 +1085,9 @@ class TestListProjectSessions:
         data = response.json()
 
         # Should only return the matching conversation
-        assert len(data) == 1
-        assert data[0]["id"] == str(match.id)
+        assert len(data["items"]) == 1
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == str(match.id)
 
 
 class TestGetProjectFiles:

@@ -185,6 +185,16 @@ class ProjectSession(BaseModel):
     plan_status: Optional[str] = None  # 'approved', 'active', or 'abandoned'
 
 
+class ProjectSessionsResponse(BaseModel):
+    """Response schema for paginated project sessions list."""
+
+    items: list[ProjectSession]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class ProjectFileAggregation(BaseModel):
     """Aggregated file modification data across project sessions."""
 
