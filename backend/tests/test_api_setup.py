@@ -86,7 +86,9 @@ class TestOrganizationEndpoints:
         assert response.status_code == 400
         assert "already exists" in response.json()["detail"]
 
-    def test_create_organization_invalid_slug(self, setup_client: TestClient, db_session):
+    def test_create_organization_invalid_slug(
+        self, setup_client: TestClient, db_session
+    ):
         """Test that invalid slug pattern is rejected."""
         response = setup_client.post(
             "/setup/organizations",
@@ -112,7 +114,9 @@ class TestOrganizationEndpoints:
         assert data[0]["name"] == sample_organization.name
         assert data[0]["slug"] == sample_organization.slug
 
-    def test_get_organization_by_id(self, setup_client: TestClient, sample_organization):
+    def test_get_organization_by_id(
+        self, setup_client: TestClient, sample_organization
+    ):
         """Test getting a single organization by ID."""
         response = setup_client.get(f"/setup/organizations/{sample_organization.id}")
 
@@ -286,7 +290,9 @@ class TestSlugGeneration:
         assert response.status_code == 201
         assert response.json()["slug"] == "acme-corp-2024"
 
-    def test_slug_generation_multiple_spaces(self, setup_client: TestClient, db_session):
+    def test_slug_generation_multiple_spaces(
+        self, setup_client: TestClient, db_session
+    ):
         """Test slug generation collapses multiple spaces."""
         response = setup_client.post(
             "/setup/organizations",

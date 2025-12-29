@@ -26,53 +26,67 @@ class TestWorkspaceHeaderRequired:
         """GET /projects should require X-Workspace-Id header."""
         response = client.get("/projects")
         # Should return 401 or 400 when header is missing
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
     def test_developers_requires_workspace_header(self, client: TestClient):
         """GET /developers should require X-Workspace-Id header."""
         response = client.get("/developers")
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
     def test_watch_configs_requires_workspace_header(self, client: TestClient):
         """GET /watch/configs should require X-Workspace-Id header."""
         response = client.get("/watch/configs")
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
     def test_watch_status_requires_workspace_header(self, client: TestClient):
         """GET /watch/status should require X-Workspace-Id header."""
         response = client.get("/watch/status")
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
     def test_stats_overview_requires_workspace_header(self, client: TestClient):
         """GET /stats/overview should require X-Workspace-Id header."""
         response = client.get("/stats/overview")
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
     def test_plans_list_requires_workspace_header(self, client: TestClient):
         """GET /plans should require X-Workspace-Id header."""
         response = client.get("/plans")
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
     def test_upload_requires_workspace_header(self, client: TestClient):
         """POST /upload should require X-Workspace-Id header."""
         # Create a minimal file for upload
         files = {"files": ("test.jsonl", b"{}", "application/octet-stream")}
         response = client.post("/upload/", files=files)
-        assert response.status_code in (400, 401, 422), (
-            f"Expected 400/401/422, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            400,
+            401,
+            422,
+        ), f"Expected 400/401/422, got {response.status_code}: {response.text}"
 
 
 class TestInvalidWorkspaceHeader:
@@ -80,25 +94,21 @@ class TestInvalidWorkspaceHeader:
 
     def test_invalid_uuid_format_rejected(self, client: TestClient):
         """Invalid UUID format should be rejected."""
-        response = client.get(
-            "/projects",
-            headers={"X-Workspace-Id": "not-a-uuid"}
-        )
-        assert response.status_code in (400, 422), (
-            f"Expected 400/422, got {response.status_code}: {response.text}"
-        )
+        response = client.get("/projects", headers={"X-Workspace-Id": "not-a-uuid"})
+        assert response.status_code in (
+            400,
+            422,
+        ), f"Expected 400/422, got {response.status_code}: {response.text}"
 
     def test_nonexistent_workspace_rejected(self, client: TestClient):
         """Non-existent workspace UUID should return 401."""
         fake_uuid = str(uuid.uuid4())
-        response = client.get(
-            "/projects",
-            headers={"X-Workspace-Id": fake_uuid}
-        )
+        response = client.get("/projects", headers={"X-Workspace-Id": fake_uuid})
         # Should return 401 (unauthorized) for non-existent workspace
-        assert response.status_code in (401, 404), (
-            f"Expected 401/404, got {response.status_code}: {response.text}"
-        )
+        assert response.status_code in (
+            401,
+            404,
+        ), f"Expected 401/404, got {response.status_code}: {response.text}"
 
 
 class TestWorkspaceIsolation:
@@ -107,7 +117,10 @@ class TestWorkspaceIsolation:
     @pytest.fixture
     def workspace_a(self, db_session):
         """Create test workspace A."""
-        from catsyphon.db.repositories import WorkspaceRepository, OrganizationRepository
+        from catsyphon.db.repositories import (
+            WorkspaceRepository,
+            OrganizationRepository,
+        )
 
         org_repo = OrganizationRepository(db_session)
         ws_repo = WorkspaceRepository(db_session)
@@ -124,7 +137,10 @@ class TestWorkspaceIsolation:
     @pytest.fixture
     def workspace_b(self, db_session):
         """Create test workspace B."""
-        from catsyphon.db.repositories import WorkspaceRepository, OrganizationRepository
+        from catsyphon.db.repositories import (
+            WorkspaceRepository,
+            OrganizationRepository,
+        )
 
         org_repo = OrganizationRepository(db_session)
         ws_repo = WorkspaceRepository(db_session)
@@ -157,8 +173,7 @@ class TestWorkspaceIsolation:
     ):
         """Project should be visible when querying with correct workspace."""
         response = api_client.get(
-            "/projects",
-            headers={"X-Workspace-Id": str(workspace_a.id)}
+            "/projects", headers={"X-Workspace-Id": str(workspace_a.id)}
         )
         assert response.status_code == 200
         projects = response.json()
@@ -169,8 +184,7 @@ class TestWorkspaceIsolation:
     ):
         """Project should NOT be visible when querying with different workspace."""
         response = api_client.get(
-            "/projects",
-            headers={"X-Workspace-Id": str(workspace_b.id)}
+            "/projects", headers={"X-Workspace-Id": str(workspace_b.id)}
         )
         assert response.status_code == 200
         projects = response.json()

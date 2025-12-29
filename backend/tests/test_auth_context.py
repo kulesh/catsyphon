@@ -56,7 +56,9 @@ class TestGetAuthContext:
 
         # Use unique slugs to avoid conflicts with autouse fixtures
         unique_id = str(uuid.uuid4())[:8]
-        org = org_repo.create(name=f"Auth Test Org {unique_id}", slug=f"auth-test-org-{unique_id}")
+        org = org_repo.create(
+            name=f"Auth Test Org {unique_id}", slug=f"auth-test-org-{unique_id}"
+        )
         workspace = ws_repo.create(
             name=f"Auth Test Workspace {unique_id}",
             slug=f"auth-test-workspace-{unique_id}",
@@ -159,7 +161,10 @@ class TestRequireAuthContext:
 
         # Use unique slugs to avoid conflicts with autouse fixtures
         unique_id = str(uuid.uuid4())[:8]
-        org = org_repo.create(name=f"Require Auth Test Org {unique_id}", slug=f"require-auth-org-{unique_id}")
+        org = org_repo.create(
+            name=f"Require Auth Test Org {unique_id}",
+            slug=f"require-auth-org-{unique_id}",
+        )
         workspace = ws_repo.create(
             name=f"Require Auth Test Workspace {unique_id}",
             slug=f"require-auth-ws-{unique_id}",
@@ -223,7 +228,9 @@ class TestAuthContextAPIIntegration:
 
         # Use unique slugs to avoid conflicts with autouse fixtures
         unique_id = str(uuid.uuid4())[:8]
-        org = org_repo.create(name=f"API Test Org {unique_id}", slug=f"api-test-org-{unique_id}")
+        org = org_repo.create(
+            name=f"API Test Org {unique_id}", slug=f"api-test-org-{unique_id}"
+        )
         workspace = ws_repo.create(
             name=f"API Test Workspace {unique_id}",
             slug=f"api-test-workspace-{unique_id}",

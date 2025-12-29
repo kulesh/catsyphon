@@ -16,9 +16,7 @@ def sample_jsonl_content():
 class TestFileUpload:
     """Tests for file upload endpoint."""
 
-    def test_upload_valid_file(
-        self, api_client, sample_jsonl_content: str, db_session
-    ):
+    def test_upload_valid_file(self, api_client, sample_jsonl_content: str, db_session):
         """Test uploading a valid conversation log file."""
         files = [
             (

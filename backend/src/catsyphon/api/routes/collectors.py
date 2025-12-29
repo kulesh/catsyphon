@@ -48,7 +48,7 @@ router = APIRouter(prefix="/collectors", tags=["collectors"])
 _tagging_pipeline = None
 
 
-def _get_tagging_pipeline():
+def _get_tagging_pipeline() -> Any:
     """Get or create the tagging pipeline (lazy initialization).
 
     Returns:
@@ -76,7 +76,9 @@ def _get_tagging_pipeline():
     return _tagging_pipeline
 
 
-def _tag_conversation_async(conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session):
+def _tag_conversation_async(
+    conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session
+) -> None:
     """Tag a conversation after session completion.
 
     This runs synchronously but is designed to not block the response.
@@ -266,7 +268,10 @@ def register_collector(
     response_model=CollectorEventsResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses={
-        409: {"model": CollectorSequenceGapError, "description": "Sequence gap detected"},
+        409: {
+            "model": CollectorSequenceGapError,
+            "description": "Sequence gap detected",
+        },
     },
     summary="Submit event batch",
 )
@@ -358,8 +363,12 @@ def submit_events(
                 last_received, expected = gap
                 # Mark job as failed due to sequence gap
                 ingestion_job.status = "failed"
-                ingestion_job.error_message = f"Sequence gap: expected {expected}, got {first_event.sequence}"
-                ingestion_job.processing_time_ms = int((time.time() - start_time) * 1000)
+                ingestion_job.error_message = (
+                    f"Sequence gap: expected {expected}, got {first_event.sequence}"
+                )
+                ingestion_job.processing_time_ms = int(
+                    (time.time() - start_time) * 1000
+                )
                 ingestion_job.completed_at = datetime.now(timezone.utc)
                 db.commit()
 
@@ -373,9 +382,7 @@ def submit_events(
                 )
 
         # Filter duplicates
-        events_dict = [
-            {"sequence": e.sequence, "event": e} for e in sorted_events
-        ]
+        events_dict = [{"sequence": e.sequence, "event": e} for e in sorted_events]
         new_events = session_repo.filter_duplicate_sequences(conversation, events_dict)
 
         # Track message-like events added
@@ -403,7 +410,13 @@ def submit_events(
                 continue
 
             # Add message for message-like events
-            if event.type in ("message", "tool_call", "tool_result", "thinking", "error"):
+            if event.type in (
+                "message",
+                "tool_call",
+                "tool_result",
+                "thinking",
+                "error",
+            ):
                 session_repo.add_message(
                     conversation=conversation,
                     sequence=event.sequence,
