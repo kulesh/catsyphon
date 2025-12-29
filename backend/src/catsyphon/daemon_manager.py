@@ -99,40 +99,65 @@ def _fetch_credentials_http(workspace_id: UUID, api_url: str) -> tuple[str, str]
 def fetch_builtin_credentials(
     workspace_id: UUID,
     api_url: str = "http://localhost:8000",
+    max_retries: int = 5,
+    initial_delay: float = 0.5,
 ) -> tuple[str, str]:
     """
-    Fetch built-in collector credentials via HTTP API.
+    Fetch built-in collector credentials via HTTP API with retry.
 
     Uses a ThreadPoolExecutor to avoid blocking the main request handler
-    when the server makes a request to itself.
+    when the server makes a request to itself. Retries with exponential
+    backoff to handle server startup race conditions.
 
     Args:
         workspace_id: Workspace UUID
         api_url: Base URL of the CatSyphon API
+        max_retries: Maximum number of retry attempts (default: 5)
+        initial_delay: Initial delay in seconds before first retry (default: 0.5)
 
     Returns:
         Tuple of (collector_id, api_key)
 
     Raises:
-        Exception: If credentials cannot be fetched
+        ValueError: If credentials cannot be fetched after all retries
     """
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+    from concurrent.futures import (
+        ThreadPoolExecutor,
+        TimeoutError as FuturesTimeoutError,
+    )
 
-    try:
-        # Run HTTP request in a separate thread to avoid blocking the main worker
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_fetch_credentials_http, workspace_id, api_url)
-            return future.result(timeout=35)  # Slightly longer than HTTP timeout
-    except FuturesTimeoutError:
-        raise Exception(
-            f"Timeout fetching builtin credentials from {api_url}"
-        )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch builtin credentials: {e}")
-        raise Exception(f"Failed to fetch builtin credentials: {e}") from e
-    except Exception as e:
-        logger.error(f"Failed to fetch builtin credentials: {e}")
-        raise Exception(f"Failed to fetch builtin credentials: {e}") from e
+    delay = initial_delay
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Run HTTP request in a separate thread to avoid blocking the main worker
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_fetch_credentials_http, workspace_id, api_url)
+                return future.result(timeout=10)  # Shorter timeout for faster retries
+        except FuturesTimeoutError as e:
+            last_error = Exception(f"Timeout fetching builtin credentials from {api_url}")
+        except requests.exceptions.RequestException as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
+
+        # Log retry attempt (but not after final attempt)
+        if attempt < max_retries:
+            logger.warning(
+                f"Failed to fetch credentials (attempt {attempt + 1}/{max_retries + 1}), "
+                f"retrying in {delay:.1f}s: {last_error}"
+            )
+            time.sleep(delay)
+            delay *= 2  # Exponential backoff
+        else:
+            logger.error(
+                f"Failed to fetch credentials after {max_retries + 1} attempts: {last_error}"
+            )
+
+    raise ValueError(
+        f"Could not fetch builtin credentials after {max_retries + 1} attempts: {last_error}"
+    )
 
 
 class DaemonManager:
@@ -336,6 +361,8 @@ class DaemonManager:
                 api_key,
                 collector_id,
                 api_batch_size,
+                # Multi-tenancy workspace
+                config.workspace_id,
             ),
             name=f"watcher-{config_id}",
             daemon=False,  # Not a daemon process - we want clean shutdown

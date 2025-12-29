@@ -97,9 +97,44 @@ def db_session(test_engine) -> Generator[Session, None, None]:
     connection.close()
 
 
+class WorkspaceTestClient:
+    """Test client wrapper that automatically includes X-Workspace-Id header."""
+
+    def __init__(self, client, workspace_id: str):
+        self._client = client
+        self._workspace_id = workspace_id
+        self.app = client.app
+
+    def _add_workspace_header(self, kwargs: dict) -> dict:
+        """Add X-Workspace-Id header if not already present."""
+        headers = kwargs.get("headers", {})
+        if "X-Workspace-Id" not in headers:
+            headers["X-Workspace-Id"] = self._workspace_id
+        kwargs["headers"] = headers
+        return kwargs
+
+    def get(self, *args, **kwargs):
+        return self._client.get(*args, **self._add_workspace_header(kwargs))
+
+    def post(self, *args, **kwargs):
+        return self._client.post(*args, **self._add_workspace_header(kwargs))
+
+    def put(self, *args, **kwargs):
+        return self._client.put(*args, **self._add_workspace_header(kwargs))
+
+    def patch(self, *args, **kwargs):
+        return self._client.patch(*args, **self._add_workspace_header(kwargs))
+
+    def delete(self, *args, **kwargs):
+        return self._client.delete(*args, **self._add_workspace_header(kwargs))
+
+
 @pytest.fixture
-def api_client(db_session: Session):
-    """Create a test client for FastAPI with database dependency override."""
+def api_client(db_session: Session, sample_workspace):
+    """Create a test client for FastAPI with database dependency override.
+
+    The returned client automatically includes X-Workspace-Id header for all requests.
+    """
     from unittest.mock import MagicMock, patch
 
     from fastapi.testclient import TestClient
@@ -135,9 +170,46 @@ def api_client(db_session: Session):
 
     # Disable lifespan startup checks for testing
     with patch("catsyphon.api.app.run_all_startup_checks"):
-        client = TestClient(app)
+        base_client = TestClient(app)
         # Add daemon_manager to app state
-        client.app.state.daemon_manager = mock_daemon_manager
+        base_client.app.state.daemon_manager = mock_daemon_manager
+
+        # Wrap in WorkspaceTestClient to auto-include X-Workspace-Id header
+        client = WorkspaceTestClient(base_client, str(sample_workspace.id))
+        yield client
+
+    # Clean up
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def setup_client(db_session: Session):
+    """Create a raw test client without workspace header for setup/onboarding tests.
+
+    This client doesn't create or require a workspace, used for testing
+    empty database states during initial setup flow.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from fastapi.testclient import TestClient
+
+    from catsyphon.api.app import app
+    from catsyphon.db.connection import get_db
+
+    # Override the get_db dependency to use test database
+    def override_get_db():
+        try:
+            yield db_session
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    # Disable lifespan startup checks for testing
+    with patch("catsyphon.api.app.run_all_startup_checks"):
+        client = TestClient(app)
         yield client
 
     # Clean up

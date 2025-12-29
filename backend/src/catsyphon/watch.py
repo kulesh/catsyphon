@@ -43,10 +43,7 @@ from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers.base import EmptyFileError
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import get_default_registry
-from catsyphon.pipeline.ingestion import (
-    _get_or_create_default_workspace,
-    link_orphaned_agents,
-)
+from catsyphon.pipeline.ingestion import link_orphaned_agents
 from catsyphon.pipeline.orchestrator import ingest_log_file
 
 # Backwards-compatible alias for tests/older imports
@@ -677,6 +674,7 @@ class WatcherDaemon:
         config_id: Optional[UUID] = None,
         stats_queue: Optional["Queue[dict[str, Any]]"] = None,
         api_config: Optional[ApiIngestionConfig] = None,
+        workspace_id: Optional[UUID] = None,
     ):
         self.directory = directory
         self.project_name = project_name
@@ -689,6 +687,7 @@ class WatcherDaemon:
         self.config_id = config_id
         self.stats_queue = stats_queue
         self.api_config = api_config or ApiIngestionConfig()
+        self.workspace_id = workspace_id  # For multi-tenancy orphan linking
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
 
         # Log API mode if enabled
@@ -1019,12 +1018,17 @@ class WatcherDaemon:
         while not self.shutdown_event.is_set():
             try:
                 # Periodically link orphaned agents to their parents
-                with db_session() as session:
-                    workspace_id = _get_or_create_default_workspace(session)
-                    linked_count = link_orphaned_agents(session, workspace_id)
-                    if linked_count > 0:
-                        logger.info(f"Linked {linked_count} orphaned agent(s)")
-                    session.commit()
+                # Use workspace_id from config for multi-tenancy isolation
+                if self.workspace_id is None:
+                    logger.warning(
+                        "No workspace_id configured for orphan linking - skipping"
+                    )
+                else:
+                    with db_session() as session:
+                        linked_count = link_orphaned_agents(session, self.workspace_id)
+                        if linked_count > 0:
+                            logger.info(f"Linked {linked_count} orphaned agent(s)")
+                        session.commit()
 
                 # Sleep for the specified interval before next linking attempt
                 self.shutdown_event.wait(timeout=self.linking_interval)
@@ -1052,6 +1056,7 @@ def run_daemon_process(
     api_key: str = "",
     collector_id: str = "",
     api_batch_size: int = 20,
+    workspace_id: Optional[UUID] = None,
 ) -> None:
     """
     Entry point for running WatcherDaemon in a separate process.
@@ -1074,6 +1079,7 @@ def run_daemon_process(
         api_key: Collector API key for authentication
         collector_id: Registered collector ID
         api_batch_size: Number of events per batch
+        workspace_id: Workspace ID for orphan linking (required for multi-tenancy)
     """
     # Setup logging for child process with context-specific log file
     setup_logging(context="watch", config_id=config_id)
@@ -1104,6 +1110,7 @@ def run_daemon_process(
         config_id=config_id,
         stats_queue=stats_queue,
         api_config=api_config,
+        workspace_id=workspace_id,
     )
 
     # Setup signal handlers for graceful shutdown

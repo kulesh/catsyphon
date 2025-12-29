@@ -10,20 +10,19 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import UploadResponse, UploadResult
 from catsyphon.db.connection import db_session, get_db
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers import get_default_registry
-from catsyphon.pipeline.ingestion import (
-    _get_or_create_default_workspace,
-    link_orphaned_agents,
-)
+from catsyphon.pipeline.ingestion import link_orphaned_agents
 
 router = APIRouter()
 
 
 @router.post("/", response_model=UploadResponse)
 async def upload_conversation_logs(
+    auth: AuthContext = Depends(get_auth_context),
     files: list[UploadFile] = File(...),
     update_mode: str = Query(
         "skip",
@@ -44,6 +43,8 @@ async def upload_conversation_logs(
         - 'skip' (default): Skip updates for existing conversations
         - 'replace': Delete and recreate existing conversations with new data
         - 'append': Append new messages to existing conversations
+
+    Requires X-Workspace-Id header.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
@@ -215,10 +216,9 @@ async def upload_conversation_logs(
     # This handles cases where agents were uploaded before their parent conversations
     if success_count > 0:
         try:
-            with db_session() as session:
-                workspace_id = _get_or_create_default_workspace(session)
-                linked_count = link_orphaned_agents(session, workspace_id)
-                session.commit()
+            with db_session() as link_session:
+                linked_count = link_orphaned_agents(link_session, auth.workspace_id)
+                link_session.commit()
                 # Note: We don't report linking failures to the user since the
                 # conversations were successfully ingested. Linking is a post-processing step.
         except Exception:

@@ -11,6 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import (
     PlanDetailResponse,
     PlanListItem,
@@ -19,25 +20,9 @@ from catsyphon.api.schemas import (
     PlanResponse,
 )
 from catsyphon.db.connection import get_db
-from catsyphon.db.repositories import ConversationRepository, WorkspaceRepository
+from catsyphon.db.repositories import ConversationRepository
 
 router = APIRouter()
-
-
-def _get_default_workspace_id(session: Session) -> Optional[UUID]:
-    """
-    Get default workspace ID for API operations.
-
-    This is a temporary helper until proper authentication is implemented.
-    Returns the first workspace in the database, or None if no workspaces exist.
-    """
-    workspace_repo = WorkspaceRepository(session)
-    workspaces = workspace_repo.get_all(limit=1)
-
-    if not workspaces:
-        return None
-
-    return workspaces[0].id
 
 
 def _extract_plans_from_conversation(conv: Any) -> list[dict[str, Any]]:
@@ -79,6 +64,7 @@ def _plan_dict_to_response(plan_data: dict[str, Any]) -> PlanResponse:
 
 @router.get("", response_model=PlanListResponse)
 async def list_plans(
+    auth: AuthContext = Depends(get_auth_context),
     project_id: Optional[UUID] = Query(None, description="Filter by project"),
     status: Optional[str] = Query(
         None, description="Filter by status (active/approved/abandoned)"
@@ -98,12 +84,10 @@ async def list_plans(
 
     Plans are stored in conversation extra_data and indexed by this endpoint.
     Filters apply to the parent conversation's metadata.
+
+    Requires X-Workspace-Id header.
     """
-    workspace_id = _get_default_workspace_id(session)
-    if workspace_id is None:
-        return PlanListResponse(
-            items=[], total=0, page=page, page_size=page_size, pages=0
-        )
+    workspace_id = auth.workspace_id
 
     conv_repo = ConversationRepository(session)
 
@@ -178,16 +162,17 @@ async def list_plans(
 @router.get("/conversation/{conversation_id}", response_model=list[PlanResponse])
 async def get_plans_for_conversation(
     conversation_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> list[PlanResponse]:
     """
     Get all plans for a specific conversation.
 
     This is a convenience endpoint for fetching all plans from a single conversation.
+
+    Requires X-Workspace-Id header.
     """
-    workspace_id = _get_default_workspace_id(session)
-    if workspace_id is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    workspace_id = auth.workspace_id
 
     conv_repo = ConversationRepository(session)
     conversation = conv_repo.get_with_relations(conversation_id, workspace_id)
@@ -203,6 +188,7 @@ async def get_plans_for_conversation(
 async def get_plan_detail(
     conversation_id: UUID,
     plan_index: int,
+    auth: AuthContext = Depends(get_auth_context),
     session: Session = Depends(get_db),
 ) -> PlanDetailResponse:
     """
@@ -211,10 +197,10 @@ async def get_plan_detail(
     Args:
         conversation_id: UUID of the conversation containing the plan
         plan_index: Index of the plan in the conversation's plan list (0-based)
+
+    Requires X-Workspace-Id header.
     """
-    workspace_id = _get_default_workspace_id(session)
-    if workspace_id is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    workspace_id = auth.workspace_id
 
     conv_repo = ConversationRepository(session)
     conversation = conv_repo.get_with_relations(conversation_id, workspace_id)

@@ -45,6 +45,18 @@ export class ApiError extends Error {
   }
 }
 
+// ===== Workspace Header =====
+
+const WORKSPACE_STORAGE_KEY = 'catsyphon_current_workspace_id';
+
+function getWorkspaceHeaders(): Record<string, string> {
+  const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  if (workspaceId) {
+    return { 'X-Workspace-Id': workspaceId };
+  }
+  return {};
+}
+
 // ===== Base Fetch Wrapper =====
 
 async function apiFetch<T>(
@@ -58,6 +70,7 @@ async function apiFetch<T>(
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...getWorkspaceHeaders(),
         ...options?.headers,
       },
     });
@@ -212,6 +225,7 @@ export async function uploadConversationLogs(
       method: 'POST',
       body: formData,
       // Don't set Content-Type header - browser will set it with boundary for multipart
+      headers: getWorkspaceHeaders(),
     });
 
     if (!response.ok) {
@@ -248,6 +262,7 @@ export async function uploadSingleConversationLog(
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
+      headers: getWorkspaceHeaders(),
     });
 
     if (!response.ok) {

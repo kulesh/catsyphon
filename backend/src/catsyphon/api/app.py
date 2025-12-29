@@ -57,12 +57,46 @@ async def lifespan(app: FastAPI):
     daemon_manager.start()
     logger.info("✓ DaemonManager started")
 
-    # Load and start active watch configurations
-    try:
-        daemon_manager.load_active_configs()
-        logger.info("✓ Active watch configurations loaded")
-    except Exception as e:
-        logger.error(f"Failed to load active configs: {e}", exc_info=True)
+    # Defer loading active configs until server is ready to handle requests.
+    # This prevents deadlock when watch configs with use_api=True try to
+    # fetch credentials from localhost during startup.
+    #
+    # We poll the /health endpoint instead of using a fixed delay because:
+    # 1. Fixed delays are timing-dependent and may fail on slow systems
+    # 2. Health polling actively confirms the server is ready
+    # 3. Combined with exponential backoff retry in fetch_builtin_credentials(),
+    #    this provides robust startup handling
+    import threading
+
+    def deferred_load_configs() -> None:
+        import time
+
+        import requests
+
+        # Poll health endpoint until server is ready
+        max_attempts = 30  # 30 * 0.5s = 15s max wait
+        for attempt in range(max_attempts):
+            try:
+                response = requests.get("http://localhost:8000/health", timeout=1)
+                if response.ok:
+                    logger.info("Server ready, loading watch configurations...")
+                    break
+            except requests.RequestException:
+                pass
+            time.sleep(0.5)
+        else:
+            logger.error("Server not ready after 15s, skipping config loading")
+            return
+
+        # Load configs (with retry in fetch_builtin_credentials for robustness)
+        try:
+            daemon_manager.load_active_configs()
+            logger.info("✓ Active watch configurations loaded")
+        except Exception as e:
+            logger.error(f"Failed to load active configs: {e}", exc_info=True)
+
+    config_thread = threading.Thread(target=deferred_load_configs, daemon=True)
+    config_thread.start()
 
     logger.info("Application startup complete")
 

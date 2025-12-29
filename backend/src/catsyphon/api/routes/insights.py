@@ -5,19 +5,19 @@ Endpoints for generating and retrieving canonical-powered insights.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import InsightsResponse
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
     ConversationRepository,
     InsightsRepository,
-    WorkspaceRepository,
 )
 from catsyphon.insights import InsightsGenerator
 
@@ -26,18 +26,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _get_default_workspace_id(session: Session) -> Optional[UUID]:
-    """Get default workspace ID for API operations."""
-    workspace_repo = WorkspaceRepository(session)
-    workspaces = workspace_repo.get_all(limit=1)
-    if not workspaces:
-        return None
-    return workspaces[0].id
-
-
 @router.get("/{conversation_id}/insights", response_model=InsightsResponse)
 def get_conversation_insights(
     conversation_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
     force_regenerate: bool = Query(
         default=False, description="Force regeneration even if cached insights exist"
     ),
@@ -82,16 +74,13 @@ def get_conversation_insights(
     Raises:
         HTTPException 404: Conversation not found
         HTTPException 500: Insights generation failed
+
+    Requires X-Workspace-Id header.
     """
     # Get conversation
     conversation_repo = ConversationRepository(session)
     insights_repo = InsightsRepository(session)
-    workspace_id = _get_default_workspace_id(session)
-
-    if workspace_id is None:
-        raise HTTPException(
-            status_code=404, detail=f"Conversation {conversation_id} not found"
-        )
+    workspace_id = auth.workspace_id
 
     conversation = conversation_repo.get_with_relations(conversation_id, workspace_id)
 
@@ -159,6 +148,7 @@ def get_conversation_insights(
 
 @router.get("/batch-insights", response_model=dict[str, Any])
 def get_batch_insights(
+    auth: AuthContext = Depends(get_auth_context),
     project_id: UUID = Query(..., description="Project ID to analyze"),
     limit: int = Query(
         default=10, le=100, description="Number of recent conversations"
@@ -185,15 +175,12 @@ def get_batch_insights(
 
     Raises:
         HTTPException 404: Project not found
+
+    Requires X-Workspace-Id header.
     """
     # Get recent conversations for project
     conversation_repo = ConversationRepository(session)
-    workspace_id = _get_default_workspace_id(session)
-
-    if workspace_id is None:
-        raise HTTPException(
-            status_code=404, detail=f"No conversations found for project {project_id}"
-        )
+    workspace_id = auth.workspace_id
 
     conversations = conversation_repo.get_by_project(
         project_id, workspace_id, limit=limit

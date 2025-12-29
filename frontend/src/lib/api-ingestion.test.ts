@@ -21,6 +21,29 @@ import type {
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// Mock localStorage for workspace header
+const TEST_WORKSPACE_ID = 'test-workspace-123';
+const localStorageMock = {
+  getItem: vi.fn((key: string) => {
+    if (key === 'catsyphon_current_workspace_id') {
+      return TEST_WORKSPACE_ID;
+    }
+    return null;
+  }),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  length: 0,
+  key: vi.fn(),
+};
+Object.defineProperty(global, 'localStorage', { value: localStorageMock });
+
+// Expected headers with workspace
+const expectedHeaders = {
+  'Content-Type': 'application/json',
+  'X-Workspace-Id': TEST_WORKSPACE_ID,
+};
+
 describe('Ingestion Job API', () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -53,7 +76,7 @@ describe('Ingestion Job API', () => {
       const result = await getIngestionJobs();
 
       expect(mockFetch).toHaveBeenCalledWith('/api/ingestion/jobs', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockJobs);
     });
@@ -72,7 +95,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs?source_type=watch',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
     });
 
@@ -90,7 +113,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs?status=failed',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
     });
 
@@ -111,7 +134,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs?source_type=cli&status=success&limit=100&offset=50',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
     });
 
@@ -131,7 +154,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs?source_type=upload&limit=50',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
     });
 
@@ -172,7 +195,7 @@ describe('Ingestion Job API', () => {
       const result = await getIngestionJob('job-1');
 
       expect(mockFetch).toHaveBeenCalledWith('/api/ingestion/jobs/job-1', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockJob);
     });
@@ -243,7 +266,7 @@ describe('Ingestion Job API', () => {
       const result = await getIngestionStats();
 
       expect(mockFetch).toHaveBeenCalledWith('/api/ingestion/stats', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: expectedHeaders,
       });
       expect(result).toEqual(mockStats);
     });
@@ -354,7 +377,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs/conversation/conv-123',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
       expect(result).toEqual(mockJobs);
       expect(result).toHaveLength(2);
@@ -429,7 +452,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs/watch-config/config-123?page=1&page_size=50',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
       expect(result).toEqual(mockJobs);
       expect(result).toHaveLength(2);
@@ -447,7 +470,7 @@ describe('Ingestion Job API', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/ingestion/jobs/watch-config/config-123?page=2&page_size=100',
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: expectedHeaders }
       );
     });
 
