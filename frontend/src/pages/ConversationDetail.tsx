@@ -1102,10 +1102,10 @@ export default function ConversationDetail() {
                           ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                           : message.role === 'assistant'
                             ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                            : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
                       }`}
                     >
-                      {message.role}
+                      {message.role ?? 'system'}
                     </span>
                     {/* Model badge for assistant messages */}
                     {message.model && message.role === 'assistant' && (

@@ -42,7 +42,7 @@ export interface DeveloperResponse extends DeveloperBase {
 
 export interface MessageResponse {
   id: string;
-  role: string;
+  role: string | null;  // null for non-conversational messages (summary, system events, etc.)
   content: string;
   thinking_content: string | null;
   timestamp: string;
