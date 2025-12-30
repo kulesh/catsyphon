@@ -541,10 +541,11 @@ class TestMetadataExtraction:
         summaries, compaction_events = parser._extract_metadata_records(raw_messages)
 
         assert len(summaries) == 2
-        assert summaries[0]["text"] == "Implementing feature X"
-        assert summaries[0]["leaf_uuid"] == "abc-123"
-        assert summaries[1]["text"] == "Debugging auth issue"
-        assert summaries[1]["leaf_uuid"] == "def-456"
+        assert summaries[0]["summary"] == "Implementing feature X"
+        assert summaries[0]["last_user_message_id"] == "abc-123"
+        assert summaries[0]["summary_type"] == "auto"
+        assert summaries[1]["summary"] == "Debugging auth issue"
+        assert summaries[1]["last_user_message_id"] == "def-456"
         assert len(compaction_events) == 0
 
     def test_extract_compaction_boundary_records(self):
@@ -610,8 +611,8 @@ class TestMetadataExtraction:
 
         assert len(summaries) == 2
         assert len(compaction_events) == 2
-        assert summaries[0]["text"] == "Session checkpoint"
-        assert summaries[1]["text"] == "Another checkpoint"
+        assert summaries[0]["summary"] == "Session checkpoint"
+        assert summaries[1]["summary"] == "Another checkpoint"
         assert compaction_events[0]["trigger"] == "manual"
         assert compaction_events[1]["trigger"] == "auto"
 
@@ -672,8 +673,9 @@ class TestMetadataExtraction:
         result = parser.parse(log_file)
 
         assert len(result.summaries) == 1
-        assert result.summaries[0]["text"] == "Testing metadata extraction"
-        assert result.summaries[0]["leaf_uuid"] == "leaf-1"
+        assert result.summaries[0]["summary"] == "Testing metadata extraction"
+        assert result.summaries[0]["last_user_message_id"] == "leaf-1"
+        assert result.summaries[0]["summary_type"] == "auto"
 
         assert len(result.compaction_events) == 1
         assert result.compaction_events[0]["trigger"] == "auto"

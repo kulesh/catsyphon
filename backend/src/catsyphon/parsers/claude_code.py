@@ -1079,7 +1079,7 @@ class ClaudeCodeParser:
 
         Returns:
             Tuple of (summaries, compaction_events)
-            - summaries: List of {text, leaf_uuid} dicts
+            - summaries: List of {summary, summary_type, last_user_message_id, num_exchanges, timestamp} dicts
             - compaction_events: List of {timestamp, trigger, pre_tokens} dicts
         """
         summaries = []
@@ -1092,8 +1092,11 @@ class ClaudeCodeParser:
             if msg_type == "summary":
                 summaries.append(
                     {
-                        "text": msg.get("summary"),
-                        "leaf_uuid": msg.get("leafUuid"),
+                        "summary": msg.get("summary", ""),
+                        "summary_type": "auto",  # Claude Code summaries are auto-generated
+                        "last_user_message_id": msg.get("leafUuid", ""),
+                        "num_exchanges": 0,  # Not available in raw data
+                        "timestamp": msg.get("timestamp"),
                     }
                 )
                 continue
