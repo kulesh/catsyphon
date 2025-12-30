@@ -80,3 +80,4 @@ temp/
 .DS_Store
 Thumbs.db
 *.cover
+.beads/.local_version
