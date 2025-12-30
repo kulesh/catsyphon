@@ -232,7 +232,7 @@ class MessageResponse(BaseModel):
     """Response schema for Message."""
 
     id: UUID
-    role: str
+    role: Optional[str] = None  # None for non-conversational messages
     content: str
     thinking_content: Optional[str] = None
     timestamp: datetime

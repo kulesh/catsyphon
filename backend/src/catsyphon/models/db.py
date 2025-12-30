@@ -615,10 +615,10 @@ class Message(Base):
         index=True,
     )
 
-    # Legacy role field (kept for backward compatibility during migration)
-    role: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # 'user', 'assistant', 'system'
+    # Legacy role field (nullable for non-conversational messages)
+    role: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # 'user', 'assistant', 'system', or None for non-conversational
 
     # New type-safe fields aligned with aiobscura
     author_role: Mapped[AuthorRole] = mapped_column(

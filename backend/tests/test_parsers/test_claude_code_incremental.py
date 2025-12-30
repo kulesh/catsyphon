@@ -294,35 +294,33 @@ class TestClaudeCodeParserIncremental:
         assert result.new_messages[1].content == "Middle"
         assert result.new_messages[2].content == "Second"
 
-    def test_parse_incremental_filters_non_conversational_messages(
+    def test_parse_incremental_includes_non_conversational_messages(
         self,
         parser: ClaudeCodeParser,
         tmp_path: Path,
     ):
-        """Test that incremental parse filters out non-conversational messages.
+        """Test that incremental parse includes supported non-conversational messages.
 
-        This test ensures that file snapshots, summaries, and other non-conversational
-        message types are filtered out during incremental parsing, matching the behavior
-        of the full parse path.
-
-        Regression test for: Parser allows null role causing database constraint violation
+        This test ensures that summaries and other supported non-conversational
+        message types are parsed and included (with role=None), while unknown
+        types are still filtered out.
         """
         # Content with mix of conversational and non-conversational messages
         content = (
             '{"sessionId":"test-123","version":"2.0.0","cwd":"/tmp","gitBranch":"main",'
             '"timestamp":"2025-01-13T10:00:00.000Z","type":"user","message":{"role":"user",'
             '"content":"Hello"}}\n'
-            # File snapshot (should be filtered)
+            # Unknown type (should be filtered - not a recognized non-conversational type)
             '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:01.000Z",'
             '"type":"file_snapshot","file":"test.py","content":"print(1)"}\n'
             '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:02.000Z","type":"assistant",'
             '"message":{"role":"assistant","content":"Hi there!","model":"claude-sonnet-4"}}\n'
-            # Summary (should be filtered)
+            # Summary (should be included with role=None)
             '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:03.000Z",'
-            '"type":"summary","content":"Conversation summary"}\n'
+            '"type":"summary","summary":"Conversation summary"}\n'
             '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:04.000Z","type":"user",'
             '"message":{"role":"user","content":"How are you?"}}\n'
-            # Metadata (should be filtered)
+            # Unknown type (should be filtered)
             '{"sessionId":"test-123","timestamp":"2025-01-13T10:00:05.000Z",'
             '"type":"metadata","key":"value"}\n'
         )
@@ -332,14 +330,24 @@ class TestClaudeCodeParserIncremental:
 
         result = parser.parse_incremental(log_file, 0, 0)
 
-        # Should only include the 3 conversational messages
-        assert len(result.new_messages) == 3
+        # Should include 3 conversational + 1 non-conversational (summary) = 4 messages
+        assert len(result.new_messages) == 4
+
+        # Conversational messages have role set
         assert result.new_messages[0].role == "user"
         assert result.new_messages[0].content == "Hello"
         assert result.new_messages[1].role == "assistant"
         assert result.new_messages[1].content == "Hi there!"
-        assert result.new_messages[2].role == "user"
-        assert result.new_messages[2].content == "How are you?"
+
+        # Summary message has role=None and author_role=system
+        assert result.new_messages[2].role is None
+        assert result.new_messages[2].content == "Conversation summary"
+        assert result.new_messages[2].author_role == "system"
+        assert result.new_messages[2].message_type == "summary"
+
+        # Last conversational message
+        assert result.new_messages[3].role == "user"
+        assert result.new_messages[3].content == "How are you?"
 
     def test_parse_incremental_filters_messages_without_role(
         self,

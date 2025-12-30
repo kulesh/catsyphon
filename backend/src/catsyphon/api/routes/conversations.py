@@ -313,6 +313,7 @@ async def list_conversations(
     )
 
     # Convert to response schema using pre-computed counts
+    # Note: last_activity is returned but not used in this endpoint
     items = [
         _conversation_to_list_item(
             conv,
@@ -322,7 +323,7 @@ async def list_conversations(
             children_count=child_count,
             depth_level=depth,
         )
-        for conv, msg_count, epoch_count, files_count, child_count, depth in results
+        for conv, msg_count, epoch_count, files_count, child_count, depth, _last_activity in results
     ]
 
     return ConversationListResponse(

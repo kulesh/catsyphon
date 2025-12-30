@@ -463,18 +463,26 @@ class ClaudeCodeParser:
                 last_message_timestamp=None,
             )
 
-        # Filter to only user/assistant messages (same as full parse)
+        # Separate conversational from non-conversational messages
+        conversational_types = {"user", "assistant"}
+
         conversation_messages = [
             msg
             for msg in raw_messages
-            if msg.get("type") in ("user", "assistant")
+            if msg.get("type") in conversational_types
             and msg.get("message", {}).get("role") in ("user", "assistant")
         ]
 
-        # Match tool calls with results (only for conversation messages)
+        non_conversational_messages = [
+            msg
+            for msg in raw_messages
+            if msg.get("type") not in conversational_types
+        ]
+
+        # Match tool calls with results (only for conversational messages)
         tool_result_map = match_tool_calls_with_results(conversation_messages)
 
-        # Convert to ParsedMessage objects
+        # Convert conversational messages
         parsed_messages = []
         for msg_data in conversation_messages:
             try:
@@ -488,7 +496,20 @@ class ClaudeCodeParser:
                 )
                 continue
 
-        # Sort by timestamp
+        # Convert non-conversational messages
+        for msg_data in non_conversational_messages:
+            try:
+                parsed_msg = self._convert_non_conversational_to_parsed_message(msg_data)
+                if parsed_msg:
+                    parsed_messages.append(parsed_msg)
+            except Exception as e:
+                self._add_warning(
+                    f"Failed to parse non-conversational message {msg_data.get('uuid')}: {e}",
+                    field="message",
+                )
+                continue
+
+        # Sort ALL by timestamp
         parsed_messages.sort(key=lambda m: m.timestamp)
 
         # Get last message timestamp for validation
@@ -612,7 +633,7 @@ class ClaudeCodeParser:
         Build conversation thread from raw messages.
 
         This method:
-        1. Filters out non-conversational messages (file snapshots, etc.)
+        1. Processes ALL message types (conversational and non-conversational)
         2. Reconstructs the message thread using parentUuid
         3. Matches tool calls with their results
         4. Converts to ParsedMessage objects
@@ -623,22 +644,26 @@ class ClaudeCodeParser:
         Returns:
             List of ParsedMessage objects in chronological order
         """
-        # Filter to only user/assistant messages
+        # Separate conversational from non-conversational messages
+        conversational_types = {"user", "assistant"}
+
         conversation_messages = [
             msg
             for msg in raw_messages
-            if msg.get("type") in ("user", "assistant")
+            if msg.get("type") in conversational_types
             and msg.get("message", {}).get("role") in ("user", "assistant")
         ]
 
-        if not conversation_messages:
-            self._add_warning("No conversational messages found in log")
-            return []
+        non_conversational_messages = [
+            msg
+            for msg in raw_messages
+            if msg.get("type") not in conversational_types
+        ]
 
-        # Match tool calls with results
+        # Match tool calls with results (only for conversational messages)
         tool_result_map = match_tool_calls_with_results(conversation_messages)
 
-        # Convert to ParsedMessage objects
+        # Convert conversational messages
         parsed_messages = []
 
         for msg_data in conversation_messages:
@@ -653,7 +678,23 @@ class ClaudeCodeParser:
                 )
                 continue
 
-        # Sort by timestamp
+        # Convert non-conversational messages
+        for msg_data in non_conversational_messages:
+            try:
+                parsed_msg = self._convert_non_conversational_to_parsed_message(msg_data)
+                if parsed_msg:
+                    parsed_messages.append(parsed_msg)
+            except Exception as e:
+                self._add_warning(
+                    f"Failed to parse non-conversational message {msg_data.get('uuid')}: {e}",
+                    field="message",
+                )
+                continue
+
+        if not parsed_messages:
+            self._add_warning("No messages found in log")
+
+        # Sort ALL by timestamp
         parsed_messages.sort(key=lambda m: m.timestamp)
 
         return parsed_messages
@@ -758,6 +799,116 @@ class ClaudeCodeParser:
             code_changes=code_changes,
             stop_reason=stop_reason,
             thinking_metadata=thinking_metadata,
+            author_role=author_role,
+            message_type=message_type,
+            emitted_at=emitted_at,
+            observed_at=observed_at,
+            raw_data=msg_data,
+        )
+
+    def _convert_non_conversational_to_parsed_message(
+        self, msg_data: dict[str, Any]
+    ) -> Optional[ParsedMessage]:
+        """
+        Convert non-conversational messages to ParsedMessage.
+
+        Handles: summary, file-history-snapshot, system (all subtypes),
+        queue-operation, error, overloaded_error.
+
+        Args:
+            msg_data: Raw message dictionary
+
+        Returns:
+            ParsedMessage object, or None if conversion fails
+        """
+        msg_type = msg_data.get("type")
+        subtype = msg_data.get("subtype")
+
+        # Extract timestamp
+        timestamp_str = msg_data.get("timestamp")
+        if not timestamp_str:
+            self._add_warning(
+                f"Non-conversational message {msg_data.get('uuid')} missing timestamp",
+                field="timestamp",
+            )
+            return None
+
+        try:
+            timestamp = parse_iso_timestamp(timestamp_str)
+        except ValueError as e:
+            self._add_warning(
+                f"Invalid timestamp in message {msg_data.get('uuid')}: {e}",
+                field="timestamp",
+            )
+            return None
+
+        # Determine author_role and message_type based on raw type
+        author_role = "system"  # Default for all non-conversational
+        message_type = "context"  # Default
+        content = ""
+
+        if msg_type == "summary":
+            message_type = "summary"
+            content = msg_data.get("summary", "")
+
+        elif msg_type == "file-history-snapshot":
+            message_type = "context"
+            # Store snapshot data as JSON string
+            snapshot = msg_data.get("snapshot", {})
+            content = json.dumps(snapshot, indent=2)
+
+        elif msg_type == "system":
+            if subtype == "compact_boundary":
+                message_type = "context"
+                meta = msg_data.get("compactMetadata", {})
+                content = (
+                    f"Compaction: trigger={meta.get('trigger')}, "
+                    f"pre_tokens={meta.get('preTokens')}"
+                )
+            elif subtype == "api_error":
+                message_type = "error"
+                content = msg_data.get("content", "API Error")
+            elif subtype in ("local_command", "stop_hook_summary", "informational"):
+                message_type = "context"
+                content = msg_data.get("content", "")
+            else:
+                # Generic system message
+                message_type = "context"
+                content = msg_data.get("content", "")
+
+        elif msg_type == "queue-operation":
+            message_type = "context"
+            operation = msg_data.get("operation", "unknown")
+            msg_content = msg_data.get("content", "")
+            content = f"Queue: {operation}"
+            if msg_content:
+                content = f"{content} - {msg_content}"
+
+        elif msg_type in ("error", "overloaded_error"):
+            message_type = "error"
+            content = msg_data.get("content", msg_data.get("message", "Unknown error"))
+            if msg_type == "overloaded_error":
+                content = f"[OVERLOADED] {content}"
+
+        else:
+            # Unknown type - log warning and skip
+            self._add_warning(
+                f"Unknown non-conversational message type: {msg_type}",
+                field="type",
+            )
+            return None
+
+        # Dual timestamps
+        emitted_at = timestamp
+        observed_at = datetime.now()
+
+        return ParsedMessage(
+            content=content,
+            timestamp=timestamp,
+            role=None,  # Non-conversational messages have no role
+            tool_calls=[],
+            code_changes=[],
+            entities={},
             author_role=author_role,
             message_type=message_type,
             emitted_at=emitted_at,

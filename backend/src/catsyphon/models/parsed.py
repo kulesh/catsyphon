@@ -91,9 +91,12 @@ class PlanInfo:
 class ParsedMessage:
     """Single message in a conversation."""
 
-    role: str  # 'user', 'assistant', 'system'
+    # Required fields (no defaults)
     content: str
     timestamp: datetime
+
+    # Optional fields (with defaults)
+    role: Optional[str] = None  # 'user', 'assistant', 'system', or None for events
     tool_calls: list[ToolCall] = field(default_factory=list)
     code_changes: list[CodeChange] = field(default_factory=list)
     entities: dict = field(default_factory=dict)

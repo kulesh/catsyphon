@@ -349,10 +349,14 @@ def file_history_snapshot_file(tmp_path: Path) -> Path:
 class TestOrchestratorMetadataSkipping:
     """Test that orchestrator skips metadata-only files."""
 
-    def test_file_history_snapshot_skipped(
+    def test_file_history_snapshot_ingested(
         self, db_session, file_history_snapshot_file: Path
     ):
-        """Test that file-history-snapshot-only files are skipped, not ingested."""
+        """Test that file-history-snapshot-only files are ingested as non-conversational messages.
+
+        Since we now support non-conversational message types (file-history-snapshot,
+        summary, system events), files containing only these types are no longer skipped.
+        """
         from catsyphon.parsers import get_default_registry
         from catsyphon.pipeline.orchestrator import ingest_log_file
 
@@ -370,15 +374,15 @@ class TestOrchestratorMetadataSkipping:
             source_type="upload",
         )
 
-        # Should be skipped, not ingested
-        assert outcome.status == "skipped"
-        assert outcome.conversation is None
-        assert outcome.conversation_id is None
+        # Now successfully ingested with non-conversational messages
+        assert outcome.status == "success"
+        assert outcome.conversation is not None
+        assert outcome.conversation_id is not None
 
     def test_file_history_snapshot_tracked_in_jobs(
         self, db_session, file_history_snapshot_file: Path
     ):
-        """Test that skipped metadata files are tracked in ingestion_jobs."""
+        """Test that ingested metadata files are tracked in ingestion_jobs."""
         from catsyphon.db.repositories import IngestionJobRepository
         from catsyphon.parsers import get_default_registry
         from catsyphon.pipeline.orchestrator import ingest_log_file
@@ -398,10 +402,10 @@ class TestOrchestratorMetadataSkipping:
         )
         db_session.commit()
 
-        # Verify job was tracked
+        # Verify job was tracked as success (non-conversational messages now ingested)
         repo = IngestionJobRepository(db_session)
         job = repo.get(outcome.job_id)
 
         assert job is not None
-        assert job.status == "skipped"
-        assert "Metadata-only file" in (job.error_message or "")
+        assert job.status == "success"
+        assert job.messages_added >= 1  # At least the file-history-snapshot message
