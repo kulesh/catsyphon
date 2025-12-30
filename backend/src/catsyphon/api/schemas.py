@@ -1370,3 +1370,114 @@ class CollectorSequenceGapError(BaseModel):
     message: str
     last_received_sequence: int
     expected_sequence: int
+
+
+# ===== Automation Recommendation Schemas =====
+
+
+class RecommendationEvidence(BaseModel):
+    """Evidence supporting a recommendation."""
+
+    quotes: list[str] = Field(
+        default_factory=list, description="Relevant quotes from conversation"
+    )
+    pattern_count: int = Field(
+        default=0, description="Number of times pattern was detected"
+    )
+
+
+class SuggestedImplementation(BaseModel):
+    """Suggested implementation details for a slash command."""
+
+    command_name: str = Field(..., description="Suggested /command name")
+    trigger_phrases: list[str] = Field(
+        default_factory=list, description="Example phrases that would invoke this"
+    )
+    template: Optional[str] = Field(
+        None, description="Suggested command template/prompt"
+    )
+
+
+class RecommendationResponse(BaseModel):
+    """Response schema for a single automation recommendation."""
+
+    id: UUID
+    conversation_id: UUID
+    recommendation_type: str = Field(
+        ..., description="Type: slash_command, mcp_server, sub_agent"
+    )
+    title: str = Field(..., description="Brief title for the recommendation")
+    description: str = Field(..., description="Detailed explanation")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    priority: int = Field(..., ge=0, le=4, description="Priority (0=critical, 4=low)")
+    evidence: RecommendationEvidence = Field(
+        default_factory=RecommendationEvidence, description="Supporting evidence"
+    )
+    suggested_implementation: Optional[SuggestedImplementation] = Field(
+        None, description="Implementation details for slash commands"
+    )
+    status: str = Field(
+        default="pending",
+        description="Status: pending, accepted, dismissed, implemented",
+    )
+    user_feedback: Optional[str] = Field(None, description="User feedback if provided")
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecommendationUpdate(BaseModel):
+    """Request schema for updating a recommendation."""
+
+    status: Optional[str] = Field(
+        None, description="New status: pending, accepted, dismissed, implemented"
+    )
+    user_feedback: Optional[str] = Field(None, description="User feedback")
+
+
+class RecommendationListResponse(BaseModel):
+    """Response schema for list of recommendations."""
+
+    items: list[RecommendationResponse]
+    total: int
+    conversation_id: UUID
+
+
+class RecommendationSummaryStats(BaseModel):
+    """Summary statistics for recommendations."""
+
+    total: int = Field(..., description="Total recommendations")
+    by_status: dict[str, int] = Field(
+        default_factory=dict, description="Count by status"
+    )
+    by_type: dict[str, int] = Field(
+        default_factory=dict, description="Count by recommendation type"
+    )
+    average_confidence: float = Field(..., description="Average confidence score")
+
+
+class DetectionRequest(BaseModel):
+    """Request schema for triggering recommendation detection."""
+
+    force_regenerate: bool = Field(
+        default=False,
+        description="Force regeneration even if recommendations exist",
+    )
+
+
+class DetectionResponse(BaseModel):
+    """Response schema for detection result."""
+
+    conversation_id: UUID
+    recommendations_count: int = Field(
+        ..., description="Number of recommendations detected"
+    )
+    tokens_analyzed: int = Field(
+        ..., description="Tokens in the analyzed narrative"
+    )
+    detection_model: str = Field(..., description="Model used for detection")
+    recommendations: list[RecommendationResponse] = Field(
+        default_factory=list, description="Detected recommendations"
+    )
