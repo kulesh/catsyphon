@@ -745,3 +745,58 @@ export interface HealthReportResponse {
   generated_at: number;
   cached: boolean;
 }
+
+// ===== Automation Recommendation Types =====
+
+export interface RecommendationEvidence {
+  quotes: string[];
+  pattern_count: number;
+}
+
+export interface SuggestedImplementation {
+  command_name: string;
+  trigger_phrases: string[];
+  template: string | null;
+}
+
+export interface RecommendationResponse {
+  id: string;
+  conversation_id: string;
+  recommendation_type: string; // 'slash_command', 'mcp_server', 'sub_agent'
+  title: string;
+  description: string;
+  confidence: number; // 0.0 to 1.0
+  priority: number; // 0=critical, 4=low
+  evidence: RecommendationEvidence;
+  suggested_implementation: SuggestedImplementation | null;
+  status: string; // 'pending', 'accepted', 'dismissed', 'implemented'
+  user_feedback: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecommendationListResponse {
+  items: RecommendationResponse[];
+  total: number;
+  conversation_id: string;
+}
+
+export interface RecommendationUpdate {
+  status?: string;
+  user_feedback?: string;
+}
+
+export interface DetectionResponse {
+  conversation_id: string;
+  recommendations_count: number;
+  tokens_analyzed: number;
+  detection_model: string;
+  recommendations: RecommendationResponse[];
+}
+
+export interface RecommendationSummaryStats {
+  total: number;
+  by_status: Record<string, number>;
+  by_type: Record<string, number>;
+  average_confidence: number;
+}
