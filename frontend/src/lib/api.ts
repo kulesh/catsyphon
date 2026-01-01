@@ -519,6 +519,19 @@ export async function detectRecommendations(
   );
 }
 
+export async function detectMCPRecommendations(
+  conversationId: string,
+  forceRegenerate = false
+): Promise<DetectionResponse> {
+  return apiFetch<DetectionResponse>(
+    `/conversations/${conversationId}/recommendations/detect-mcp`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force_regenerate: forceRegenerate }),
+    }
+  );
+}
+
 export async function updateRecommendation(
   recommendationId: string,
   update: RecommendationUpdate

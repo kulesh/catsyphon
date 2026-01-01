@@ -35,6 +35,26 @@ def _db_to_response(rec) -> RecommendationResponse:
     evidence = rec.evidence or {}
     impl = rec.suggested_implementation or {}
 
+    # Build evidence with both slash command and MCP fields
+    evidence_obj = RecommendationEvidence(
+        quotes=evidence.get("quotes", []),
+        pattern_count=evidence.get("pattern_count", 0),
+        matched_signals=evidence.get("matched_signals", []),
+        workarounds_detected=evidence.get("workarounds_detected", []),
+        friction_indicators=evidence.get("friction_indicators", []),
+    )
+
+    # Build suggested implementation with both slash command and MCP fields
+    impl_obj = SuggestedImplementation(
+        command_name=impl.get("command_name"),
+        trigger_phrases=impl.get("trigger_phrases", []),
+        template=impl.get("template"),
+        category=impl.get("category"),
+        suggested_mcps=impl.get("suggested_mcps", []),
+        use_cases=impl.get("use_cases", []),
+        friction_score=impl.get("friction_score"),
+    ) if impl else None
+
     return RecommendationResponse(
         id=rec.id,
         conversation_id=rec.conversation_id,
@@ -43,15 +63,8 @@ def _db_to_response(rec) -> RecommendationResponse:
         description=rec.description,
         confidence=rec.confidence,
         priority=rec.priority,
-        evidence=RecommendationEvidence(
-            quotes=evidence.get("quotes", []),
-            pattern_count=evidence.get("pattern_count", 0),
-        ),
-        suggested_implementation=SuggestedImplementation(
-            command_name=impl.get("command_name", ""),
-            trigger_phrases=impl.get("trigger_phrases", []),
-            template=impl.get("template"),
-        ) if impl else None,
+        evidence=evidence_obj,
+        suggested_implementation=impl_obj,
         status=rec.status,
         user_feedback=rec.user_feedback,
         created_at=rec.created_at,
@@ -202,6 +215,108 @@ def detect_recommendations(
     # Fetch saved recommendations for response
     rec_repo = RecommendationRepository(session)
     saved = rec_repo.get_by_conversation(conversation_id)
+
+    return DetectionResponse(
+        conversation_id=conversation_id,
+        recommendations_count=len(result.recommendations),
+        tokens_analyzed=result.tokens_analyzed,
+        detection_model=result.detection_model,
+        recommendations=[_db_to_response(r) for r in saved],
+    )
+
+
+@router.post(
+    "/conversations/{conversation_id}/recommendations/detect-mcp",
+    response_model=DetectionResponse,
+)
+def detect_mcp_recommendations(
+    conversation_id: UUID,
+    request: DetectionRequest = None,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(get_db),
+) -> DetectionResponse:
+    """
+    Trigger MCP server opportunity detection for a conversation.
+
+    Analyzes the conversation using rule-based signal matching and LLM analysis
+    to detect needs for external tool integrations (MCP servers).
+    Results are saved to the database.
+
+    Args:
+        conversation_id: UUID of the conversation to analyze
+        request: Optional request body with force_regenerate flag
+        session: Database session
+
+    Returns:
+        DetectionResponse with detected MCP recommendations
+
+    Raises:
+        HTTPException 404: Conversation not found
+        HTTPException 500: Detection failed or OpenAI not configured
+
+    Requires X-Workspace-Id header.
+    """
+    if request is None:
+        request = DetectionRequest()
+
+    # Verify conversation exists
+    conversation_repo = ConversationRepository(session)
+    workspace_id = auth.workspace_id
+
+    conversation = conversation_repo.get_with_relations(conversation_id, workspace_id)
+    if not conversation:
+        raise HTTPException(
+            status_code=404, detail=f"Conversation {conversation_id} not found"
+        )
+
+    # Check for existing MCP recommendations (unless force_regenerate)
+    if not request.force_regenerate:
+        rec_repo = RecommendationRepository(session)
+        existing = rec_repo.get_by_conversation(
+            conversation_id, recommendation_type="mcp_server"
+        )
+        if existing:
+            logger.info(
+                f"Returning {len(existing)} existing MCP recommendations for {conversation_id}"
+            )
+            return DetectionResponse(
+                conversation_id=conversation_id,
+                recommendations_count=len(existing),
+                tokens_analyzed=0,  # Not re-analyzed
+                detection_model="cached",
+                recommendations=[_db_to_response(r) for r in existing],
+            )
+
+    # Check OpenAI configuration
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OpenAI API key not configured. MCP detection requires AI analysis.",
+        )
+
+    # Run MCP detection
+    from catsyphon.advisor import MCPDetector
+
+    detector = MCPDetector(
+        api_key=settings.openai_api_key,
+        model="gpt-4o-mini",
+    )
+
+    children = conversation.children if hasattr(conversation, "children") else []
+    result = detector.detect_sync(
+        conversation=conversation,
+        session=session,
+        children=children,
+        save_to_db=True,
+    )
+
+    session.commit()
+
+    # Fetch saved MCP recommendations for response
+    rec_repo = RecommendationRepository(session)
+    saved = rec_repo.get_by_conversation(
+        conversation_id, recommendation_type="mcp_server"
+    )
 
     return DetectionResponse(
         conversation_id=conversation_id,

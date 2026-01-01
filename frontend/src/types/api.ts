@@ -751,12 +751,22 @@ export interface HealthReportResponse {
 export interface RecommendationEvidence {
   quotes: string[];
   pattern_count: number;
+  // MCP-specific evidence fields
+  matched_signals?: string[];
+  workarounds_detected?: string[];
+  friction_indicators?: string[];
 }
 
 export interface SuggestedImplementation {
-  command_name: string;
+  // Slash command fields
+  command_name?: string;
   trigger_phrases: string[];
-  template: string | null;
+  template?: string | null;
+  // MCP-specific fields
+  category?: string;
+  suggested_mcps?: string[];
+  use_cases?: string[];
+  friction_score?: number;
 }
 
 export interface RecommendationResponse {

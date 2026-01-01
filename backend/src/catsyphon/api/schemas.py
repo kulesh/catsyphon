@@ -1384,17 +1384,41 @@ class RecommendationEvidence(BaseModel):
     pattern_count: int = Field(
         default=0, description="Number of times pattern was detected"
     )
+    # MCP-specific evidence fields
+    matched_signals: list[str] = Field(
+        default_factory=list, description="Signal patterns that matched (MCP)"
+    )
+    workarounds_detected: list[str] = Field(
+        default_factory=list, description="Workarounds the developer used (MCP)"
+    )
+    friction_indicators: list[str] = Field(
+        default_factory=list, description="Friction signs like errors/retries (MCP)"
+    )
 
 
 class SuggestedImplementation(BaseModel):
-    """Suggested implementation details for a slash command."""
+    """Suggested implementation details for a slash command or MCP."""
 
-    command_name: str = Field(..., description="Suggested /command name")
+    # Slash command fields
+    command_name: Optional[str] = Field(None, description="Suggested /command name")
     trigger_phrases: list[str] = Field(
         default_factory=list, description="Example phrases that would invoke this"
     )
     template: Optional[str] = Field(
         None, description="Suggested command template/prompt"
+    )
+    # MCP-specific fields
+    category: Optional[str] = Field(
+        None, description="MCP category (browser-automation, database, etc.)"
+    )
+    suggested_mcps: list[str] = Field(
+        default_factory=list, description="Suggested MCP servers to install"
+    )
+    use_cases: list[str] = Field(
+        default_factory=list, description="Use cases this MCP would enable"
+    )
+    friction_score: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Friction score without this MCP"
     )
 
 
