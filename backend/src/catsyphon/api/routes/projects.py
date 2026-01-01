@@ -127,13 +127,22 @@ async def get_project_stats(
             cutoff_date = now - timedelta(days=90)
         # "all" or invalid values default to no cutoff (None)
 
-    # Get conversations for this project, optionally filtered by date
-    query = session.query(Conversation).filter(Conversation.project_id == project_id)
+    # Build base filter for conversations
+    conv_filter = Conversation.project_id == project_id
     if cutoff_date:
-        query = query.filter(Conversation.start_time >= cutoff_date)
-    conversations = query.all()
+        conv_filter = conv_filter & (Conversation.start_time >= cutoff_date)
 
-    if not conversations:
+    # ===== DATABASE AGGREGATIONS (avoid loading all conversations) =====
+
+    # Session count using database aggregation
+    session_count = (
+        session.query(func.count(Conversation.id))
+        .filter(conv_filter)
+        .scalar()
+        or 0
+    )
+
+    if session_count == 0:
         # Return empty stats
         return ProjectStats(
             project_id=project_id,
@@ -146,82 +155,82 @@ async def get_project_stats(
             last_session_at=None,
         )
 
-    # Basic counts
-    session_count = len(conversations)
-
     # Message count aggregation
     total_messages = (
         session.query(func.count(Message.id))
         .join(Conversation)
-        .filter(Conversation.project_id == project_id)
+        .filter(conv_filter)
         .scalar()
         or 0
     )
 
-    # Files changed aggregation (use subquery for SQLite compatibility)
-
+    # Files changed aggregation
     total_files = (
         session.query(FileTouched.file_path)
         .join(Conversation)
-        .filter(Conversation.project_id == project_id)
+        .filter(conv_filter)
         .distinct()
         .count()
     )
 
-    # Success rate calculation
-    success_conversations = [c for c in conversations if c.success is True]
-    failed_conversations = [c for c in conversations if c.success is False]
-    total_with_outcome = len(success_conversations) + len(failed_conversations)
-
-    success_rate = (
-        len(success_conversations) / total_with_outcome
-        if total_with_outcome > 0
-        else None
+    # Success rate using database aggregation
+    success_count = (
+        session.query(func.count(Conversation.id))
+        .filter(conv_filter)
+        .filter(Conversation.success == True)  # noqa: E712
+        .scalar()
+        or 0
     )
+    failed_count = (
+        session.query(func.count(Conversation.id))
+        .filter(conv_filter)
+        .filter(Conversation.success == False)  # noqa: E712
+        .scalar()
+        or 0
+    )
+    total_with_outcome = success_count + failed_count
+    success_rate = success_count / total_with_outcome if total_with_outcome > 0 else None
 
-    # Average duration
-    durations = []
-    for conv in conversations:
-        if conv.end_time and conv.start_time:
-            duration = (conv.end_time - conv.start_time).total_seconds()
-            durations.append(duration)
+    # Average duration using database aggregation
+    # Extract seconds from end_time - start_time
+    from sqlalchemy import extract
 
-    avg_duration = sum(durations) / len(durations) if durations else None
+    # Query for average duration where both times exist
+    avg_duration_result = (
+        session.query(
+            func.avg(
+                extract("epoch", Conversation.end_time)
+                - extract("epoch", Conversation.start_time)
+            )
+        )
+        .filter(conv_filter)
+        .filter(Conversation.start_time.isnot(None))
+        .filter(Conversation.end_time.isnot(None))
+        .scalar()
+    )
+    avg_duration = float(avg_duration_result) if avg_duration_result else None
 
-    # Temporal bounds
-    start_times = [c.start_time for c in conversations if c.start_time]
-    end_times = [c.end_time for c in conversations if c.end_time]
+    # Temporal bounds using database aggregation
+    temporal_bounds = (
+        session.query(
+            func.min(Conversation.start_time).label("first_session"),
+            func.max(Conversation.end_time).label("last_session"),
+        )
+        .filter(conv_filter)
+        .first()
+    )
+    first_session_at = temporal_bounds.first_session if temporal_bounds else None
+    last_session_at = temporal_bounds.last_session if temporal_bounds else None
 
-    first_session_at = min(start_times) if start_times else None
-    last_session_at = max(end_times) if end_times else None
-
-    # Aggregate features and problems from tags
-    all_features: dict[str, int] = {}
-    all_problems: dict[str, int] = {}
-    tool_usage: dict[str, int] = {}
-
-    for conv in conversations:
-        # Extract features
-        if "features" in conv.tags and isinstance(conv.tags["features"], list):
-            for feature in conv.tags["features"]:
-                all_features[feature] = all_features.get(feature, 0) + 1
-
-        # Extract problems
-        if "problems" in conv.tags and isinstance(conv.tags["problems"], list):
-            for problem in conv.tags["problems"]:
-                all_problems[problem] = all_problems.get(problem, 0) + 1
-
-        # Extract tool usage
-        if "tools_used" in conv.tags and isinstance(conv.tags["tools_used"], list):
-            for tool in conv.tags["tools_used"]:
-                tool_usage[tool] = tool_usage.get(tool, 0) + 1
-
-    # Get top 10 features and problems
-    top_features = sorted(all_features.items(), key=lambda x: x[1], reverse=True)[:10]
-    top_problems = sorted(all_problems.items(), key=lambda x: x[1], reverse=True)[:10]
-
-    # Developer participation
-    developer_ids = {c.developer_id for c in conversations if c.developer_id}
+    # Developer participation using database aggregation
+    developer_ids_result = (
+        session.query(Conversation.developer_id)
+        .filter(conv_filter)
+        .filter(Conversation.developer_id.isnot(None))
+        .distinct()
+        .all()
+    )
+    developer_ids = {d[0] for d in developer_ids_result}
     developers = (
         session.query(Developer.username).filter(Developer.id.in_(developer_ids)).all()
         if developer_ids
@@ -229,38 +238,80 @@ async def get_project_stats(
     )
     developer_names = [d.username for d in developers]
 
-    # Sentiment timeline (group epochs by date)
+    # ===== TAGS AGGREGATION (limited fetch for top features/problems) =====
+    # Fetch only tags column for conversations (much lighter than full objects)
+    tags_results = (
+        session.query(Conversation.tags)
+        .filter(conv_filter)
+        .filter(Conversation.tags.isnot(None))
+        .all()
+    )
+
+    all_features: dict[str, int] = {}
+    all_problems: dict[str, int] = {}
+    tool_usage: dict[str, int] = {}
+
+    for (tags,) in tags_results:
+        if not isinstance(tags, dict):
+            continue
+
+        # Extract features
+        if "features" in tags and isinstance(tags["features"], list):
+            for feature in tags["features"]:
+                all_features[feature] = all_features.get(feature, 0) + 1
+
+        # Extract problems
+        if "problems" in tags and isinstance(tags["problems"], list):
+            for problem in tags["problems"]:
+                all_problems[problem] = all_problems.get(problem, 0) + 1
+
+        # Extract tool usage
+        if "tools_used" in tags and isinstance(tags["tools_used"], list):
+            for tool in tags["tools_used"]:
+                tool_usage[tool] = tool_usage.get(tool, 0) + 1
+
+    # Get top 10 features and problems
+    top_features = sorted(all_features.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_problems = sorted(all_problems.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    # ===== SENTIMENT TIMELINE (using aggregation) =====
+    # Get conversation IDs for epoch query
+    conversation_ids = (
+        session.query(Conversation.id)
+        .filter(conv_filter)
+        .all()
+    )
+    conversation_id_list = [c[0] for c in conversation_ids]
+
     sentiment_timeline: list[SentimentTimelinePoint] = []
-    if conversations:
-        conversation_ids = [c.id for c in conversations]
-        epochs = (
-            session.query(Epoch)
-            .filter(Epoch.conversation_id.in_(conversation_ids))
+    if conversation_id_list:
+        # Use database aggregation for sentiment by date
+        # Use func.date() for SQLite compatibility (returns string directly)
+        date_expr = func.date(Epoch.start_time)
+
+        sentiment_by_date = (
+            session.query(
+                date_expr.label("date_str"),
+                func.avg(Epoch.sentiment_score).label("avg_sentiment"),
+                func.count(func.distinct(Epoch.conversation_id)).label("session_count"),
+            )
+            .filter(Epoch.conversation_id.in_(conversation_id_list))
             .filter(Epoch.sentiment_score.isnot(None))
+            .filter(Epoch.start_time.isnot(None))
+            .group_by(date_expr)
+            .order_by(date_expr)
             .all()
         )
 
-        # Group by date
-        date_sentiments: dict[str, list[float]] = defaultdict(list)
-        date_conversations: dict[str, set[UUID]] = defaultdict(set)
-
-        for epoch in epochs:
-            if epoch.start_time and epoch.sentiment_score is not None:
-                date_str = epoch.start_time.date().isoformat()
-                date_sentiments[date_str].append(epoch.sentiment_score)
-                date_conversations[date_str].add(epoch.conversation_id)
-
-        # Calculate averages and create timeline points
-        for date_str in sorted(date_sentiments.keys()):
-            sentiments = date_sentiments[date_str]
-            avg_sentiment = sum(sentiments) / len(sentiments)
-            session_count_for_date = len(date_conversations[date_str])
+        for row in sentiment_by_date:
+            # func.date() returns string in both SQLite and PostgreSQL
+            date_str = str(row.date_str) if row.date_str else ""
 
             sentiment_timeline.append(
                 SentimentTimelinePoint(
                     date=date_str,
-                    avg_sentiment=avg_sentiment,
-                    session_count=session_count_for_date,
+                    avg_sentiment=float(row.avg_sentiment) if row.avg_sentiment else 0.0,
+                    session_count=row.session_count or 0,
                 )
             )
 
@@ -318,11 +369,27 @@ async def get_project_analytics(
         elif date_range == "90d":
             cutoff_date = now - timedelta(days=90)
 
-    conv_query = session.query(Conversation).filter(
-        Conversation.project_id == project_id
-    )
+    # Build base filter
+    conv_filter = Conversation.project_id == project_id
     if cutoff_date:
-        conv_query = conv_query.filter(Conversation.start_time >= cutoff_date)
+        conv_filter = conv_filter & (Conversation.start_time >= cutoff_date)
+
+    # Load only essential conversation columns (not full objects)
+    # This significantly reduces memory usage
+    from sqlalchemy.orm import load_only
+
+    conv_query = session.query(Conversation).filter(conv_filter).options(
+        load_only(
+            Conversation.id,
+            Conversation.developer_id,
+            Conversation.agent_type,
+            Conversation.start_time,
+            Conversation.end_time,
+            Conversation.success,
+            Conversation.parent_conversation_id,
+            Conversation.tags,
+        )
+    )
     conversations = conv_query.all()
 
     if not conversations:
@@ -341,22 +408,97 @@ async def get_project_analytics(
         else {}
     )
 
-    # Messages and files
-    messages = (
-        session.query(Message).filter(Message.conversation_id.in_(conv_ids)).all()
-    )
-    msgs_by_conv: dict[UUID, list[Message]] = {}
-    for m in messages:
-        msgs_by_conv.setdefault(m.conversation_id, []).append(m)
+    # ===== DATABASE AGGREGATIONS FOR MESSAGES =====
+    # Instead of loading all messages, aggregate counts in database
+    from sqlalchemy import case
 
-    files = (
-        session.query(FileTouched)
-        .filter(FileTouched.conversation_id.in_(conv_ids))
+    msg_agg = (
+        session.query(
+            Message.conversation_id,
+            func.count(case((Message.role == "assistant", 1))).label("assistant_count"),
+            func.count(case((Message.role == "user", 1))).label("user_count"),
+            func.count(
+                case((Message.role == "assistant", Message.tool_calls))
+            ).label("assistant_tool_count"),
+            func.count(case((Message.role == "user", Message.tool_calls))).label(
+                "user_tool_count"
+            ),
+        )
+        .filter(Message.conversation_id.in_(conv_ids))
+        .group_by(Message.conversation_id)
         .all()
     )
-    files_by_conv: dict[UUID, list[FileTouched]] = {}
-    for f in files:
-        files_by_conv.setdefault(f.conversation_id, []).append(f)
+    msg_counts_by_conv: dict[UUID, dict[str, int]] = {
+        row.conversation_id: {
+            "assistant": row.assistant_count or 0,
+            "user": row.user_count or 0,
+            "assistant_tool": row.assistant_tool_count or 0,
+            "user_tool": row.user_tool_count or 0,
+        }
+        for row in msg_agg
+    }
+
+    # ===== DATABASE AGGREGATIONS FOR FILES =====
+    # Aggregate file stats per conversation in database
+    file_agg = (
+        session.query(
+            FileTouched.conversation_id,
+            func.sum(FileTouched.lines_added).label("total_added"),
+            func.sum(FileTouched.lines_deleted).label("total_deleted"),
+            func.min(FileTouched.timestamp).label("first_change"),
+        )
+        .filter(FileTouched.conversation_id.in_(conv_ids))
+        .group_by(FileTouched.conversation_id)
+        .all()
+    )
+    file_stats_by_conv: dict[UUID, dict[str, Any]] = {
+        row.conversation_id: {
+            "lines_added": row.total_added or 0,
+            "lines_deleted": row.total_deleted or 0,
+            "first_change": row.first_change,
+        }
+        for row in file_agg
+    }
+
+    # ===== THINKING TIME (load minimal message data, capped for performance) =====
+    # Limit to most recent 100 conversations to cap memory usage
+    thinking_conv_ids = conv_ids[-100:] if len(conv_ids) > 100 else conv_ids
+    thinking_messages = (
+        session.query(
+            Message.conversation_id,
+            Message.role,
+            Message.timestamp,
+            Message.tool_calls,
+        )
+        .filter(Message.conversation_id.in_(thinking_conv_ids))
+        .filter(Message.role.in_(["user", "assistant"]))
+        .order_by(Message.timestamp)
+        .all()
+    )
+
+    # Group by conversation and compute thinking pairs
+    all_thinking_pairs = []
+    msgs_for_thinking: dict[UUID, list] = {}
+    for row in thinking_messages:
+        msgs_for_thinking.setdefault(row.conversation_id, []).append(row)
+
+    # Create lightweight message-like objects for pair_user_assistant
+    class LightMessage:
+        """Minimal message object for thinking pair calculation."""
+
+        def __init__(
+            self, role: str, timestamp: datetime, tool_calls: Optional[Any]
+        ) -> None:
+            self.role = role
+            self.timestamp = timestamp
+            self.tool_calls = tool_calls
+            self.thinking_content = None
+
+    for conv_id, msg_rows in msgs_for_thinking.items():
+        light_msgs = [
+            LightMessage(row.role, row.timestamp, row.tool_calls) for row in msg_rows
+        ]
+        all_thinking_pairs.extend(pair_user_assistant(light_msgs))  # type: ignore
 
     # Pairing effectiveness aggregation
     pair_buckets: dict[tuple[Optional[UUID], str], dict[str, Any]] = {}
@@ -367,7 +509,6 @@ async def get_project_analytics(
     impact_lines_total = 0
     impact_sessions = 0
     first_change_latencies: list[float] = []
-    all_thinking_pairs = []
 
     conversation_lookup = {c.id: c for c in conversations}
 
@@ -396,43 +537,38 @@ async def get_project_analytics(
             )
             bucket["duration_hours"] += duration_hours
 
-        # Lines and first-change latency
-        conv_files = files_by_conv.get(conv.id, [])
-        lines_changed = sum(
-            (f.lines_added or 0) + (f.lines_deleted or 0) for f in conv_files
+        # Lines and first-change latency (using pre-aggregated data)
+        conv_file_stats = file_stats_by_conv.get(conv.id, {})
+        lines_changed = (
+            conv_file_stats.get("lines_added", 0)
+            + conv_file_stats.get("lines_deleted", 0)
         )
         impact_lines_total += lines_changed
         if lines_changed > 0:
             impact_sessions += 1
         bucket["lines"] += lines_changed
 
-        if conv_files:
-            first_change_ts = min(f.timestamp for f in conv_files if f.timestamp)
-            if first_change_ts and conv.start_time:
-                latency_minutes = max(
-                    (first_change_ts - conv.start_time).total_seconds() / 60.0, 0.0
-                )
-                bucket["first_change_minutes_total"] += latency_minutes
-                bucket["first_change_count"] += 1
-                first_change_latencies.append(latency_minutes)
+        first_change_ts = conv_file_stats.get("first_change")
+        if first_change_ts and conv.start_time:
+            latency_minutes = max(
+                (first_change_ts - conv.start_time).total_seconds() / 60.0, 0.0
+            )
+            bucket["first_change_minutes_total"] += latency_minutes
+            bucket["first_change_count"] += 1
+            first_change_latencies.append(latency_minutes)
 
-        # Role dynamics
-        conv_msgs = msgs_by_conv.get(conv.id, [])
-        assistant_msgs = sum(1 for m in conv_msgs if m.role == "assistant")
-        user_msgs = sum(1 for m in conv_msgs if m.role == "user")
+        # Role dynamics (using pre-aggregated counts)
+        msg_stats = msg_counts_by_conv.get(conv.id, {})
+        assistant_msgs = msg_stats.get("assistant", 0)
+        user_msgs = msg_stats.get("user", 0)
         total_msgs = assistant_msgs + user_msgs
-        assistant_tool_calls = sum(
-            1 for m in conv_msgs if m.role == "assistant" and m.tool_calls
-        )
-        user_tool_calls = sum(1 for m in conv_msgs if m.role == "user" and m.tool_calls)
+        assistant_tool_calls = msg_stats.get("assistant_tool", 0)
+        user_tool_calls = msg_stats.get("user_tool", 0)
         assistant_ratio = assistant_msgs / total_msgs if total_msgs else 0.5
         role = _classify_role_dynamics(
             assistant_ratio, assistant_tool_calls, user_tool_calls
         )
         role_counts[role] += 1
-
-        # Thinking-time pairs
-        all_thinking_pairs.extend(pair_user_assistant(conv_msgs))
 
         # Handoff stats
         if conv.parent_conversation_id:
@@ -444,29 +580,44 @@ async def get_project_analytics(
                 handoff_latencies.append(delta_minutes)
                 if conv.success is True:
                     handoff_successes += 1
-                # Clarifications: user messages in parent between parent start and agent start
-                parent_msgs = msgs_by_conv.get(parent.id, [])
-                clarifications = sum(
-                    1
-                    for m in parent_msgs
-                    if m.role == "user"
-                    and m.timestamp >= parent.start_time
-                    and m.timestamp <= conv.start_time
+                # Clarifications: count user messages in parent between parent start and agent start
+                # Use database count query instead of loading all messages
+                clarifications = (
+                    session.query(func.count(Message.id))
+                    .filter(Message.conversation_id == parent.id)
+                    .filter(Message.role == "user")
+                    .filter(Message.timestamp >= parent.start_time)
+                    .filter(Message.timestamp <= conv.start_time)
+                    .scalar()
+                    or 0
                 )
                 handoff_clarifications.append(clarifications)
 
     # Influence flows (file introduction -> later adopter)
+    # Load only needed columns for influence calculation (file_path, conversation_id, timestamp)
+    file_touches = (
+        session.query(
+            FileTouched.file_path,
+            FileTouched.conversation_id,
+            FileTouched.timestamp,
+        )
+        .filter(FileTouched.conversation_id.in_(conv_ids))
+        .filter(FileTouched.timestamp.isnot(None))
+        .order_by(FileTouched.timestamp)
+        .all()
+    )
+
     influence_counts: dict[tuple[str, str], int] = {}
     first_touch: dict[str, tuple[str, datetime]] = {}
-    for f in sorted(files, key=lambda x: x.timestamp):
+    for file_path, conv_id, timestamp in file_touches:
         # Identify actor string
-        conv = conversation_lookup.get(f.conversation_id)
+        conv = conversation_lookup.get(conv_id)
         actor = "unknown"
         if conv:
             dev_name = dev_map.get(conv.developer_id) if conv.developer_id else None
             actor = dev_name or conv.agent_type or "unknown"
 
-        existing = first_touch.get(f.file_path)
+        existing = first_touch.get(file_path)
         if existing:
             introducer, _ = existing
             if introducer != actor:
@@ -474,7 +625,7 @@ async def get_project_analytics(
                     influence_counts.get((introducer, actor), 0) + 1
                 )
         else:
-            first_touch[f.file_path] = (actor, f.timestamp)
+            first_touch[file_path] = (actor, timestamp)
 
     influence_flows = [
         InfluenceFlow(source=src, target=dst, count=count)
@@ -965,20 +1116,25 @@ async def get_project_files(
         .all()
     )
 
+    # ===== FIX N+1 QUERY: Batch fetch all file_path -> session_ids mapping =====
+    # Single query to get all (file_path, conversation_id) pairs for this project
+    all_file_sessions = (
+        session.query(FileTouched.file_path, FileTouched.conversation_id)
+        .join(Conversation, FileTouched.conversation_id == Conversation.id)
+        .filter(Conversation.project_id == project_id)
+        .distinct()
+        .all()
+    )
+
+    # Build mapping from file_path to list of session_ids
+    file_to_sessions: dict[str, list[str]] = {}
+    for file_path, conv_id in all_file_sessions:
+        file_to_sessions.setdefault(file_path, []).append(str(conv_id))
+
     files = []
     for row in results:
-        # Get all conversation_ids for this file (SQLite-compatible approach)
-        session_ids = (
-            session.query(FileTouched.conversation_id)
-            .join(Conversation)
-            .filter(
-                Conversation.project_id == project_id,
-                FileTouched.file_path == row.file_path,
-            )
-            .distinct()
-            .all()
-        )
-        session_id_list = [str(sid[0]) for sid in session_ids]
+        # Use pre-fetched mapping instead of N+1 queries
+        session_id_list = file_to_sessions.get(row.file_path, [])
 
         files.append(
             ProjectFileAggregation(
