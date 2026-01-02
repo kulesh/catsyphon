@@ -446,6 +446,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             conversation: Conversation to update
             event_timestamp: Timestamp of the latest event
         """
+        # Normalize event_timestamp to naive UTC for comparison
+        # (database stores naive datetimes, API receives timezone-aware)
+        if event_timestamp.tzinfo is not None:
+            event_timestamp = event_timestamp.replace(tzinfo=None)
+
         # Update end_time to latest event if newer
         if conversation.end_time is None or event_timestamp > conversation.end_time:
             conversation.end_time = event_timestamp
@@ -533,14 +538,36 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             self.session.flush()
         return epoch
 
+    def get_event_hashes(self, conversation_id: uuid.UUID) -> set[str]:
+        """
+        Get all event hashes for a conversation.
+
+        Used for content-based deduplication when receiving new events.
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Set of existing event hashes
+        """
+        result = (
+            self.session.query(Message.event_hash)
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.event_hash.isnot(None),
+            )
+            .all()
+        )
+        return {row[0] for row in result}
+
     def add_message(
         self,
         conversation: Conversation,
-        sequence: int,
         event_type: str,
         emitted_at: datetime,
         observed_at: datetime,
         data: dict,
+        event_hash: Optional[str] = None,
     ) -> Message:
         """
         Add a message from a collector event.
@@ -549,11 +576,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
         Args:
             conversation: Parent conversation
-            sequence: Event sequence number
             event_type: Event type (message, tool_call, tool_result, etc.)
             emitted_at: When event was produced at source
             observed_at: When collector observed the event
             data: Event data payload
+            event_hash: Content-based hash for deduplication
 
         Returns:
             Created Message instance
@@ -602,6 +629,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         if data.get("thinking_metadata"):
             extra_data["thinking_metadata"] = data["thinking_metadata"]
 
+        # Compute sequence from existing message count (for ordering)
+        sequence = (conversation.message_count or 0) + 1
+
         message = Message(
             epoch_id=epoch.id,
             conversation_id=conversation.id,
@@ -614,8 +644,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             author_role=author_role,
             message_type=message_type,
             thinking_content=data.get("thinking_content"),
-            tool_calls=tool_calls,  # NEW: semantic parity
-            extra_data=extra_data if extra_data else None,  # NEW: semantic parity
+            tool_calls=tool_calls,
+            extra_data=extra_data if extra_data else None,
+            event_hash=event_hash,  # Content-based deduplication
             raw_data=data,  # Store full event data for reference
         )
         self.session.add(message)

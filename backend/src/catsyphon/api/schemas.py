@@ -1324,7 +1324,6 @@ class EventData(BaseModel):
 class CollectorEvent(BaseModel):
     """Single event in an event batch."""
 
-    sequence: int = Field(..., ge=1, description="Monotonic sequence number (1-based)")
     type: str = Field(
         ...,
         description="Event type (session_start, session_end, message, tool_call, tool_result, thinking, error, metadata)",
@@ -1334,6 +1333,9 @@ class CollectorEvent(BaseModel):
     )
     observed_at: datetime = Field(
         ..., description="When the collector observed the event"
+    )
+    event_hash: Optional[str] = Field(
+        None, max_length=32, description="Content-based hash for deduplication"
     )
     data: EventData = Field(..., description="Type-specific payload")
 
@@ -1379,7 +1381,9 @@ class CollectorEventsResponse(BaseModel):
     """Response schema for event batch submission."""
 
     accepted: int = Field(..., description="Number of events accepted")
-    last_sequence: int = Field(..., description="Last sequence number received")
+    last_sequence: Optional[int] = Field(
+        None, description="Last sequence number (deprecated, use event_count)"
+    )
     conversation_id: UUID = Field(..., description="CatSyphon's internal conversation ID")
     warnings: list[str] = Field(default_factory=list, description="Non-fatal issues")
 
@@ -1399,7 +1403,9 @@ class CollectorSessionStatusResponse(BaseModel):
 class CollectorSessionCompleteRequest(BaseModel):
     """Request schema for marking session complete."""
 
-    final_sequence: int = Field(..., description="Expected final sequence number")
+    event_count: Optional[int] = Field(
+        None, description="Total events in session (informational)"
+    )
     outcome: str = Field(
         ..., description="Session outcome (success, partial, failed, abandoned)"
     )

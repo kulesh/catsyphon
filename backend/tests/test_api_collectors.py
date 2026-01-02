@@ -210,23 +210,21 @@ class TestEventSubmission:
 
         assert response.status_code == 401
 
-    def test_submit_events_sequence_gap(self, client, db_session, workspace_with_collector):
-        """Test that sequence gaps are detected."""
+    def test_submit_events_no_sequence_gap_check(self, client, db_session, workspace_with_collector):
+        """Test that events are accepted regardless of sequence order (content-based dedup)."""
         collector = workspace_with_collector["collector"]
         api_key = workspace_with_collector["api_key"]
         session_id = f"test-session-{uuid.uuid4()}"
 
-        # First, submit events 1-2
+        # First, submit initial events
         first_batch = [
             {
-                "sequence": 1,
                 "type": "session_start",
                 "emitted_at": datetime.now(timezone.utc).isoformat(),
                 "observed_at": datetime.now(timezone.utc).isoformat(),
                 "data": {"agent_type": "claude-code"},
             },
             {
-                "sequence": 2,
                 "type": "message",
                 "emitted_at": datetime.now(timezone.utc).isoformat(),
                 "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -248,10 +246,9 @@ class TestEventSubmission:
         )
         assert response.status_code == 202
 
-        # Now try to submit event 5 (skipping 3-4)
-        gap_batch = [
+        # Submit more events - no sequence gap error anymore
+        more_events = [
             {
-                "sequence": 5,
                 "type": "message",
                 "emitted_at": datetime.now(timezone.utc).isoformat(),
                 "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -265,39 +262,63 @@ class TestEventSubmission:
 
         response = client.post(
             "/collectors/events",
-            json={"session_id": session_id, "events": gap_batch},
+            json={"session_id": session_id, "events": more_events},
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "X-Collector-ID": str(collector.id),
             },
         )
 
-        assert response.status_code == 409
-        detail = response.json()["detail"]
-        assert detail["error"] == "sequence_gap"
-        assert detail["last_received_sequence"] == 2
-        assert detail["expected_sequence"] == 3
+        # Content-based dedup means no sequence validation - events accepted
+        assert response.status_code == 202
+        assert response.json()["accepted"] == 1
 
     def test_submit_events_deduplication(self, client, db_session, workspace_with_collector):
-        """Test that duplicate events are ignored."""
+        """Test that duplicate message events are ignored via content-based hashing."""
         collector = workspace_with_collector["collector"]
         api_key = workspace_with_collector["api_key"]
         session_id = f"test-session-{uuid.uuid4()}"
 
-        events = [
+        # Use fixed timestamp for deterministic content-based hashing
+        fixed_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat()
+
+        # First, create the session with a session_start event
+        setup_events = [
             {
-                "sequence": 1,
                 "type": "session_start",
-                "emitted_at": datetime.now(timezone.utc).isoformat(),
-                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "emitted_at": fixed_time,
+                "observed_at": fixed_time,
                 "data": {"agent_type": "claude-code"},
+            },
+        ]
+        response_setup = client.post(
+            "/collectors/events",
+            json={"session_id": session_id, "events": setup_events},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-Collector-ID": str(collector.id),
+            },
+        )
+        assert response_setup.status_code == 202
+
+        # Now submit a message event (which gets stored and can be deduplicated)
+        message_events = [
+            {
+                "type": "message",
+                "emitted_at": fixed_time,
+                "observed_at": fixed_time,
+                "data": {
+                    "author_role": "human",
+                    "message_type": "prompt",
+                    "content": "Test message for deduplication",
+                },
             },
         ]
 
         # Submit first time
         response1 = client.post(
             "/collectors/events",
-            json={"session_id": session_id, "events": events},
+            json={"session_id": session_id, "events": message_events},
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "X-Collector-ID": str(collector.id),
@@ -306,17 +327,17 @@ class TestEventSubmission:
         assert response1.status_code == 202
         assert response1.json()["accepted"] == 1
 
-        # Submit same events again
+        # Submit same message events again - content hash should match
         response2 = client.post(
             "/collectors/events",
-            json={"session_id": session_id, "events": events},
+            json={"session_id": session_id, "events": message_events},
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "X-Collector-ID": str(collector.id),
             },
         )
         assert response2.status_code == 202
-        assert response2.json()["accepted"] == 0  # No new events accepted
+        assert response2.json()["accepted"] == 0  # Duplicate detected by content hash
 
 
 class TestSessionStatus:

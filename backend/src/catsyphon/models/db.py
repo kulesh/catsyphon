@@ -658,6 +658,12 @@ class Message(Base):
         DateTime(timezone=True), nullable=True
     )  # When the message was parsed/ingested
 
+    # Content-based deduplication hash for collector API
+    # Format: sha256(event_type + emitted_at + content)[:32]
+    event_hash: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True, index=True
+    )
+
     # Tool usage
     tool_calls: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     tool_results: Mapped[list] = mapped_column(
