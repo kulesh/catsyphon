@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ===== Base Schemas =====
 
@@ -28,8 +28,7 @@ class ProjectResponse(ProjectBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectListItem(ProjectResponse):
@@ -221,8 +220,7 @@ class DeveloperResponse(DeveloperBase):
     extra_data: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ===== Conversation Schemas =====
@@ -272,8 +270,7 @@ class MessageResponse(BaseModel):
         description="Thread this message belongs to (for multi-thread conversations)",
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ThreadResponse(BaseModel):
@@ -296,8 +293,7 @@ class ThreadResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BackingModelResponse(BaseModel):
@@ -312,8 +308,7 @@ class BackingModelResponse(BaseModel):
     )
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EpochResponse(BaseModel):
@@ -331,8 +326,7 @@ class EpochResponse(BaseModel):
     extra_data: dict[str, Any] = Field(default_factory=dict)
     message_count: int = 0  # Will be populated from messages
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FileTouchedResponse(BaseModel):
@@ -347,8 +341,7 @@ class FileTouchedResponse(BaseModel):
     timestamp: datetime
     extra_data: dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationListItem(BaseModel):
@@ -400,8 +393,7 @@ class ConversationListItem(BaseModel):
     project: Optional[ProjectResponse] = None
     developer: Optional[DeveloperResponse] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RawLogInfo(BaseModel):
@@ -412,8 +404,7 @@ class RawLogInfo(BaseModel):
     file_hash: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationDetail(ConversationListItem):
@@ -451,8 +442,7 @@ class ConversationDetail(ConversationListItem):
         description="LLM model used for this conversation",
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationListResponse(BaseModel):
@@ -602,8 +592,7 @@ class WatchConfigurationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SuggestedPath(BaseModel):
@@ -661,8 +650,7 @@ class IngestionJobResponse(BaseModel):
     created_by: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="before")
     @classmethod
@@ -967,8 +955,7 @@ class CanonicalResponse(BaseModel):
     # Generation metadata
     generated_at: datetime = Field(..., description="When this canonical was generated")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CanonicalNarrativeResponse(BaseModel):
@@ -1317,8 +1304,7 @@ class EventData(BaseModel):
         None, description="All files touched during session"
     )
 
-    class Config:
-        extra = "allow"  # Allow additional fields for extensibility
+    model_config = ConfigDict(extra="allow")
 
 
 class CollectorEvent(BaseModel):
@@ -1506,8 +1492,7 @@ class RecommendationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecommendationUpdate(BaseModel):
@@ -1563,3 +1548,35 @@ class DetectionResponse(BaseModel):
     recommendations: list[RecommendationResponse] = Field(
         default_factory=list, description="Detected recommendations"
     )
+
+
+# ===== Benchmark Schemas =====
+
+
+class BenchmarkItem(BaseModel):
+    """Single benchmark result entry."""
+
+    name: str
+    status: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
+class BenchmarkResultResponse(BaseModel):
+    """Response schema for benchmark run results."""
+
+    run_id: str
+    started_at: datetime
+    completed_at: datetime
+    benchmarks: list[BenchmarkItem]
+    environment: dict[str, Any] = Field(default_factory=dict)
+
+
+class BenchmarkStatusResponse(BaseModel):
+    """Response schema for benchmark runner status."""
+
+    status: str
+    run_id: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None

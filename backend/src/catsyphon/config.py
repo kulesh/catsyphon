@@ -96,6 +96,20 @@ class Settings(BaseSettings):
         default=300, alias="CATSYPHON_DB_POOL_RECYCLE"
     )  # Recycle connections after N seconds
 
+    # Benchmarks
+    benchmarks_enabled: bool = Field(
+        default=False, alias="CATSYPHON_BENCHMARKS_ENABLED"
+    )
+    benchmarks_token: str | None = Field(
+        default=None, alias="CATSYPHON_BENCHMARKS_TOKEN"
+    )
+    benchmarks_output_dir: str = Field(
+        default="logs/benchmarks", alias="CATSYPHON_BENCHMARKS_OUTPUT_DIR"
+    )
+    benchmarks_iterations: int = Field(
+        default=5, alias="CATSYPHON_BENCHMARKS_ITERATIONS"
+    )
+
     @property
     def database_url(self) -> str:
         """Construct database URL from components."""

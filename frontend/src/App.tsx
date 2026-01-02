@@ -96,6 +96,12 @@ export default function App() {
                 >
                   Ingestion
                 </Link>
+                <Link
+                  to="/benchmarks"
+                  className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-lg transition-all"
+                >
+                  Benchmarks
+                </Link>
               </div>
             </div>
 

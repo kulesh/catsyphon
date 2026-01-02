@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from catsyphon.api.routes import (
+    benchmarks,
     canonical,
     collectors,
     conversations,
@@ -195,6 +196,7 @@ async def ready() -> dict:
 
 
 app.include_router(collectors.router)  # /collectors/* endpoints
+app.include_router(benchmarks.router)  # /benchmarks/* endpoints
 app.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )

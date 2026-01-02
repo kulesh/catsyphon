@@ -5,8 +5,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal } from 'lucide-react';
-import { getOverviewStats } from '@/lib/api';
+import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge } from 'lucide-react';
+import { ApiError, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats } from '@/lib/api';
 
 export default function Dashboard() {
   const { data: stats, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
@@ -14,6 +14,21 @@ export default function Dashboard() {
     queryFn: () => getOverviewStats(),
     refetchInterval: 15000, // Auto-refresh every 15 seconds for live dashboard
     staleTime: 0, // Always fetch fresh data - override global 5min staleTime
+  });
+
+  const benchmarkStatusQuery = useQuery({
+    queryKey: ['benchmarks', 'status'],
+    queryFn: () => getBenchmarkStatus(),
+    retry: false,
+    refetchInterval: 15000,
+  });
+
+  const benchmarkResultsQuery = useQuery({
+    queryKey: ['benchmarks', 'results', 'latest'],
+    queryFn: () => getLatestBenchmarkResults(),
+    enabled: benchmarkStatusQuery.data?.status === 'completed',
+    retry: false,
+    refetchInterval: 15000,
   });
 
   if (isLoading) {
@@ -49,6 +64,15 @@ export default function Dashboard() {
   if (!stats) {
     return null;
   }
+
+  const benchmarkEnabled =
+    benchmarkStatusQuery.data ||
+    (benchmarkStatusQuery.error instanceof ApiError &&
+      benchmarkStatusQuery.error.status !== 403);
+
+  const benchmarkStatus = benchmarkStatusQuery.data?.status;
+  const benchmarkRunId = benchmarkStatusQuery.data?.run_id;
+  const benchmarkResults = benchmarkResultsQuery.data;
 
   return (
     <div className="min-h-screen bg-background">
@@ -215,6 +239,73 @@ export default function Dashboard() {
           <p className="text-xs font-mono text-muted-foreground mt-3">
             Success metric calculated from tagged conversation outcomes
           </p>
+        </div>
+      )}
+
+      {benchmarkEnabled && (
+        <div className="observatory-card p-6 mb-8">
+          <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+            <div className="flex items-center gap-3">
+              <Gauge className="w-5 h-5 text-cyan-400" />
+              <h2 className="text-lg font-heading text-foreground">
+                Performance Benchmarks
+              </h2>
+            </div>
+            {benchmarkStatus && (
+              <span className="text-xs font-mono text-muted-foreground">
+                STATUS {benchmarkStatus.toUpperCase()}
+              </span>
+            )}
+          </div>
+
+          {benchmarkStatusQuery.isLoading && (
+            <p className="text-sm font-mono text-muted-foreground">
+              Loading benchmark status...
+            </p>
+          )}
+
+          {benchmarkStatusQuery.isError && (
+            <p className="text-sm font-mono text-muted-foreground">
+              {benchmarkStatusQuery.error?.message || 'Benchmarks unavailable'}
+            </p>
+          )}
+
+          {benchmarkRunId && (
+            <p className="text-xs font-mono text-muted-foreground mb-3">
+              Latest run: {benchmarkRunId}
+            </p>
+          )}
+
+          {benchmarkResults && (
+            <div className="space-y-3">
+              {benchmarkResults.benchmarks.map((benchmark) => (
+                <div
+                  key={benchmark.name}
+                  className="rounded-lg border border-border/60 bg-card/60 p-3"
+                >
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <span className="text-sm font-semibold text-foreground">
+                      {benchmark.name}
+                    </span>
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {benchmark.status.toUpperCase()}
+                    </span>
+                  </div>
+                  {benchmark.data?.overhead_ratio && (
+                    <p className="text-xs font-mono text-muted-foreground">
+                      Registry overhead:{' '}
+                      {(benchmark.data.overhead_ratio * 100).toFixed(2)}%
+                    </p>
+                  )}
+                  {benchmark.data?.reason && (
+                    <p className="text-xs font-mono text-muted-foreground">
+                      {benchmark.data.reason}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

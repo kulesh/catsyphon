@@ -15,6 +15,7 @@ import Upload from './pages/Upload.tsx';
 import Ingestion from './pages/Ingestion.tsx';
 import Setup from './pages/Setup.tsx';
 import FailedSessions from './pages/FailedSessions.tsx';
+import Benchmarks from './pages/Benchmarks.tsx';
 import { queryClient } from './lib/queryClient';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
 
@@ -58,6 +59,10 @@ const router = createBrowserRouter([
       {
         path: 'failed-sessions',
         element: <FailedSessions />,
+      },
+      {
+        path: 'benchmarks',
+        element: <Benchmarks />,
       },
     ],
   },
