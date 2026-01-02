@@ -35,13 +35,19 @@ if settings.database_url.startswith("sqlite"):
                     column.type = JSON()
 
 else:
+    # Connection pool settings optimized for multi-worker deployment:
+    # With 8 uvicorn workers, each worker gets its own pool.
+    # Total connections = workers × (pool_size + max_overflow)
+    # To stay under PostgreSQL's max_connections (100), we use conservative settings:
+    # 8 workers × (5 + 5) = 80 connections for API, leaves 20 for watch daemons/admin
     engine = create_engine(
         settings.database_url,
         echo=False,  # Disable SQL logging for performance
-        pool_size=20,  # Increased for concurrent collector + UI requests
-        max_overflow=30,
+        pool_size=5,  # Base connections per worker (8 workers × 5 = 40)
+        max_overflow=5,  # Extra connections per worker (8 workers × 5 = 40)
         pool_pre_ping=True,  # Verify connections before using
         pool_timeout=10,  # Faster timeout to fail fast
+        pool_recycle=300,  # Recycle connections every 5 minutes to prevent stale connections
     )
 
 # Create session factory
