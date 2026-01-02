@@ -127,28 +127,91 @@ async def get_overview_stats(
     )
 
     # Plan statistics (extracted from extra_data JSONB)
-    # Count conversations with plans and aggregate plan data
+    # ===== OPTIMIZED: Use database aggregation instead of loading all into memory =====
     total_plans = 0
     plans_by_status: dict[str, int] = {}
     conversations_with_plans = 0
 
-    # Query all conversations with extra_data and filter in Python
-    # This is database-agnostic (works with SQLite and PostgreSQL)
-    convs_with_extra_data_query = session.query(Conversation.extra_data).filter(
-        Conversation.workspace_id == workspace_id,
-        Conversation.extra_data.isnot(None),
-    )
+    # Try PostgreSQL JSONB aggregation first (production), fall back to limited scan
+    try:
+        # PostgreSQL: Use JSONB operators to count plans at database level
+        # Count conversations with plans
+        conversations_with_plans = (
+            session.query(func.count(Conversation.id))
+            .filter(Conversation.workspace_id == workspace_id)
+            .filter(Conversation.extra_data.isnot(None))
+            .filter(
+                func.jsonb_array_length(
+                    func.coalesce(Conversation.extra_data["plans"], "[]")
+                )
+                > 0
+            )
+            .scalar()
+            or 0
+        )
 
-    for (extra_data,) in convs_with_extra_data_query.all():
-        if not extra_data:
-            continue
-        plans = extra_data.get("plans", [])
-        if plans and isinstance(plans, list) and len(plans) > 0:
-            conversations_with_plans += 1
-            total_plans += len(plans)
+        # Count total plans across all conversations
+        # Use subquery to sum JSONB array lengths
+        total_plans = (
+            session.query(
+                func.coalesce(
+                    func.sum(
+                        func.jsonb_array_length(
+                            func.coalesce(Conversation.extra_data["plans"], "[]")
+                        )
+                    ),
+                    0,
+                )
+            )
+            .filter(Conversation.workspace_id == workspace_id)
+            .filter(Conversation.extra_data.isnot(None))
+            .scalar()
+            or 0
+        )
+
+        # For plan status breakdown, we need to unnest the JSONB array
+        # This is more complex - use a limited fetch for status aggregation
+        # Only fetch extra_data for conversations with plans (already filtered)
+        plans_query = (
+            session.query(Conversation.extra_data)
+            .filter(Conversation.workspace_id == workspace_id)
+            .filter(Conversation.extra_data.isnot(None))
+            .filter(
+                func.jsonb_array_length(
+                    func.coalesce(Conversation.extra_data["plans"], "[]")
+                )
+                > 0
+            )
+            .limit(1000)  # Cap memory usage for status aggregation
+        )
+
+        for (extra_data,) in plans_query.all():
+            if not extra_data:
+                continue
+            plans = extra_data.get("plans", [])
             for plan in plans:
                 status = plan.get("status", "active")
                 plans_by_status[status] = plans_by_status.get(status, 0) + 1
+
+    except Exception:
+        # SQLite fallback: Use limited scan (less efficient but compatible)
+        plans_query = (
+            session.query(Conversation.extra_data)
+            .filter(Conversation.workspace_id == workspace_id)
+            .filter(Conversation.extra_data.isnot(None))
+            .limit(5000)  # Cap to prevent OOM
+        )
+
+        for (extra_data,) in plans_query.all():
+            if not extra_data:
+                continue
+            plans = extra_data.get("plans", [])
+            if plans and isinstance(plans, list) and len(plans) > 0:
+                conversations_with_plans += 1
+                total_plans += len(plans)
+                for plan in plans:
+                    status = plan.get("status", "active")
+                    plans_by_status[status] = plans_by_status.get(status, 0) + 1
 
     # Success rate (workspace scoped)
     total_with_success = (

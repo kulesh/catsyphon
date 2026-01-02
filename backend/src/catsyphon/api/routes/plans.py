@@ -89,8 +89,6 @@ async def list_plans(
     """
     workspace_id = auth.workspace_id
 
-    conv_repo = ConversationRepository(session)
-
     # Build filters for conversation query
     filters: dict[str, Any] = {}
     if start_date:
@@ -110,19 +108,70 @@ async def list_plans(
     if project_id:
         filters["project_id"] = project_id
 
-    # Query conversations - we need to filter for those with plans
-    # For now, fetch all matching conversations and filter client-side
-    # Future optimization: Add JSONB index on extra_data->'plans'
-    conversations = conv_repo.get_by_filters(
-        workspace_id=workspace_id,
-        load_relations=True,
-        **filters,
+    # ===== OPTIMIZED: Use database-level filtering and pagination =====
+    # Query only conversations with plans (JSONB filter) and load minimal data
+    from sqlalchemy import func
+
+    from catsyphon.models.db import Conversation, Project
+
+    # Detect database dialect for JSONB/JSON function selection
+    bind = session.bind
+    if bind is None:
+        raise RuntimeError("Session has no bind")
+    dialect_name = bind.dialect.name
+
+    # Build base query with only needed columns (not full ORM objects with relations)
+    query = (
+        session.query(
+            Conversation.id,
+            Conversation.start_time,
+            Conversation.project_id,
+            Conversation.extra_data,
+            Project.name.label("project_name"),
+        )
+        .outerjoin(Project, Conversation.project_id == Project.id)
+        .filter(Conversation.workspace_id == workspace_id)
+        .filter(Conversation.extra_data.isnot(None))
     )
 
-    # Extract plans from conversations
+    # Apply JSONB/JSON filter based on database dialect
+    if dialect_name == "postgresql":
+        # PostgreSQL: Use JSONB operators
+        query = query.filter(
+            func.jsonb_array_length(
+                func.coalesce(Conversation.extra_data["plans"], "[]")
+            )
+            > 0
+        )
+    else:
+        # SQLite: Use json_array_length with JSON path extraction
+        query = query.filter(
+            func.json_array_length(
+                func.coalesce(
+                    func.json_extract(Conversation.extra_data, "$.plans"), "[]"
+                )
+            )
+            > 0
+        )
+
+    # Apply date filters
+    if filters.get("start_date"):
+        query = query.filter(Conversation.start_time >= filters["start_date"])
+    if filters.get("end_date"):
+        query = query.filter(Conversation.start_time <= filters["end_date"])
+    if filters.get("project_id"):
+        query = query.filter(Conversation.project_id == filters["project_id"])
+
+    # Order by start time descending (newest first)
+    query = query.order_by(Conversation.start_time.desc())
+
+    # Execute query and extract plans
+    conversations_data = query.all()
+
+    # Extract plans from lightweight conversation data
     items: list[PlanListItem] = []
-    for conv in conversations:
-        plans = _extract_plans_from_conversation(conv)
+    for conv_id, start_time, proj_id, extra_data, proj_name in conversations_data:
+        plans = extra_data.get("plans", []) if extra_data else []
         for plan_data in plans:
             # Apply status filter
             if status and plan_data.get("status") != status:
@@ -133,17 +182,14 @@ async def list_plans(
                     plan_file_path=plan_data.get("plan_file_path", ""),
                     status=plan_data.get("status", "active"),
                     iteration_count=plan_data.get("iteration_count", 1),
-                    conversation_id=conv.id,
-                    conversation_start_time=conv.start_time,
-                    project_id=conv.project_id,
-                    project_name=conv.project.name if conv.project else None,
+                    conversation_id=conv_id,
+                    conversation_start_time=start_time,
+                    project_id=proj_id,
+                    project_name=proj_name,
                 )
             )
 
-    # Sort by conversation start time descending (newest first)
-    items.sort(key=lambda x: x.conversation_start_time, reverse=True)
-
-    # Paginate
+    # Paginate (items already sorted by conversation start_time from query)
     total = len(items)
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size

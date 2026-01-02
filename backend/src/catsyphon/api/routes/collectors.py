@@ -25,7 +25,6 @@ from catsyphon.api.schemas import (
     CollectorEventsResponse,
     CollectorRegisterRequest,
     CollectorRegisterResponse,
-    CollectorSequenceGapError,
     CollectorSessionCompleteRequest,
     CollectorSessionCompleteResponse,
     CollectorSessionStatusResponse,
@@ -44,84 +43,52 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collectors", tags=["collectors"])
 
-# Lazy-initialized tagging pipeline (only created when needed)
-_tagging_pipeline = None
+
+def _utc_now() -> datetime:
+    """Return current UTC time as naive datetime for database storage."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _get_tagging_pipeline() -> Any:
-    """Get or create the tagging pipeline (lazy initialization).
+def _queue_tagging(conversation_id: uuid.UUID, db: Session) -> None:
+    """Queue a conversation for async tagging.
 
-    Returns:
-        TaggingPipeline instance, or None if tagging is not configured.
-    """
-    global _tagging_pipeline
-    if _tagging_pipeline is None and settings.openai_api_key:
-        from pathlib import Path
-
-        from catsyphon.tagging import TaggingPipeline
-
-        # Convert cache_dir to Path if it's a string
-        cache_dir = None
-        if settings.tagging_cache_dir:
-            cache_dir = Path(settings.tagging_cache_dir)
-
-        _tagging_pipeline = TaggingPipeline(
-            openai_api_key=settings.openai_api_key,
-            openai_model="gpt-4o-mini",
-            cache_dir=cache_dir,
-            cache_ttl_days=settings.tagging_cache_ttl_days,
-            enable_cache=settings.tagging_enable_cache,
-        )
-        logger.info("TaggingPipeline initialized for collector events")
-    return _tagging_pipeline
-
-
-def _tag_conversation_async(
-    conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session
-) -> None:
-    """Tag a conversation after session completion.
-
-    This runs synchronously but is designed to not block the response.
-    Failures are logged but do not fail the request.
+    Adds the conversation to the tagging job queue. The actual tagging
+    is performed by the background TaggingWorker, preventing connection
+    pool exhaustion during high-throughput ingestion.
 
     Args:
         conversation_id: UUID of the conversation to tag
-        workspace_id: UUID of the workspace
-        db: Database session
+        db: Database session for queue operations
     """
-    pipeline = _get_tagging_pipeline()
-    if not pipeline:
-        return
+    if not settings.openai_api_key:
+        return  # Tagging not configured
+
+    from catsyphon.tagging import TaggingJobQueue
 
     try:
-        conv_repo = ConversationRepository(db)
-        conversation = conv_repo.get_with_relations(conversation_id, workspace_id)
-
-        if not conversation:
-            logger.warning(f"Conversation {conversation_id} not found for tagging")
-            return
-
-        # Run tagging pipeline
-        tags, metrics = pipeline.tag_from_canonical(
-            conversation=conversation,
-            session=db,
-            children=[],  # Agent children already have session_end processed separately
-        )
-
-        # Update conversation with tags
-        conversation.tags = tags
-        db.commit()
-
-        logger.info(
-            f"Tagged conversation {conversation_id}: "
-            f"intent={tags.get('intent')}, outcome={tags.get('outcome')}, "
-            f"tokens={metrics.get('llm_total_tokens', 0)}"
-        )
-
+        queue = TaggingJobQueue(db)
+        job_id = queue.enqueue(conversation_id)
+        logger.debug(f"Queued tagging job {job_id} for conversation {conversation_id}")
     except Exception as e:
-        logger.warning(f"Tagging failed for conversation {conversation_id}: {e}")
-        # Don't fail the request - tagging is optional
-        db.rollback()
+        # Don't fail ingestion if queueing fails
+        logger.warning(f"Failed to queue tagging for {conversation_id}: {e}")
+
+
+def _compute_event_hash(event: Any) -> str:
+    """Compute content-based hash for event deduplication.
+
+    If the event already has an event_hash, return it.
+    Otherwise, compute from event type, timestamp, and data.
+    """
+    if event.event_hash:
+        return event.event_hash
+
+    import json
+
+    data_dict = event.data.model_dump(exclude_none=True)
+    content = json.dumps(data_dict, sort_keys=True, default=str)
+    hash_input = f"{event.type}:{event.emitted_at.isoformat()}:{content}"
+    return hashlib.sha256(hash_input.encode()).hexdigest()[:32]
 
 
 def generate_api_key() -> tuple[str, str, str]:
@@ -267,12 +234,6 @@ def register_collector(
     "/events",
     response_model=CollectorEventsResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={
-        409: {
-            "model": CollectorSequenceGapError,
-            "description": "Sequence gap detected",
-        },
-    },
     summary="Submit event batch",
 )
 def submit_events(
@@ -284,12 +245,11 @@ def submit_events(
     """
     Submit a batch of events from an active session.
 
-    Events are deduplicated by (session_id, sequence).
-    Sequence gaps result in 409 Conflict - call GET /collectors/sessions/{id}
-    to get the last received sequence and resend from there.
+    Events are deduplicated by content hash (event_hash field).
+    Duplicate events are silently ignored, making re-ingestion idempotent.
     """
     start_time = time.time()
-    start_datetime = datetime.now(timezone.utc)
+    start_datetime = _utc_now()
 
     collector = get_collector_from_auth(authorization, x_collector_id, db)
 
@@ -310,8 +270,8 @@ def submit_events(
     db.flush()
 
     try:
-        # Sort events by sequence
-        sorted_events = sorted(request.events, key=lambda e: e.sequence)
+        # Sort events by timestamp for consistent ordering
+        sorted_events = sorted(request.events, key=lambda e: e.emitted_at)
 
         # Get or create session
         first_event = sorted_events[0]
@@ -356,34 +316,19 @@ def submit_events(
         # Update ingestion job with conversation
         ingestion_job.conversation_id = conversation.id
 
-        # Check for sequence gap (only for existing sessions)
-        if not created:
-            gap = session_repo.check_sequence_gap(conversation, first_event.sequence)
-            if gap:
-                last_received, expected = gap
-                # Mark job as failed due to sequence gap
-                ingestion_job.status = "failed"
-                ingestion_job.error_message = (
-                    f"Sequence gap: expected {expected}, got {first_event.sequence}"
-                )
-                ingestion_job.processing_time_ms = int(
-                    (time.time() - start_time) * 1000
-                )
-                ingestion_job.completed_at = datetime.now(timezone.utc)
-                db.commit()
-
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=CollectorSequenceGapError(
-                        message=f"Expected sequence {expected}, got {first_event.sequence}",
-                        last_received_sequence=last_received,
-                        expected_sequence=expected,
-                    ).model_dump(),
-                )
-
-        # Filter duplicates
-        events_dict = [{"sequence": e.sequence, "event": e} for e in sorted_events]
-        new_events = session_repo.filter_duplicate_sequences(conversation, events_dict)
+        # Content-based deduplication: filter out events we already have
+        # Compute hashes for events that don't have them (backwards compatibility)
+        existing_hashes = session_repo.get_event_hashes(conversation.id)
+        events_with_hashes = [
+            (e, _compute_event_hash(e)) for e in sorted_events
+        ]
+        new_events_with_hashes = [
+            (e, h) for e, h in events_with_hashes
+            if h not in existing_hashes
+        ]
+        new_events = [e for e, _ in new_events_with_hashes]
+        # Map events to their hashes for later use
+        event_hash_map = {id(e): h for e, h in events_with_hashes}
 
         # Track message-like events added
         messages_added = 0
@@ -402,9 +347,7 @@ def submit_events(
 
         # Process new events
         warnings = []
-        for event_item in new_events:
-            event = event_item["event"]
-
+        for event in new_events:
             # Skip session_start for existing sessions
             if event.type == "session_start" and not created:
                 continue
@@ -419,11 +362,11 @@ def submit_events(
             ):
                 session_repo.add_message(
                     conversation=conversation,
-                    sequence=event.sequence,
                     event_type=event.type,
                     emitted_at=event.emitted_at,
                     observed_at=event.observed_at,
                     data=event.data.model_dump(exclude_none=True),
+                    event_hash=event_hash_map.get(id(event)),
                 )
                 messages_added += 1
 
@@ -458,7 +401,7 @@ def submit_events(
             if event.type == "session_end":
                 session_repo.complete_session(
                     conversation=conversation,
-                    final_sequence=event.sequence,
+                    final_sequence=0,  # No longer used, kept for API compatibility
                     outcome=event.data.outcome or "unknown",
                     summary=event.data.summary,
                     event_timestamp=event.emitted_at,  # Use event timestamp
@@ -468,19 +411,19 @@ def submit_events(
                 )
                 session_completed = True
 
-        # Update sequence tracking and last activity timestamp
+        # Update event count and last activity timestamp
         if new_events:
-            last_seq = max(e["sequence"] for e in new_events)
+            # Update message count (sequence is now computed per-message)
             session_repo.update_sequence(
                 conversation=conversation,
-                last_sequence=last_seq,
+                last_sequence=conversation.message_count + len(new_events),
                 event_count_delta=len(new_events),
             )
             # Update end_time to latest event's timestamp (for "last activity")
-            last_event = max(new_events, key=lambda e: e["event"].emitted_at)
+            last_event = max(new_events, key=lambda e: e.emitted_at)
             session_repo.update_last_activity(
                 conversation=conversation,
-                event_timestamp=last_event["event"].emitted_at,
+                event_timestamp=last_event.emitted_at,
             )
 
         # Try to link any orphaned collector sessions (deferred parent linking)
@@ -495,7 +438,7 @@ def submit_events(
         ingestion_job.status = "success"
         ingestion_job.messages_added = messages_added
         ingestion_job.processing_time_ms = processing_time_ms
-        ingestion_job.completed_at = datetime.now(timezone.utc)
+        ingestion_job.completed_at = _utc_now()
         ingestion_job.metrics = {
             "events_received": len(sorted_events),
             "events_accepted": len(new_events),
@@ -505,23 +448,29 @@ def submit_events(
             "total_ms": processing_time_ms,
         }
 
+        # Extract values BEFORE commit to avoid lazy load after session expires
+        conversation_id = conversation.id
+        workspace_id = collector.workspace_id
+        last_sequence = conversation.last_event_sequence
+        job_id = ingestion_job.id
+
+        # Queue tagging job BEFORE commit so it's part of the same transaction
+        # This ensures the job is created atomically with the conversation
+        if session_completed and settings.openai_api_key:
+            _queue_tagging(conversation_id, db)
+
         db.commit()
 
-        # Run tagging pipeline after session completion (non-blocking)
-        # This provides semantic parity with CLI/Watch/Upload ingestion paths
-        if session_completed and settings.openai_api_key:
-            _tag_conversation_async(conversation.id, collector.workspace_id, db)
-
         logger.debug(
-            f"Collector ingestion completed: job={ingestion_job.id}, "
-            f"conversation={conversation.id}, messages={messages_added}, "
+            f"Collector ingestion completed: job={job_id}, "
+            f"conversation={conversation_id}, messages={messages_added}, "
             f"time={processing_time_ms}ms"
         )
 
         return CollectorEventsResponse(
             accepted=len(new_events),
-            last_sequence=conversation.last_event_sequence,
-            conversation_id=conversation.id,
+            last_sequence=last_sequence,
+            conversation_id=conversation_id,
             warnings=warnings,
         )
 
@@ -534,7 +483,7 @@ def submit_events(
         ingestion_job.status = "failed"
         ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
         ingestion_job.processing_time_ms = processing_time_ms
-        ingestion_job.completed_at = datetime.now(timezone.utc)
+        ingestion_job.completed_at = _utc_now()
         db.commit()
 
         logger.error(f"Collector ingestion failed: {e}", exc_info=True)
@@ -672,23 +621,27 @@ def complete_session(
             detail="Session belongs to a different collector",
         )
 
-    # Complete the session
+    # Complete the session (final_sequence no longer used, kept for API compatibility)
     session_repo.complete_session(
         conversation=conversation,
-        final_sequence=request.final_sequence,
+        final_sequence=0,  # Deprecated, not used
         outcome=request.outcome,
         summary=request.summary,
     )
 
-    db.commit()
+    # Extract values BEFORE commit to avoid lazy load after session expires
+    conversation_id = conversation.id
+    message_count = conversation.message_count
 
-    # Run tagging pipeline after session completion (non-blocking)
+    # Queue tagging job BEFORE commit so it's part of the same transaction
     if settings.openai_api_key:
-        _tag_conversation_async(conversation.id, collector.workspace_id, db)
+        _queue_tagging(conversation_id, db)
+
+    db.commit()
 
     return CollectorSessionCompleteResponse(
         session_id=session_id,
-        conversation_id=conversation.id,
+        conversation_id=conversation_id,
         status="completed",
-        total_events=conversation.message_count,
+        total_events=message_count,
     )

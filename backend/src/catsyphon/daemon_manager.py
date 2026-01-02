@@ -19,6 +19,7 @@ from uuid import UUID
 import psutil
 import requests
 
+from catsyphon.config import settings
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
 from catsyphon.db.repositories.workspace import WorkspaceRepository
@@ -172,13 +173,19 @@ class DaemonManager:
     - Graceful shutdown of all daemons
     """
 
-    def __init__(self, stats_sync_interval: int = 30, health_check_interval: int = 30):
+    def __init__(
+        self,
+        stats_sync_interval: int | None = None,
+        health_check_interval: int | None = None,
+    ):
         """
         Initialize the daemon manager.
 
         Args:
-            stats_sync_interval: How often to sync stats to DB (seconds)
-            health_check_interval: How often to check daemon health (seconds)
+            stats_sync_interval: How often to sync stats to DB (seconds).
+                Defaults to settings.daemon_stats_sync_interval.
+            health_check_interval: How often to check daemon health (seconds).
+                Defaults to settings.daemon_health_check_interval.
         """
         self._daemons: Dict[UUID, DaemonEntry] = {}
         self._stats_queues: Dict[UUID, "Queue[dict[str, Any]]"] = (
@@ -186,8 +193,16 @@ class DaemonManager:
         )  # config_id -> stats queue
         self._lock = Lock()
         self._shutdown_event = Event()
-        self._stats_sync_interval = stats_sync_interval
-        self._health_check_interval = health_check_interval
+        self._stats_sync_interval = (
+            stats_sync_interval
+            if stats_sync_interval is not None
+            else settings.daemon_stats_sync_interval
+        )
+        self._health_check_interval = (
+            health_check_interval
+            if health_check_interval is not None
+            else settings.daemon_health_check_interval
+        )
 
         # Background threads
         self._stats_sync_thread: Optional[Thread] = None
@@ -429,8 +444,8 @@ class DaemonManager:
         # Terminate process gracefully (sends SIGTERM)
         entry.process.terminate()
 
-        # Wait for process to finish (with timeout)
-        entry.process.join(timeout=10)
+        # Wait for process to finish (with timeout from settings)
+        entry.process.join(timeout=settings.daemon_termination_timeout)
 
         if entry.process.is_alive():
             logger.warning(
@@ -438,7 +453,7 @@ class DaemonManager:
                 "sending SIGKILL"
             )
             entry.process.kill()
-            entry.process.join(timeout=5)
+            entry.process.join(timeout=5)  # Fixed short timeout for SIGKILL
         else:
             logger.info(f"✓ Daemon stopped for config {config_id}")
 

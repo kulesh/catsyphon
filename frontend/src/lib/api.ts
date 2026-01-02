@@ -9,6 +9,7 @@ import type {
   ConversationDetail,
   ConversationFilters,
   ConversationListResponse,
+  DetectionResponse,
   DeveloperResponse,
   HealthReportResponse,
   HealthResponse,
@@ -24,6 +25,9 @@ import type {
   ProjectSessionsResponse,
   ProjectStats,
   ProjectAnalytics,
+  RecommendationListResponse,
+  RecommendationResponse,
+  RecommendationUpdate,
   UploadResponse,
   WatchConfigurationCreate,
   WatchConfigurationResponse,
@@ -302,6 +306,32 @@ export async function getWatchConfig(
   return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}`);
 }
 
+export interface SuggestedPath {
+  path: string;
+  name: string;
+  description: string;
+  project_count: number | null;
+}
+
+export interface PathValidationResponse {
+  valid: boolean;
+  expanded_path: string;
+  exists: boolean;
+  is_directory: boolean;
+  is_readable: boolean;
+}
+
+export async function getSuggestedPaths(): Promise<SuggestedPath[]> {
+  return apiFetch<SuggestedPath[]>('/watch/suggested-paths');
+}
+
+export async function validatePath(path: string): Promise<PathValidationResponse> {
+  return apiFetch<PathValidationResponse>('/watch/validate-path', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
 export async function createWatchConfig(
   data: WatchConfigurationCreate
 ): Promise<WatchConfigurationResponse> {
@@ -483,4 +513,60 @@ export async function getProjectFiles(
   projectId: string
 ): Promise<ProjectFileAggregation[]> {
   return apiFetch<ProjectFileAggregation[]>(`/projects/${projectId}/files`);
+}
+
+// ===== Recommendation Endpoints =====
+
+export async function getConversationRecommendations(
+  conversationId: string,
+  status?: string,
+  recommendationType?: string
+): Promise<RecommendationListResponse> {
+  const params = new URLSearchParams();
+  if (status) params.append('status', status);
+  if (recommendationType) params.append('recommendation_type', recommendationType);
+
+  const query = params.toString();
+  return apiFetch<RecommendationListResponse>(
+    `/conversations/${conversationId}/recommendations${query ? `?${query}` : ''}`
+  );
+}
+
+export async function detectRecommendations(
+  conversationId: string,
+  forceRegenerate = false
+): Promise<DetectionResponse> {
+  return apiFetch<DetectionResponse>(
+    `/conversations/${conversationId}/recommendations/detect`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force_regenerate: forceRegenerate }),
+    }
+  );
+}
+
+export async function detectMCPRecommendations(
+  conversationId: string,
+  forceRegenerate = false
+): Promise<DetectionResponse> {
+  return apiFetch<DetectionResponse>(
+    `/conversations/${conversationId}/recommendations/detect-mcp`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ force_regenerate: forceRegenerate }),
+    }
+  );
+}
+
+export async function updateRecommendation(
+  recommendationId: string,
+  update: RecommendationUpdate
+): Promise<RecommendationResponse> {
+  return apiFetch<RecommendationResponse>(
+    `/recommendations/${recommendationId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(update),
+    }
+  );
 }

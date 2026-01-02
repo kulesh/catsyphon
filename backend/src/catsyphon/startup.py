@@ -5,6 +5,7 @@ Validates critical dependencies before the application starts serving requests.
 Fails fast with clear, actionable error messages when requirements aren't met.
 """
 
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -283,11 +284,14 @@ def check_cache_directory() -> None:
         # Create directory if it doesn't exist (including parent directories)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Test write permissions by creating a test file
-        test_file = cache_dir / ".write_test"
+        # Test write permissions by creating a unique test file
+        # Use PID to avoid race conditions with parallel processes
+        test_file = cache_dir / f".write_test_{os.getpid()}"
         try:
             test_file.write_text("test")
             test_file.unlink()  # Clean up test file
+        except FileNotFoundError:
+            pass  # Another process may have cleaned it up, that's OK
         except PermissionError:
             raise StartupCheckError(
                 f"Cache directory exists but is not writable: {cache_dir}",

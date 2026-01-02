@@ -16,6 +16,7 @@ from uuid import UUID
 
 import httpx
 
+from catsyphon.config import settings
 from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 
 logger = logging.getLogger(__name__)
@@ -41,14 +42,30 @@ def _serialize_for_json(obj: Any) -> Any:
 
 @dataclass
 class CollectorConfig:
-    """Configuration for the collector client."""
+    """
+    Configuration for the collector client.
+
+    Defaults are loaded from settings (environment variables):
+    - batch_size: CATSYPHON_COLLECTOR_BATCH_SIZE (default: 20)
+    - max_retries: CATSYPHON_COLLECTOR_MAX_RETRIES (default: 3)
+    - timeout: CATSYPHON_COLLECTOR_HTTP_TIMEOUT (default: 30)
+    """
 
     server_url: str
     api_key: str
     collector_id: str
-    batch_size: int = 20
-    max_retries: int = 3
-    timeout: float = 30.0
+    batch_size: int | None = None
+    max_retries: int | None = None
+    timeout: float | None = None
+
+    def __post_init__(self) -> None:
+        """Apply settings defaults for None values."""
+        if self.batch_size is None:
+            self.batch_size = settings.collector_batch_size
+        if self.max_retries is None:
+            self.max_retries = settings.collector_max_retries
+        if self.timeout is None:
+            self.timeout = float(settings.collector_http_timeout)
 
 
 @dataclass
@@ -59,17 +76,33 @@ class EventBatch:
     events: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _compute_event_hash(event_type: str, emitted_at: datetime, data: dict) -> str:
+    """
+    Compute a content-based hash for event deduplication.
+
+    Args:
+        event_type: Type of event (message, tool_call, etc.)
+        emitted_at: When the event was emitted
+        data: Event data payload
+
+    Returns:
+        32-character hex digest for deduplication
+    """
+    content = json.dumps(data, sort_keys=True, default=str)
+    hash_input = f"{event_type}:{emitted_at.isoformat()}:{content}"
+    return hashlib.sha256(hash_input.encode()).hexdigest()[:32]
+
+
 class CollectorClient:
     """
     HTTP client for the CatSyphon Collector Events API.
 
     Converts parsed conversations to events and sends them to the server.
-    Handles batching, retries, and sequence tracking.
+    Handles batching and retries. Uses content-based hashing for deduplication.
     """
 
     def __init__(self, config: CollectorConfig):
         self.config = config
-        self.sequence = 0
         self._client = httpx.Client(
             base_url=config.server_url,
             headers={
@@ -115,7 +148,6 @@ class CollectorClient:
         Returns:
             Response dict with conversation_id and ingestion stats
         """
-        self.sequence = 0
         events: list[dict[str, Any]] = []
 
         # Use parsed values with fallbacks
@@ -182,10 +214,10 @@ class CollectorClient:
         # Send events in batches
         result = self._send_events(session_id, events)
 
-        # Complete the session
+        # Complete the session (event count is a hint, not authoritative)
         self._complete_session(
             session_id,
-            final_sequence=self.sequence,
+            event_count=len(events),
             outcome="success",
         )
 
@@ -197,15 +229,15 @@ class CollectorClient:
         emitted_at: datetime,
         data: dict[str, Any],
     ) -> dict[str, Any]:
-        """Create an event with proper structure."""
-        self.sequence += 1
+        """Create an event with proper structure and content-based hash."""
         observed_at = datetime.now(timezone.utc)
+        resolved_emitted_at = emitted_at or observed_at
 
         return {
-            "sequence": self.sequence,
             "type": event_type,
-            "emitted_at": emitted_at.isoformat() if emitted_at else observed_at.isoformat(),
+            "emitted_at": resolved_emitted_at.isoformat(),
             "observed_at": observed_at.isoformat(),
+            "event_hash": _compute_event_hash(event_type, resolved_emitted_at, data),
             "data": data,
         }
 
@@ -243,14 +275,16 @@ class CollectorClient:
 
         # Create tool_call events for each tool call in the message
         if msg.tool_calls:
-            for tool_call in msg.tool_calls:
+            for idx, tool_call in enumerate(msg.tool_calls):
                 tool_event_time = tool_call.timestamp or event_time
+                # Generate unique tool_use_id from timestamp and index
+                tool_use_id = f"tool_{tool_event_time.isoformat()}_{idx}"
                 events.append(self._create_event(
                     event_type="tool_call",
                     emitted_at=tool_event_time,
                     data={
                         "tool_name": tool_call.tool_name,
-                        "tool_use_id": f"tool_{self.sequence}",  # Generate ID if not available
+                        "tool_use_id": tool_use_id,
                         "parameters": tool_call.parameters or {},
                     },
                 ))
@@ -265,7 +299,7 @@ class CollectorClient:
                         event_type="tool_result",
                         emitted_at=tool_event_time,
                         data={
-                            "tool_use_id": f"tool_{self.sequence - 1}",  # Match previous tool_call
+                            "tool_use_id": tool_use_id,  # Match the tool_call above
                             "success": tool_call.success,
                             "result": result_value,
                         },
@@ -326,8 +360,12 @@ class CollectorClient:
         session_id: str,
         events: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Send a batch with exponential backoff retry."""
-        last_error = None
+        """Send a batch with exponential backoff retry.
+
+        Uses content-based deduplication on the server side.
+        Retries only on network errors and 5xx server errors.
+        """
+        last_error: Optional[Exception] = None
 
         for attempt in range(self.config.max_retries):
             try:
@@ -342,26 +380,16 @@ class CollectorClient:
                 if response.status_code == 202:
                     return response.json()
 
-                if response.status_code == 409:
-                    # Sequence gap - check session status and resend
-                    logger.warning(f"Sequence gap detected: {response.json()}")
-                    status = self._get_session_status(session_id)
-                    if status:
-                        # Filter out already-received events
-                        last_seq = status.get("last_sequence", 0)
-                        events = [e for e in events if e["sequence"] > last_seq]
-                        if not events:
-                            return {"accepted": 0, "conversation_id": status.get("conversation_id")}
-                        continue
-
                 if response.status_code >= 500:
-                    # Server error - retry
+                    # Server error - retry with backoff
                     wait_time = 2 ** attempt
-                    logger.warning(f"Server error {response.status_code}, retrying in {wait_time}s")
+                    logger.warning(
+                        f"Server error {response.status_code}, retrying in {wait_time}s"
+                    )
                     time.sleep(wait_time)
                     continue
 
-                # Client error - don't retry
+                # Client error (4xx) - don't retry, fail immediately
                 response.raise_for_status()
 
             except httpx.RequestError as e:
@@ -370,7 +398,9 @@ class CollectorClient:
                 logger.warning(f"Network error: {e}, retrying in {wait_time}s")
                 time.sleep(wait_time)
 
-        raise RuntimeError(f"Failed to send events after {self.config.max_retries} retries: {last_error}")
+        raise RuntimeError(
+            f"Failed to send events after {self.config.max_retries} retries: {last_error}"
+        )
 
     def _get_session_status(self, session_id: str) -> Optional[dict[str, Any]]:
         """Get session status for resumption."""
@@ -385,7 +415,7 @@ class CollectorClient:
     def _complete_session(
         self,
         session_id: str,
-        final_sequence: int,
+        event_count: int = 0,
         outcome: str = "success",
         summary: Optional[str] = None,
     ) -> dict[str, Any]:
@@ -394,7 +424,7 @@ class CollectorClient:
             response = self._client.post(
                 f"/collectors/sessions/{session_id}/complete",
                 json={
-                    "final_sequence": final_sequence,
+                    "event_count": event_count,
                     "outcome": outcome,
                     "summary": summary,
                 },

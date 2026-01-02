@@ -37,6 +37,31 @@ from catsyphon.models.db import (
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> datetime:
+    """Return current UTC time as naive datetime (no timezone info).
+
+    The database stores naive datetimes (assumed UTC). This helper ensures
+    consistency across all datetime assignments.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Convert a datetime to naive UTC format for database storage.
+
+    Args:
+        dt: Datetime that may be timezone-aware or naive
+
+    Returns:
+        Naive datetime (tzinfo stripped) or None if input is None
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+
 def _extract_username_from_path(path: Optional[str]) -> Optional[str]:
     """
     Extract username from a file path.
@@ -262,8 +287,8 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                 logger.debug(f"Inherited developer_id={developer_id} from parent conversation")
 
         # Use first event timestamp for start_time if provided, else now
-        now = datetime.now(timezone.utc)
-        start_time = first_event_timestamp or now
+        now = _utc_now()
+        start_time = _to_naive_utc(first_event_timestamp) or now
 
         # Build extra_data (mirrors _build_extra_data in ingestion.py)
         extra_data: dict[str, Any] = {
@@ -340,7 +365,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             event_count_delta: Number of events to add to message_count
         """
         conversation.last_event_sequence = last_sequence
-        conversation.server_received_at = datetime.now(timezone.utc)
+        conversation.server_received_at = _utc_now()
         if event_count_delta > 0:
             conversation.message_count += event_count_delta
         self.session.flush()
@@ -404,7 +429,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         """
         conversation.status = "completed"
         # Use event timestamp if provided, else now
-        end_time = event_timestamp or datetime.now(timezone.utc)
+        end_time = _to_naive_utc(event_timestamp) or _utc_now()
         conversation.end_time = end_time
         conversation.last_event_sequence = max(
             conversation.last_event_sequence, final_sequence
@@ -446,9 +471,13 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             conversation: Conversation to update
             event_timestamp: Timestamp of the latest event
         """
+        # Normalize both timestamps to naive UTC for safe comparison
+        event_ts = _to_naive_utc(event_timestamp)
+        existing_end = _to_naive_utc(conversation.end_time)
+
         # Update end_time to latest event if newer
-        if conversation.end_time is None or event_timestamp > conversation.end_time:
-            conversation.end_time = event_timestamp
+        if existing_end is None or (event_ts and event_ts > existing_end):
+            conversation.end_time = event_ts
         self.session.flush()
 
     def link_orphaned_collectors(self, workspace_id: uuid.UUID) -> int:
@@ -526,21 +555,43 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             epoch = Epoch(
                 conversation_id=conversation.id,
                 sequence=1,
-                start_time=datetime.now(timezone.utc),
+                start_time=_utc_now(),
                 extra_data={"source": "collector"},
             )
             self.session.add(epoch)
             self.session.flush()
         return epoch
 
+    def get_event_hashes(self, conversation_id: uuid.UUID) -> set[str]:
+        """
+        Get all event hashes for a conversation.
+
+        Used for content-based deduplication when receiving new events.
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Set of existing event hashes
+        """
+        result = (
+            self.session.query(Message.event_hash)
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.event_hash.isnot(None),
+            )
+            .all()
+        )
+        return {row[0] for row in result}
+
     def add_message(
         self,
         conversation: Conversation,
-        sequence: int,
         event_type: str,
         emitted_at: datetime,
         observed_at: datetime,
         data: dict,
+        event_hash: Optional[str] = None,
     ) -> Message:
         """
         Add a message from a collector event.
@@ -549,11 +600,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
         Args:
             conversation: Parent conversation
-            sequence: Event sequence number
             event_type: Event type (message, tool_call, tool_result, etc.)
             emitted_at: When event was produced at source
             observed_at: When collector observed the event
             data: Event data payload
+            event_hash: Content-based hash for deduplication
 
         Returns:
             Created Message instance
@@ -579,6 +630,8 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         # Mirrors the tool_calls_json structure in ingestion.py
         tool_calls: Optional[list[dict[str, Any]]] = None
         if event_type == "tool_call":
+            # Normalize emitted_at for JSON storage
+            ts_for_json = _to_naive_utc(emitted_at)
             tool_calls = [
                 {
                     "tool_name": data.get("tool_name", "unknown"),
@@ -586,7 +639,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                     "parameters": data.get("parameters", {}),
                     "result": None,  # Will be updated when tool_result arrives
                     "success": None,
-                    "timestamp": emitted_at.isoformat(),
+                    "timestamp": ts_for_json.isoformat() if ts_for_json else None,
                 }
             ]
 
@@ -602,20 +655,28 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         if data.get("thinking_metadata"):
             extra_data["thinking_metadata"] = data["thinking_metadata"]
 
+        # Compute sequence from existing message count (for ordering)
+        sequence = (conversation.message_count or 0) + 1
+
+        # Normalize timestamps to naive UTC for database storage
+        emitted_at_naive = _to_naive_utc(emitted_at)
+        observed_at_naive = _to_naive_utc(observed_at)
+
         message = Message(
             epoch_id=epoch.id,
             conversation_id=conversation.id,
             sequence=sequence,
             role=role,
             content=content,
-            timestamp=emitted_at,
-            emitted_at=emitted_at,
-            observed_at=observed_at,
+            timestamp=emitted_at_naive,
+            emitted_at=emitted_at_naive,
+            observed_at=observed_at_naive,
             author_role=author_role,
             message_type=message_type,
             thinking_content=data.get("thinking_content"),
-            tool_calls=tool_calls,  # NEW: semantic parity
-            extra_data=extra_data if extra_data else None,  # NEW: semantic parity
+            tool_calls=tool_calls,
+            extra_data=extra_data if extra_data else None,
+            event_hash=event_hash,  # Content-based deduplication
             raw_data=data,  # Store full event data for reference
         )
         self.session.add(message)
@@ -653,7 +714,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             epoch_id=epoch.id,
             file_path=file_path,
             change_type=change_type,
-            timestamp=timestamp,
+            timestamp=_to_naive_utc(timestamp),
             lines_added=lines_added,
             lines_deleted=lines_deleted,
         )
@@ -695,6 +756,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         }
 
         added_count = 0
+        normalized_ts = _to_naive_utc(timestamp)
         for file_path in file_paths:
             if file_path not in existing_paths:
                 file_touched = FileTouched(
@@ -702,7 +764,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                     epoch_id=epoch.id,
                     file_path=file_path,
                     change_type="read",  # Default to 'read' for global list
-                    timestamp=timestamp,
+                    timestamp=normalized_ts,
                 )
                 self.session.add(file_touched)
                 added_count += 1

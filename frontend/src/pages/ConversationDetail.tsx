@@ -5,14 +5,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight } from 'lucide-react';
+import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight, Terminal } from 'lucide-react';
 import { getConversation, getCanonicalNarrative, tagConversation, getConversationInsights } from '@/lib/api';
 import { groupFilesByPath } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
-import { PlanViewer, PlanMarker, type PlanMarkerType } from '@/components';
+import { PlanViewer, PlanMarker, type PlanMarkerType, RecommendationsPanel } from '@/components';
 
-type Tab = 'overview' | 'insights' | 'messages' | 'canonical' | 'plan';
+type Tab = 'overview' | 'insights' | 'recommendations' | 'messages' | 'canonical' | 'plan';
 
 export default function ConversationDetail() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +50,7 @@ export default function ConversationDetail() {
   const tabs = [
     { id: 'overview' as Tab, label: 'Overview', icon: Info },
     { id: 'insights' as Tab, label: 'Insights', icon: Lightbulb },
+    { id: 'recommendations' as Tab, label: 'Advisor', icon: Terminal },
     { id: 'messages' as Tab, label: 'Messages', icon: MessageSquare },
     { id: 'canonical' as Tab, label: 'Canonical', icon: FileText },
     ...(hasPlan ? [{ id: 'plan' as Tab, label: 'Plan', icon: ClipboardList }] : []),
@@ -783,6 +784,13 @@ export default function ConversationDetail() {
         )}
       </div>
           </>
+        )}
+
+        {/* Recommendations Tab */}
+        {activeTab === 'recommendations' && (
+          <div className="bg-card border border-border rounded-lg p-6">
+            <RecommendationsPanel conversationId={id!} />
+          </div>
         )}
 
         {/* Insights Tab */}

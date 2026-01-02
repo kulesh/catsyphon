@@ -38,24 +38,35 @@ async def list_projects(
 
     projects = repo.get_by_workspace(workspace_id)
 
-    # Enrich with session counts
+    # ===== OPTIMIZED: Single GROUP BY query instead of N+1 per-project queries =====
+    # Get all project IDs
+    project_ids = [p.id for p in projects]
+
+    # Single batch query for all project stats
+    if project_ids:
+        project_stats = (
+            session.query(
+                Conversation.project_id,
+                func.count(Conversation.id).label("session_count"),
+                func.max(Conversation.start_time).label("last_session_at"),
+            )
+            .filter(Conversation.project_id.in_(project_ids))
+            .group_by(Conversation.project_id)
+            .all()
+        )
+
+        # Build lookup dictionary: project_id -> (count, last_at)
+        stats_map = {
+            row.project_id: (row.session_count, row.last_session_at)
+            for row in project_stats
+        }
+    else:
+        stats_map = {}
+
+    # Enrich with session counts from the batch query
     result = []
     for project in projects:
-        # Count sessions for this project
-        session_count = (
-            session.query(func.count(Conversation.id))
-            .filter(Conversation.project_id == project.id)
-            .scalar()
-            or 0
-        )
-
-        # Get last session timestamp
-        last_session_at = (
-            session.query(func.max(Conversation.start_time))
-            .filter(Conversation.project_id == project.id)
-            .scalar()
-        )
-
+        count, last_at = stats_map.get(project.id, (0, None))
         result.append(
             ProjectListItem(
                 id=project.id,
@@ -64,8 +75,8 @@ async def list_projects(
                 description=project.description,
                 created_at=project.created_at,
                 updated_at=project.updated_at,
-                session_count=session_count,
-                last_session_at=last_session_at,
+                session_count=count,
+                last_session_at=last_at,
             )
         )
 

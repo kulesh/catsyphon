@@ -9,3 +9,4 @@ export { Tooltip } from './Tooltip';
 export { Sparkline } from './Sparkline';
 export { PlanViewer } from './PlanViewer';
 export { PlanMarker, type PlanMarkerType } from './PlanMarker';
+export { RecommendationsPanel } from './RecommendationsPanel';

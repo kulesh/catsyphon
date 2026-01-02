@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
@@ -81,6 +82,53 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
         )
         return cached
 
+    def get_cached_batch(
+        self,
+        conversation_ids: list[UUID],
+        check_ttl: bool = True,
+    ) -> dict[UUID, ConversationInsights]:
+        """Get cached insights for multiple conversations in a single query.
+
+        Args:
+            conversation_ids: List of conversation IDs
+            check_ttl: If True, excludes expired cache entries
+
+        Returns:
+            Dictionary mapping conversation_id to cached insights
+        """
+        if not conversation_ids:
+            return {}
+
+        # Build query for all conversations at once
+        stmt = select(ConversationInsights).where(
+            ConversationInsights.conversation_id.in_(conversation_ids)
+        )
+
+        # Filter out expired entries if TTL check is enabled
+        if check_ttl:
+            now = datetime.now().astimezone()
+            stmt = stmt.where(
+                (ConversationInsights.expires_at.is_(None))
+                | (ConversationInsights.expires_at >= now)
+            )
+
+        result = self.session.execute(stmt)
+        insights_list = result.scalars().all()
+
+        # Build lookup dict (use most recent per conversation)
+        # Since we're not ordering, we'll handle duplicates by overwriting
+        # (the DB should only have one entry per conversation_id after invalidate)
+        cache_map: dict[UUID, ConversationInsights] = {}
+        for insight in insights_list:
+            existing = cache_map.get(insight.conversation_id)
+            if existing is None or insight.generated_at > existing.generated_at:
+                cache_map[insight.conversation_id] = insight
+
+        logger.debug(
+            f"Batch cache lookup: {len(cache_map)}/{len(conversation_ids)} hits"
+        )
+        return cache_map
+
     def save(
         self,
         conversation_id: UUID,
@@ -149,20 +197,17 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
         Returns:
             Number of records deleted
         """
-        stmt = select(ConversationInsights)
+        # ===== OPTIMIZED: Use bulk delete instead of load-then-delete =====
+        stmt = delete(ConversationInsights)
 
         if conversation_id:
             stmt = stmt.where(ConversationInsights.conversation_id == conversation_id)
 
-        result = self.session.execute(stmt)
-        insights_list = result.scalars().all()
-
-        for insights in insights_list:
-            self.session.delete(insights)
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        count: int = result.rowcount or 0
 
         self.session.flush()
 
-        count = len(insights_list)
         if count > 0:
             logger.info(
                 f"Invalidated {count} cached insights "
@@ -177,18 +222,15 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
         Returns:
             Number of records deleted
         """
+        # ===== OPTIMIZED: Use bulk delete instead of load-then-delete =====
         now = datetime.now().astimezone()
-        stmt = select(ConversationInsights).where(ConversationInsights.expires_at < now)
+        stmt = delete(ConversationInsights).where(ConversationInsights.expires_at < now)
 
-        result = self.session.execute(stmt)
-        expired = result.scalars().all()
-
-        for insights in expired:
-            self.session.delete(insights)
+        result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
+        count: int = result.rowcount or 0
 
         self.session.flush()
 
-        count = len(expired)
         if count > 0:
             logger.info(f"Cleaned up {count} expired insights cache entries")
 
@@ -231,20 +273,26 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
         Returns:
             Dictionary with cache stats
         """
-        total_stmt = select(ConversationInsights)
-        total = len(self.session.execute(total_stmt).scalars().all())
+        # ===== OPTIMIZED: Use func.count() instead of len(.all()) =====
+        total = self.session.query(func.count(ConversationInsights.id)).scalar() or 0
 
         now = datetime.now().astimezone()
-        expired_stmt = select(ConversationInsights).where(
-            ConversationInsights.expires_at < now
+        expired = (
+            self.session.query(func.count(ConversationInsights.id))
+            .filter(ConversationInsights.expires_at < now)
+            .scalar()
+            or 0
         )
-        expired = len(self.session.execute(expired_stmt).scalars().all())
 
-        valid_stmt = select(ConversationInsights).where(
-            (ConversationInsights.expires_at >= now)
-            | (ConversationInsights.expires_at.is_(None))
+        valid = (
+            self.session.query(func.count(ConversationInsights.id))
+            .filter(
+                (ConversationInsights.expires_at >= now)
+                | (ConversationInsights.expires_at.is_(None))
+            )
+            .scalar()
+            or 0
         )
-        valid = len(self.session.execute(valid_stmt).scalars().all())
 
         return {
             "total_cached": total,

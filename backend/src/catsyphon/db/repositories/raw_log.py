@@ -21,22 +21,32 @@ class RawLogRepository(BaseRepository[RawLog]):
     def __init__(self, session: Session):
         super().__init__(RawLog, session)
 
-    def get_by_conversation(self, conversation_id: uuid.UUID) -> List[RawLog]:
+    def get_by_conversation(
+        self,
+        conversation_id: uuid.UUID,
+        limit: Optional[int] = 100,
+        offset: int = 0,
+    ) -> List[RawLog]:
         """
         Get raw logs for a conversation.
 
         Args:
             conversation_id: Conversation UUID
+            limit: Maximum number of results (default: 100, None for unlimited)
+            offset: Number of results to skip
 
         Returns:
             List of raw log instances
         """
-        return (
+        query = (
             self.session.query(RawLog)
             .filter(RawLog.conversation_id == conversation_id)
             .order_by(RawLog.imported_at.desc())
-            .all()
+            .offset(offset)
         )
+        if limit is not None:
+            query = query.limit(limit)
+        return query.all()
 
     def get_by_agent_type(
         self,
@@ -89,27 +99,37 @@ class RawLogRepository(BaseRepository[RawLog]):
         """
         return self.session.query(RawLog).filter(RawLog.file_path == file_path).first()
 
-    def get_files_in_directory(self, directory: str) -> List[RawLog]:
+    def get_files_in_directory(
+        self,
+        directory: str,
+        limit: Optional[int] = 1000,
+        offset: int = 0,
+    ) -> List[RawLog]:
         """
-        Get all raw logs with file_path under the given directory.
+        Get raw logs with file_path under the given directory.
 
         Used by watch daemon startup scan to detect files that changed
         during downtime.
 
         Args:
             directory: Directory path (will match any file_path starting with this)
+            limit: Maximum number of results (default: 1000, None for unlimited)
+            offset: Number of results to skip
 
         Returns:
             List of RawLog instances in the directory
         """
         # Ensure directory path ends with separator for proper matching
         search_pattern = directory.rstrip("/") + "/%"
-        return (
+        query = (
             self.session.query(RawLog)
             .filter(RawLog.file_path.like(search_pattern))
             .order_by(RawLog.imported_at.desc())
-            .all()
+            .offset(offset)
         )
+        if limit is not None:
+            query = query.limit(limit)
+        return query.all()
 
     def exists_by_file_hash(self, file_hash: str) -> bool:
         """

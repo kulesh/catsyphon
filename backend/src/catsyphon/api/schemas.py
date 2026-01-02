@@ -606,6 +606,31 @@ class WatchConfigurationResponse(BaseModel):
         from_attributes = True
 
 
+class SuggestedPath(BaseModel):
+    """A suggested watch directory path."""
+
+    path: str
+    name: str
+    description: str
+    project_count: Optional[int] = None
+
+
+class PathValidationRequest(BaseModel):
+    """Request schema for validating a directory path."""
+
+    path: str
+
+
+class PathValidationResponse(BaseModel):
+    """Response schema for path validation."""
+
+    valid: bool
+    expanded_path: str
+    exists: bool
+    is_directory: bool
+    is_readable: bool
+
+
 # ===== Ingestion Job Schemas =====
 
 
@@ -794,6 +819,33 @@ class IngestionStatsResponse(BaseModel):
     )
     parse_warning_rate: Optional[float] = Field(
         default=None, description="Percentage of jobs with parser warnings (0-100)"
+    )
+
+
+class TaggingQueueStatsResponse(BaseModel):
+    """Response schema for tagging queue statistics."""
+
+    # Worker status
+    worker_running: bool = Field(
+        description="Whether the background tagging worker is currently running"
+    )
+
+    # Queue counts
+    pending: int = Field(default=0, description="Jobs waiting to be processed")
+    processing: int = Field(default=0, description="Jobs currently being processed")
+    completed: int = Field(default=0, description="Successfully completed jobs")
+    failed: int = Field(default=0, description="Jobs that failed after max retries")
+    total: int = Field(default=0, description="Total jobs in queue (all statuses)")
+
+    # Worker stats (if available)
+    jobs_processed: int = Field(
+        default=0, description="Total jobs processed by worker since startup"
+    )
+    jobs_succeeded: int = Field(
+        default=0, description="Jobs that succeeded since startup"
+    )
+    jobs_failed: int = Field(
+        default=0, description="Jobs that failed since startup"
     )
 
 
@@ -1272,7 +1324,6 @@ class EventData(BaseModel):
 class CollectorEvent(BaseModel):
     """Single event in an event batch."""
 
-    sequence: int = Field(..., ge=1, description="Monotonic sequence number (1-based)")
     type: str = Field(
         ...,
         description="Event type (session_start, session_end, message, tool_call, tool_result, thinking, error, metadata)",
@@ -1282,6 +1333,9 @@ class CollectorEvent(BaseModel):
     )
     observed_at: datetime = Field(
         ..., description="When the collector observed the event"
+    )
+    event_hash: Optional[str] = Field(
+        None, max_length=32, description="Content-based hash for deduplication"
     )
     data: EventData = Field(..., description="Type-specific payload")
 
@@ -1327,7 +1381,9 @@ class CollectorEventsResponse(BaseModel):
     """Response schema for event batch submission."""
 
     accepted: int = Field(..., description="Number of events accepted")
-    last_sequence: int = Field(..., description="Last sequence number received")
+    last_sequence: Optional[int] = Field(
+        None, description="Last sequence number (deprecated, use event_count)"
+    )
     conversation_id: UUID = Field(..., description="CatSyphon's internal conversation ID")
     warnings: list[str] = Field(default_factory=list, description="Non-fatal issues")
 
@@ -1347,7 +1403,9 @@ class CollectorSessionStatusResponse(BaseModel):
 class CollectorSessionCompleteRequest(BaseModel):
     """Request schema for marking session complete."""
 
-    final_sequence: int = Field(..., description="Expected final sequence number")
+    event_count: Optional[int] = Field(
+        None, description="Total events in session (informational)"
+    )
     outcome: str = Field(
         ..., description="Session outcome (success, partial, failed, abandoned)"
     )
@@ -1370,3 +1428,138 @@ class CollectorSequenceGapError(BaseModel):
     message: str
     last_received_sequence: int
     expected_sequence: int
+
+
+# ===== Automation Recommendation Schemas =====
+
+
+class RecommendationEvidence(BaseModel):
+    """Evidence supporting a recommendation."""
+
+    quotes: list[str] = Field(
+        default_factory=list, description="Relevant quotes from conversation"
+    )
+    pattern_count: int = Field(
+        default=0, description="Number of times pattern was detected"
+    )
+    # MCP-specific evidence fields
+    matched_signals: list[str] = Field(
+        default_factory=list, description="Signal patterns that matched (MCP)"
+    )
+    workarounds_detected: list[str] = Field(
+        default_factory=list, description="Workarounds the developer used (MCP)"
+    )
+    friction_indicators: list[str] = Field(
+        default_factory=list, description="Friction signs like errors/retries (MCP)"
+    )
+
+
+class SuggestedImplementation(BaseModel):
+    """Suggested implementation details for a slash command or MCP."""
+
+    # Slash command fields
+    command_name: Optional[str] = Field(None, description="Suggested /command name")
+    trigger_phrases: list[str] = Field(
+        default_factory=list, description="Example phrases that would invoke this"
+    )
+    template: Optional[str] = Field(
+        None, description="Suggested command template/prompt"
+    )
+    # MCP-specific fields
+    category: Optional[str] = Field(
+        None, description="MCP category (browser-automation, database, etc.)"
+    )
+    suggested_mcps: list[str] = Field(
+        default_factory=list, description="Suggested MCP servers to install"
+    )
+    use_cases: list[str] = Field(
+        default_factory=list, description="Use cases this MCP would enable"
+    )
+    friction_score: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Friction score without this MCP"
+    )
+
+
+class RecommendationResponse(BaseModel):
+    """Response schema for a single automation recommendation."""
+
+    id: UUID
+    conversation_id: UUID
+    recommendation_type: str = Field(
+        ..., description="Type: slash_command, mcp_server, sub_agent"
+    )
+    title: str = Field(..., description="Brief title for the recommendation")
+    description: str = Field(..., description="Detailed explanation")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    priority: int = Field(..., ge=0, le=4, description="Priority (0=critical, 4=low)")
+    evidence: RecommendationEvidence = Field(
+        default_factory=RecommendationEvidence, description="Supporting evidence"
+    )
+    suggested_implementation: Optional[SuggestedImplementation] = Field(
+        None, description="Implementation details for slash commands"
+    )
+    status: str = Field(
+        default="pending",
+        description="Status: pending, accepted, dismissed, implemented",
+    )
+    user_feedback: Optional[str] = Field(None, description="User feedback if provided")
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecommendationUpdate(BaseModel):
+    """Request schema for updating a recommendation."""
+
+    status: Optional[str] = Field(
+        None, description="New status: pending, accepted, dismissed, implemented"
+    )
+    user_feedback: Optional[str] = Field(None, description="User feedback")
+
+
+class RecommendationListResponse(BaseModel):
+    """Response schema for list of recommendations."""
+
+    items: list[RecommendationResponse]
+    total: int
+    conversation_id: UUID
+
+
+class RecommendationSummaryStats(BaseModel):
+    """Summary statistics for recommendations."""
+
+    total: int = Field(..., description="Total recommendations")
+    by_status: dict[str, int] = Field(
+        default_factory=dict, description="Count by status"
+    )
+    by_type: dict[str, int] = Field(
+        default_factory=dict, description="Count by recommendation type"
+    )
+    average_confidence: float = Field(..., description="Average confidence score")
+
+
+class DetectionRequest(BaseModel):
+    """Request schema for triggering recommendation detection."""
+
+    force_regenerate: bool = Field(
+        default=False,
+        description="Force regeneration even if recommendations exist",
+    )
+
+
+class DetectionResponse(BaseModel):
+    """Response schema for detection result."""
+
+    conversation_id: UUID
+    recommendations_count: int = Field(
+        ..., description="Number of recommendations detected"
+    )
+    tokens_analyzed: int = Field(
+        ..., description="Tokens in the analyzed narrative"
+    )
+    detection_model: str = Field(..., description="Model used for detection")
+    recommendations: list[RecommendationResponse] = Field(
+        default_factory=list, description="Detected recommendations"
+    )

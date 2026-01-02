@@ -39,7 +39,10 @@ import {
   getWatchStatus,
   getIngestionJobs,
   getIngestionStats,
+  getSuggestedPaths,
+  validatePath,
   type UpdateMode,
+  type SuggestedPath,
 } from '@/lib/api';
 import type {
   UploadResult,
@@ -47,6 +50,7 @@ import type {
   IngestionJobResponse,
 } from '@/types/api';
 import { Tooltip, Sparkline } from '@/components';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 type Tab = 'upload' | 'watch' | 'activity' | 'history';
 
@@ -553,15 +557,26 @@ function BulkUploadTab() {
 
 function WatchDirectoriesTab() {
   const queryClient = useQueryClient();
+  const { currentWorkspace, isLoading: isWorkspaceLoading } = useWorkspace();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newDirectory, setNewDirectory] = useState('');
   const [enableTagging, setEnableTagging] = useState(false);
   const [useApiMode, setUseApiMode] = useState(false);
+  const [pathError, setPathError] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
 
-  // Fetch watch configs
+  // Fetch watch configs - only when workspace is ready
   const { data: configs, isLoading, error } = useQuery({
-    queryKey: ['watchConfigs'],
+    queryKey: ['watchConfigs', currentWorkspace?.id],
     queryFn: () => getWatchConfigs(),
+    enabled: !!currentWorkspace && !isWorkspaceLoading,
+  });
+
+  // Fetch suggested paths - only when workspace is ready
+  const { data: suggestions, isLoading: isLoadingSuggestions } = useQuery({
+    queryKey: ['watchPathSuggestions', currentWorkspace?.id],
+    queryFn: () => getSuggestedPaths(),
+    enabled: !!currentWorkspace && !isWorkspaceLoading,
   });
 
   // Create watch config mutation
@@ -573,10 +588,11 @@ function WatchDirectoriesTab() {
       setNewDirectory('');
       setEnableTagging(false);
       setUseApiMode(false);
+      setPathError(null);
     },
     onError: (error) => {
       console.error('Failed to create watch config:', error);
-      alert(`Failed to create watch config: ${error.message}`);
+      setPathError(error.message);
     },
   });
 
@@ -616,17 +632,71 @@ function WatchDirectoriesTab() {
     },
   });
 
-  const handleCreateConfig = () => {
+  const handleCreateConfig = async () => {
     if (!newDirectory.trim()) return;
 
-    createMutation.mutate({
-      directory: newDirectory.trim(),
-      enable_tagging: enableTagging,
-      extra_config: useApiMode ? { use_api: true } : undefined,
-    });
+    setPathError(null);
+    setIsValidating(true);
+
+    try {
+      // Validate path first
+      const validation = await validatePath(newDirectory.trim());
+      if (!validation.valid) {
+        setPathError(
+          validation.exists
+            ? 'Path exists but is not a readable directory'
+            : 'Directory does not exist'
+        );
+        setIsValidating(false);
+        return;
+      }
+
+      // Use the expanded path from validation
+      createMutation.mutate({
+        directory: validation.expanded_path,
+        enable_tagging: enableTagging,
+        extra_config: useApiMode ? { use_api: true } : undefined,
+      });
+    } catch (err) {
+      setPathError('Failed to validate path');
+    } finally {
+      setIsValidating(false);
+    }
   };
 
-  if (isLoading) {
+  // Quick-add a suggested path and auto-start watching
+  // Uses AI tagging + API mode by default for optimal setup
+  const handleQuickAdd = async (path: string) => {
+    setPathError(null);
+
+    try {
+      const validation = await validatePath(path);
+      if (!validation.valid) {
+        alert(`Cannot add directory: ${path} is not a valid readable directory`);
+        return;
+      }
+
+      // Create the config with AI tagging and API mode enabled
+      const newConfig = await createWatchConfig({
+        directory: validation.expanded_path,
+        enable_tagging: true,
+        extra_config: { use_api: true },
+      });
+
+      // Auto-start watching
+      await startWatching(newConfig.id);
+
+      // Refresh both lists - await to ensure UI updates
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['watchConfigs'] }),
+        queryClient.invalidateQueries({ queryKey: ['watchPathSuggestions'] }),
+      ]);
+    } catch (err) {
+      alert(`Failed to add directory: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  if (isLoading || isWorkspaceLoading || isLoadingSuggestions) {
     return (
       <div className="text-center py-12">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
@@ -644,6 +714,11 @@ function WatchDirectoriesTab() {
       </div>
     );
   }
+
+  // Filter out suggestions that are already configured
+  const availableSuggestions = suggestions?.filter(
+    (s) => !configs?.some((c) => c.directory === s.path)
+  );
 
   return (
     <div>
@@ -663,6 +738,33 @@ function WatchDirectoriesTab() {
         </button>
       </div>
 
+      {/* Quick Add Suggestions */}
+      {availableSuggestions && availableSuggestions.length > 0 && !showAddForm && (
+        <div className="mb-6 p-4 bg-muted/50 border border-border rounded-lg">
+          <p className="text-sm font-medium mb-3">Quick Add:</p>
+          <div className="flex flex-wrap gap-2">
+            {availableSuggestions.map((s) => (
+              <button
+                key={s.path}
+                onClick={() => handleQuickAdd(s.path)}
+                className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 transition-colors flex items-center gap-2"
+              >
+                <FolderOpen className="h-4 w-4" />
+                {s.name}
+                {s.project_count !== null && (
+                  <span className="text-xs text-muted-foreground">
+                    ({s.project_count} projects)
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Click to add and start watching automatically
+          </p>
+        </div>
+      )}
+
       {/* Add New Config Form */}
       {showAddForm && (
         <div className="mb-6 p-6 bg-card border border-border rounded-lg">
@@ -675,10 +777,40 @@ function WatchDirectoriesTab() {
               <input
                 type="text"
                 value={newDirectory}
-                onChange={(e) => setNewDirectory(e.target.value)}
-                placeholder="/path/to/watch/directory"
-                className="w-full px-3 py-2 bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                onChange={(e) => {
+                  setNewDirectory(e.target.value);
+                  setPathError(null); // Clear error when user types
+                }}
+                placeholder="~/.claude/projects or /path/to/watch"
+                className={`w-full px-3 py-2 bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary ${
+                  pathError ? 'border-destructive' : 'border-border'
+                }`}
               />
+              {/* Path validation error */}
+              {pathError && (
+                <p className="mt-1 text-sm text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" />
+                  {pathError}
+                </p>
+              )}
+              {/* Suggested paths */}
+              {availableSuggestions && availableSuggestions.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs text-muted-foreground mb-1">Suggestions:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {availableSuggestions.map((s) => (
+                      <button
+                        key={s.path}
+                        type="button"
+                        onClick={() => setNewDirectory(s.path)}
+                        className="text-xs px-2 py-1 bg-muted rounded hover:bg-muted/80 transition-colors"
+                      >
+                        {s.path}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -713,10 +845,15 @@ function WatchDirectoriesTab() {
             <div className="flex gap-3">
               <button
                 onClick={handleCreateConfig}
-                disabled={createMutation.isPending || !newDirectory.trim()}
+                disabled={createMutation.isPending || isValidating || !newDirectory.trim()}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
-                {createMutation.isPending ? (
+                {isValidating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                    Validating...
+                  </>
+                ) : createMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                     Creating...

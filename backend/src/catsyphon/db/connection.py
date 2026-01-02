@@ -35,13 +35,20 @@ if settings.database_url.startswith("sqlite"):
                     column.type = JSON()
 
 else:
+    # Connection pool settings optimized for multi-worker deployment:
+    # Each uvicorn worker gets its own pool.
+    # Total connections = workers × (pool_size + max_overflow)
+    # Default: 16 workers × (5 + 5) = 160 API connections
+    # PostgreSQL max_connections=300 leaves ~140 for watch daemons/admin
+    # Configure via CATSYPHON_DB_POOL_* environment variables
     engine = create_engine(
         settings.database_url,
         echo=False,  # Disable SQL logging for performance
-        pool_size=20,  # Increased for concurrent collector + UI requests
-        max_overflow=30,
+        pool_size=settings.db_pool_size,  # Base connections per worker
+        max_overflow=settings.db_pool_max_overflow,  # Extra connections per worker
         pool_pre_ping=True,  # Verify connections before using
-        pool_timeout=10,  # Faster timeout to fail fast
+        pool_timeout=settings.db_pool_timeout,  # Wait for connection during bursts
+        pool_recycle=settings.db_pool_recycle,  # Recycle connections to prevent stale
     )
 
 # Create session factory

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import and_, desc, func, text
+from sqlalchemy import Boolean, Float, and_, desc, func, text
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
@@ -126,22 +126,26 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
     def get_by_conversation(
         self,
         conversation_id: uuid.UUID,
+        limit: Optional[int] = 100,
     ) -> List[IngestionJob]:
         """
         Get ingestion jobs for a specific conversation.
 
         Args:
             conversation_id: Conversation UUID
+            limit: Maximum number of records (default: 100, None for unlimited)
 
         Returns:
             List of ingestion jobs
         """
-        return (
+        query = (
             self.session.query(IngestionJob)
             .filter(IngestionJob.conversation_id == conversation_id)
             .order_by(desc(IngestionJob.started_at))
-            .all()
         )
+        if limit is not None:
+            query = query.limit(limit)
+        return query.all()
 
     def get_by_date_range(
         self,
@@ -467,124 +471,388 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
         if avg_incremental_time and avg_full_parse_time and avg_incremental_time > 0:
             incremental_speedup = avg_full_parse_time / avg_incremental_time
 
+        # ===== OPTIMIZED: Use database aggregation instead of loading all jobs =====
         # Calculate stage-level averages from metrics JSONB field
-        # Fetch all jobs with metrics (successful jobs only for meaningful averages)
-        jobs_with_metrics = (
-            self.session.query(IngestionJob)
-            .filter(IngestionJob.status == "success")
-            .filter(IngestionJob.metrics.isnot(None))
-            .all()
-        )
 
-        # Calculate averages for each stage
-        dedup_times = []
-        db_times = []
-        parse_times = []
-        tagging_times = []
-        llm_tagging_times = []
-        llm_prompt_tokens = []
-        llm_completion_tokens = []
-        llm_total_tokens = []
-        llm_costs = []
-        llm_cache_hits = 0
-        llm_total_calls = 0
+        # Base filter for successful jobs with metrics
+        base_filter = [
+            IngestionJob.status == "success",
+            IngestionJob.metrics.isnot(None),
+        ]
 
-        for job in jobs_with_metrics:
-            if job.metrics:
-                if "deduplication_check_ms" in job.metrics:
-                    dedup_times.append(job.metrics["deduplication_check_ms"])
-                if "database_operations_ms" in job.metrics:
-                    db_times.append(job.metrics["database_operations_ms"])
-                if "parse_duration_ms" in job.metrics:
-                    parse_times.append(job.metrics["parse_duration_ms"])
-                if "tagging_duration_ms" in job.metrics:
-                    tagging_times.append(job.metrics["tagging_duration_ms"])
+        if dialect_name == "postgresql":
+            # PostgreSQL: Use JSONB extraction with database aggregation
+            # Stage-level averages using JSONB ->> operator (cast to Float)
+            avg_dedup = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["deduplication_check_ms"].astext, Float
+                        )
+                    )
+                )
+                .filter(*base_filter)
+                .scalar()
+            )
+            avg_db = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["database_operations_ms"].astext, Float
+                        )
+                    )
+                )
+                .filter(*base_filter)
+                .scalar()
+            )
+            avg_parse = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["parse_duration_ms"].astext, Float
+                        )
+                    )
+                )
+                .filter(*base_filter)
+                .scalar()
+            )
+            avg_tagging = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["tagging_duration_ms"].astext, Float
+                        )
+                    )
+                )
+                .filter(*base_filter)
+                .scalar()
+            )
 
-                # LLM metrics (only present if tagging was enabled)
-                if "llm_tagging_ms" in job.metrics:
+            # LLM metrics - filter for non-cache-hit jobs
+            # SQLAlchemy boolean expression - must use == for SQL comparison
+            llm_filter = base_filter + [
+                IngestionJob.metrics["llm_tagging_ms"].isnot(None),
+                func.coalesce(
+                    func.cast(
+                        IngestionJob.metrics["llm_cache_hit"].astext, Boolean
+                    ),
+                    False,
+                ).is_(False),
+            ]
+            avg_llm_tagging = (
+                self.session.query(
+                    func.avg(
+                        func.cast(IngestionJob.metrics["llm_tagging_ms"].astext, Float)
+                    )
+                )
+                .filter(*llm_filter)
+                .scalar()
+            )
+            avg_llm_prompt = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["llm_prompt_tokens"].astext, Float
+                        )
+                    )
+                )
+                .filter(*llm_filter)
+                .scalar()
+            )
+            avg_llm_completion = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["llm_completion_tokens"].astext, Float
+                        )
+                    )
+                )
+                .filter(*llm_filter)
+                .scalar()
+            )
+            avg_llm_total = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["llm_total_tokens"].astext, Float
+                        )
+                    )
+                )
+                .filter(*llm_filter)
+                .scalar()
+            )
+            avg_llm_cost = (
+                self.session.query(
+                    func.avg(
+                        func.cast(IngestionJob.metrics["llm_cost_usd"].astext, Float)
+                    )
+                )
+                .filter(*llm_filter)
+                .scalar()
+            )
+            total_llm_cost = (
+                self.session.query(
+                    func.sum(
+                        func.cast(IngestionJob.metrics["llm_cost_usd"].astext, Float)
+                    )
+                )
+                .filter(*llm_filter)
+                .scalar()
+            )
+
+            # LLM cache hit rate
+            llm_total_calls = (
+                self.session.query(func.count(IngestionJob.id))
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["llm_tagging_ms"].isnot(None))
+                .scalar()
+                or 0
+            )
+            llm_cache_hits = (
+                self.session.query(func.count(IngestionJob.id))
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["llm_tagging_ms"].isnot(None))
+                .filter(
+                    func.cast(
+                        IngestionJob.metrics["llm_cache_hit"].astext, Boolean
+                    ).is_(True)
+                )
+                .scalar()
+                or 0
+            )
+            llm_cache_rate = (
+                llm_cache_hits / llm_total_calls if llm_total_calls > 0 else None
+            )
+
+            # Parser usage aggregates using GROUP BY
+            parser_counts = (
+                self.session.query(
+                    IngestionJob.metrics["parser_name"].astext.label("name"),
+                    func.count(IngestionJob.id),
+                )
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["parser_name"].isnot(None))
+                .group_by(IngestionJob.metrics["parser_name"].astext)
+                .all()
+            )
+            parser_usage = {name: count for name, count in parser_counts if name}
+
+            # Parser version usage
+            parser_version_counts = (
+                self.session.query(
+                    func.concat(
+                        IngestionJob.metrics["parser_name"].astext,
+                        text("'@'"),
+                        IngestionJob.metrics["parser_version"].astext,
+                    ).label("version_key"),
+                    func.count(IngestionJob.id),
+                )
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["parser_name"].isnot(None))
+                .filter(IngestionJob.metrics["parser_version"].isnot(None))
+                .group_by(
+                    IngestionJob.metrics["parser_name"].astext,
+                    IngestionJob.metrics["parser_version"].astext,
+                )
+                .all()
+            )
+            parser_version_usage = {
+                key: count for key, count in parser_version_counts if key
+            }
+
+            # Parse methods
+            method_counts = (
+                self.session.query(
+                    IngestionJob.metrics["parse_method"].astext.label("method"),
+                    func.count(IngestionJob.id),
+                )
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["parse_method"].isnot(None))
+                .group_by(IngestionJob.metrics["parse_method"].astext)
+                .all()
+            )
+            parse_methods = {method: count for method, count in method_counts if method}
+
+            # Change types
+            change_counts = (
+                self.session.query(
+                    IngestionJob.metrics["parse_change_type"].astext.label("type"),
+                    func.count(IngestionJob.id),
+                )
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["parse_change_type"].isnot(None))
+                .group_by(IngestionJob.metrics["parse_change_type"].astext)
+                .all()
+            )
+            change_type_counts = {
+                change_type: count
+                for change_type, count in change_counts
+                if change_type
+            }
+
+            # Warning stats
+            avg_warning_count = (
+                self.session.query(
+                    func.avg(
+                        func.cast(
+                            IngestionJob.metrics["parse_warning_count"].astext, Float
+                        )
+                    )
+                )
+                .filter(*base_filter)
+                .filter(IngestionJob.metrics["parse_warning_count"].isnot(None))
+                .scalar()
+            )
+            jobs_with_warnings = (
+                self.session.query(func.count(IngestionJob.id))
+                .filter(*base_filter)
+                .filter(
+                    func.cast(IngestionJob.metrics["parse_warning_count"].astext, Float)
+                    > 0
+                )
+                .scalar()
+                or 0
+            )
+            jobs_with_metrics_count = (
+                self.session.query(func.count(IngestionJob.id))
+                .filter(*base_filter)
+                .scalar()
+                or 0
+            )
+            parse_warning_rate = (
+                jobs_with_warnings / jobs_with_metrics_count * 100
+                if jobs_with_metrics_count > 0
+                else None
+            )
+        else:
+            # SQLite fallback: Use limited scan (less efficient but compatible)
+            # Cap to prevent OOM
+            jobs_with_metrics = (
+                self.session.query(IngestionJob.metrics)
+                .filter(*base_filter)
+                .limit(5000)
+                .all()
+            )
+
+            # Calculate averages for each stage
+            dedup_times: list[float] = []
+            db_times: list[float] = []
+            parse_times: list[float] = []
+            tagging_times: list[float] = []
+            llm_tagging_times: list[float] = []
+            llm_prompt_tokens: list[float] = []
+            llm_completion_tokens: list[float] = []
+            llm_total_tokens: list[float] = []
+            llm_costs: list[float] = []
+            llm_cache_hits = 0
+            llm_total_calls = 0
+
+            parser_usage: dict[str, int] = {}
+            parser_version_usage: dict[str, int] = {}
+            parse_methods: dict[str, int] = {}
+            change_type_counts: dict[str, int] = {}
+            warning_counts: list[float] = []
+            jobs_with_warnings = 0
+
+            for (metrics,) in jobs_with_metrics:
+                if not metrics:
+                    continue
+                if "deduplication_check_ms" in metrics:
+                    dedup_times.append(float(metrics["deduplication_check_ms"]))
+                if "database_operations_ms" in metrics:
+                    db_times.append(float(metrics["database_operations_ms"]))
+                if "parse_duration_ms" in metrics:
+                    parse_times.append(float(metrics["parse_duration_ms"]))
+                if "tagging_duration_ms" in metrics:
+                    tagging_times.append(float(metrics["tagging_duration_ms"]))
+
+                # LLM metrics
+                if "llm_tagging_ms" in metrics:
                     llm_total_calls += 1
-                    if job.metrics.get("llm_cache_hit", False):
+                    if metrics.get("llm_cache_hit", False):
                         llm_cache_hits += 1
                     else:
-                        # Only count non-cache hits for averages (cache hits are 0)
-                        llm_tagging_times.append(job.metrics["llm_tagging_ms"])
-                        if "llm_prompt_tokens" in job.metrics:
-                            llm_prompt_tokens.append(job.metrics["llm_prompt_tokens"])
-                        if "llm_completion_tokens" in job.metrics:
-                            llm_completion_tokens.append(
-                                job.metrics["llm_completion_tokens"]
+                        llm_tagging_times.append(float(metrics["llm_tagging_ms"]))
+                        if "llm_prompt_tokens" in metrics:
+                            llm_prompt_tokens.append(
+                                float(metrics["llm_prompt_tokens"])
                             )
-                        if "llm_total_tokens" in job.metrics:
-                            llm_total_tokens.append(job.metrics["llm_total_tokens"])
-                        if "llm_cost_usd" in job.metrics:
-                            llm_costs.append(job.metrics["llm_cost_usd"])
+                        if "llm_completion_tokens" in metrics:
+                            llm_completion_tokens.append(
+                                float(metrics["llm_completion_tokens"])
+                            )
+                        if "llm_total_tokens" in metrics:
+                            llm_total_tokens.append(float(metrics["llm_total_tokens"]))
+                        if "llm_cost_usd" in metrics:
+                            llm_costs.append(float(metrics["llm_cost_usd"]))
 
-        avg_dedup = sum(dedup_times) / len(dedup_times) if dedup_times else None
-        avg_db = sum(db_times) / len(db_times) if db_times else None
-        avg_parse = sum(parse_times) / len(parse_times) if parse_times else None
-        avg_tagging = sum(tagging_times) / len(tagging_times) if tagging_times else None
+                # Parser aggregates
+                parser_name = metrics.get("parser_name")
+                parser_version = metrics.get("parser_version")
+                parse_method = metrics.get("parse_method")
+                change_type = metrics.get("parse_change_type")
+                warning_count = metrics.get("parse_warning_count")
+                warnings_list = metrics.get("parse_warnings")
 
-        # LLM aggregates
-        avg_llm_tagging = (
-            sum(llm_tagging_times) / len(llm_tagging_times)
-            if llm_tagging_times
-            else None
-        )
-        avg_llm_prompt = (
-            sum(llm_prompt_tokens) / len(llm_prompt_tokens)
-            if llm_prompt_tokens
-            else None
-        )
-        avg_llm_completion = (
-            sum(llm_completion_tokens) / len(llm_completion_tokens)
-            if llm_completion_tokens
-            else None
-        )
-        avg_llm_total = (
-            sum(llm_total_tokens) / len(llm_total_tokens) if llm_total_tokens else None
-        )
-        avg_llm_cost = sum(llm_costs) / len(llm_costs) if llm_costs else None
-        total_llm_cost = sum(llm_costs) if llm_costs else None
-        llm_cache_rate = (
-            llm_cache_hits / llm_total_calls if llm_total_calls > 0 else None
-        )
-
-        # Parser and change-type aggregates
-        parser_usage: dict[str, int] = {}
-        parser_version_usage: dict[str, int] = {}
-        parse_methods: dict[str, int] = {}
-        change_type_counts: dict[str, int] = {}
-        warning_counts: list[int] = []
-        jobs_with_warnings = 0
-
-        for job in jobs_with_metrics:
-            if not job.metrics:
-                continue
-            parser_name = job.metrics.get("parser_name")
-            parser_version = job.metrics.get("parser_version")
-            parse_method = job.metrics.get("parse_method")
-            change_type = job.metrics.get("parse_change_type")
-            warning_count = job.metrics.get("parse_warning_count")
-            warnings_list = job.metrics.get("parse_warnings")
-
-            if parser_name:
-                parser_usage[parser_name] = parser_usage.get(parser_name, 0) + 1
-            if parser_name and parser_version:
-                key = f"{parser_name}@{parser_version}"
-                parser_version_usage[key] = parser_version_usage.get(key, 0) + 1
-            if parse_method:
-                parse_methods[parse_method] = parse_methods.get(parse_method, 0) + 1
-            if change_type:
-                change_type_counts[change_type] = (
-                    change_type_counts.get(change_type, 0) + 1
-                )
-            if warning_count is not None:
-                warning_counts.append(warning_count)
-                if warning_count > 0:
+                if parser_name:
+                    parser_usage[parser_name] = parser_usage.get(parser_name, 0) + 1
+                if parser_name and parser_version:
+                    key = f"{parser_name}@{parser_version}"
+                    parser_version_usage[key] = parser_version_usage.get(key, 0) + 1
+                if parse_method:
+                    parse_methods[parse_method] = parse_methods.get(parse_method, 0) + 1
+                if change_type:
+                    change_type_counts[change_type] = (
+                        change_type_counts.get(change_type, 0) + 1
+                    )
+                if warning_count is not None:
+                    warning_counts.append(float(warning_count))
+                    if warning_count > 0:
+                        jobs_with_warnings += 1
+                elif warnings_list:
+                    warning_counts.append(float(len(warnings_list)))
                     jobs_with_warnings += 1
-            elif warnings_list:
-                warning_counts.append(len(warnings_list))
-                jobs_with_warnings += 1
+
+            avg_dedup = sum(dedup_times) / len(dedup_times) if dedup_times else None
+            avg_db = sum(db_times) / len(db_times) if db_times else None
+            avg_parse = sum(parse_times) / len(parse_times) if parse_times else None
+            avg_tagging = (
+                sum(tagging_times) / len(tagging_times) if tagging_times else None
+            )
+            avg_llm_tagging = (
+                sum(llm_tagging_times) / len(llm_tagging_times)
+                if llm_tagging_times
+                else None
+            )
+            avg_llm_prompt = (
+                sum(llm_prompt_tokens) / len(llm_prompt_tokens)
+                if llm_prompt_tokens
+                else None
+            )
+            avg_llm_completion = (
+                sum(llm_completion_tokens) / len(llm_completion_tokens)
+                if llm_completion_tokens
+                else None
+            )
+            avg_llm_total = (
+                sum(llm_total_tokens) / len(llm_total_tokens)
+                if llm_total_tokens
+                else None
+            )
+            avg_llm_cost = sum(llm_costs) / len(llm_costs) if llm_costs else None
+            total_llm_cost = sum(llm_costs) if llm_costs else None
+            llm_cache_rate = (
+                llm_cache_hits / llm_total_calls if llm_total_calls > 0 else None
+            )
+            avg_warning_count = (
+                sum(warning_counts) / len(warning_counts) if warning_counts else None
+            )
+            jobs_with_metrics_count = len(jobs_with_metrics)
+            parse_warning_rate = (
+                jobs_with_warnings / jobs_with_metrics_count * 100
+                if jobs_with_metrics_count > 0
+                else None
+            )
 
         return {
             "total_jobs": total,
@@ -627,14 +895,8 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             "parser_version_usage": parser_version_usage,
             "parse_methods": parse_methods,
             "parse_change_types": change_type_counts,
-            "avg_parse_warning_count": (
-                sum(warning_counts) / len(warning_counts) if warning_counts else None
-            ),
-            "parse_warning_rate": (
-                jobs_with_warnings / len(jobs_with_metrics) * 100
-                if jobs_with_metrics
-                else None
-            ),
+            "avg_parse_warning_count": avg_warning_count,
+            "parse_warning_rate": parse_warning_rate,
         }
 
     def search(

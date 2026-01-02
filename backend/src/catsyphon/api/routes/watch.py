@@ -5,6 +5,8 @@ Endpoints for managing watch directory configurations.
 """
 
 import logging
+import os
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +14,9 @@ from sqlalchemy.orm import Session
 
 from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import (
+    PathValidationRequest,
+    PathValidationResponse,
+    SuggestedPath,
     WatchConfigurationCreate,
     WatchConfigurationResponse,
     WatchConfigurationUpdate,
@@ -22,6 +27,88 @@ from catsyphon.db.repositories import WatchConfigurationRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get("/watch/suggested-paths", response_model=list[SuggestedPath])
+async def get_suggested_paths(
+    auth: AuthContext = Depends(get_auth_context),
+) -> list[SuggestedPath]:
+    """
+    Get suggested watch directory paths.
+
+    Returns paths that exist on the system where Claude Code logs are commonly found.
+
+    Requires X-Workspace-Id header.
+    """
+    suggestions = []
+    home = Path.home()
+
+    # AI coding assistant log locations (parent directories)
+    candidates = [
+        (home / ".claude", "Claude", "Claude Code logs", "projects"),
+        (home / ".codex", "Codex", "Codex CLI logs", "sessions"),
+        (home / ".opencode", "OpenCode", "OpenCode logs", "sessions"),
+    ]
+
+    for path, name, description, subdir in candidates:
+        if path.exists() and path.is_dir():
+            # Count projects/sessions in the expected subdirectory
+            project_count = None
+            projects_path = path / subdir
+            if projects_path.exists() and projects_path.is_dir():
+                try:
+                    project_count = len(
+                        [p for p in projects_path.iterdir() if p.is_dir()]
+                    )
+                except PermissionError:
+                    pass
+
+            suggestions.append(
+                SuggestedPath(
+                    path=str(path),
+                    name=name,
+                    description=description,
+                    project_count=project_count,
+                )
+            )
+
+    return suggestions
+
+
+@router.post("/watch/validate-path", response_model=PathValidationResponse)
+async def validate_path(
+    request: PathValidationRequest,
+    auth: AuthContext = Depends(get_auth_context),
+) -> PathValidationResponse:
+    """
+    Validate a directory path exists and is readable.
+
+    Expands ~ to user home directory.
+
+    Requires X-Workspace-Id header.
+    """
+    try:
+        path = Path(request.path).expanduser().resolve()
+    except Exception:
+        return PathValidationResponse(
+            valid=False,
+            expanded_path=request.path,
+            exists=False,
+            is_directory=False,
+            is_readable=False,
+        )
+
+    exists = path.exists()
+    is_dir = path.is_dir() if exists else False
+    is_readable = os.access(path, os.R_OK) if exists else False
+
+    return PathValidationResponse(
+        valid=exists and is_dir and is_readable,
+        expanded_path=str(path),
+        exists=exists,
+        is_directory=is_dir,
+        is_readable=is_readable,
+    )
 
 
 @router.get("/watch/configs", response_model=list[WatchConfigurationResponse])
@@ -108,21 +195,24 @@ async def create_watch_config(
     repo = WatchConfigurationRepository(session)
     workspace_id = auth.workspace_id
 
+    # Expand ~ to home directory and resolve path
+    expanded_directory = str(Path(config.directory).expanduser().resolve())
+
     # Check if directory already exists in this workspace
-    existing = repo.get_by_directory(config.directory, workspace_id)
+    existing = repo.get_by_directory(expanded_directory, workspace_id)
     if existing:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Watch configuration already exists for directory: "
-                f"{config.directory}"
+                f"{expanded_directory}"
             ),
         )
 
     # Create new configuration
     new_config = repo.create(
         workspace_id=workspace_id,
-        directory=config.directory,
+        directory=expanded_directory,
         project_id=config.project_id,
         developer_id=config.developer_id,
         enable_tagging=config.enable_tagging,

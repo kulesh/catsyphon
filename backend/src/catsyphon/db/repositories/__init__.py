@@ -17,6 +17,7 @@ from catsyphon.db.repositories.message import MessageRepository
 from catsyphon.db.repositories.organization import OrganizationRepository
 from catsyphon.db.repositories.project import ProjectRepository
 from catsyphon.db.repositories.raw_log import RawLogRepository
+from catsyphon.db.repositories.recommendation import RecommendationRepository
 from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
 from catsyphon.db.repositories.workspace import WorkspaceRepository
 
@@ -34,6 +35,7 @@ __all__ = [
     "OrganizationRepository",
     "ProjectRepository",
     "RawLogRepository",
+    "RecommendationRepository",
     "WatchConfigurationRepository",
     "WorkspaceRepository",
 ]

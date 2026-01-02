@@ -27,6 +27,8 @@ vi.mock('@/lib/api', () => ({
   getWatchStatus: vi.fn(),
   getIngestionJobs: vi.fn(),
   getIngestionStats: vi.fn(),
+  getSuggestedPaths: vi.fn(),
+  validatePath: vi.fn(),
 }));
 
 // Mock react-router-dom
@@ -38,6 +40,18 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// Mock WorkspaceContext
+vi.mock('@/contexts/WorkspaceContext', () => ({
+  useWorkspace: () => ({
+    currentWorkspace: { id: 'test-workspace-id', name: 'Test Workspace' },
+    workspaces: [{ id: 'test-workspace-id', name: 'Test Workspace' }],
+    isLoading: false,
+    error: null,
+    setCurrentWorkspace: vi.fn(),
+    refreshWorkspaces: vi.fn(),
+  }),
+}));
+
 // Helper to create a mock File object
 const createMockFile = (name: string, type = 'application/jsonl'): File => {
   const blob = new Blob(['mock content'], { type });
@@ -47,6 +61,15 @@ const createMockFile = (name: string, type = 'application/jsonl'): File => {
 describe('Ingestion', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default mocks for suggested paths and validation
+    vi.mocked(api.getSuggestedPaths).mockResolvedValue([]);
+    vi.mocked(api.validatePath).mockResolvedValue({
+      valid: true,
+      expanded_path: '/expanded/path',
+      exists: true,
+      is_directory: true,
+      is_readable: true,
+    });
   });
 
   describe('Page Layout', () => {
@@ -323,7 +346,7 @@ describe('Ingestion', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Add Watch Directory/i)).toBeInTheDocument();
-        expect(screen.getByPlaceholderText(/\/path\/to\/watch\/directory/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/~\/\.claude\/projects or \/path\/to\/watch/i)).toBeInTheDocument();
       });
     });
 
