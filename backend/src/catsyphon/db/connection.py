@@ -38,15 +38,15 @@ else:
     # Connection pool settings optimized for multi-worker deployment:
     # With 8 uvicorn workers, each worker gets its own pool.
     # Total connections = workers × (pool_size + max_overflow)
-    # To stay under PostgreSQL's max_connections (100), we use conservative settings:
-    # 8 workers × (5 + 5) = 80 connections for API, leaves 20 for watch daemons/admin
+    # PostgreSQL max_connections is 200, so we can use:
+    # 8 workers × (10 + 10) = 160 connections for API, leaves 40 for watch daemons/admin
     engine = create_engine(
         settings.database_url,
         echo=False,  # Disable SQL logging for performance
-        pool_size=5,  # Base connections per worker (8 workers × 5 = 40)
-        max_overflow=5,  # Extra connections per worker (8 workers × 5 = 40)
+        pool_size=10,  # Base connections per worker (8 workers × 10 = 80)
+        max_overflow=10,  # Extra connections per worker (8 workers × 10 = 80)
         pool_pre_ping=True,  # Verify connections before using
-        pool_timeout=10,  # Faster timeout to fail fast
+        pool_timeout=30,  # Wait up to 30s for connection during bursts
         pool_recycle=300,  # Recycle connections every 5 minutes to prevent stale connections
     )
 
