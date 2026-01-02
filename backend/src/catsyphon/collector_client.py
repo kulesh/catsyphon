@@ -275,14 +275,16 @@ class CollectorClient:
 
         # Create tool_call events for each tool call in the message
         if msg.tool_calls:
-            for tool_call in msg.tool_calls:
+            for idx, tool_call in enumerate(msg.tool_calls):
                 tool_event_time = tool_call.timestamp or event_time
+                # Generate unique tool_use_id from timestamp and index
+                tool_use_id = f"tool_{tool_event_time.isoformat()}_{idx}"
                 events.append(self._create_event(
                     event_type="tool_call",
                     emitted_at=tool_event_time,
                     data={
                         "tool_name": tool_call.tool_name,
-                        "tool_use_id": f"tool_{self.sequence}",  # Generate ID if not available
+                        "tool_use_id": tool_use_id,
                         "parameters": tool_call.parameters or {},
                     },
                 ))
@@ -297,7 +299,7 @@ class CollectorClient:
                         event_type="tool_result",
                         emitted_at=tool_event_time,
                         data={
-                            "tool_use_id": f"tool_{self.sequence - 1}",  # Match previous tool_call
+                            "tool_use_id": tool_use_id,  # Match the tool_call above
                             "success": tool_call.success,
                             "result": result_value,
                         },
