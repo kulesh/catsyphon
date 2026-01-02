@@ -44,6 +44,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/collectors", tags=["collectors"])
 
 
+def _utc_now() -> datetime:
+    """Return current UTC time as naive datetime for database storage."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _queue_tagging(conversation_id: uuid.UUID, db: Session) -> None:
     """Queue a conversation for async tagging.
 
@@ -244,7 +249,7 @@ def submit_events(
     Duplicate events are silently ignored, making re-ingestion idempotent.
     """
     start_time = time.time()
-    start_datetime = datetime.now(timezone.utc)
+    start_datetime = _utc_now()
 
     collector = get_collector_from_auth(authorization, x_collector_id, db)
 
@@ -433,7 +438,7 @@ def submit_events(
         ingestion_job.status = "success"
         ingestion_job.messages_added = messages_added
         ingestion_job.processing_time_ms = processing_time_ms
-        ingestion_job.completed_at = datetime.now(timezone.utc)
+        ingestion_job.completed_at = _utc_now()
         ingestion_job.metrics = {
             "events_received": len(sorted_events),
             "events_accepted": len(new_events),
@@ -478,7 +483,7 @@ def submit_events(
         ingestion_job.status = "failed"
         ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
         ingestion_job.processing_time_ms = processing_time_ms
-        ingestion_job.completed_at = datetime.now(timezone.utc)
+        ingestion_job.completed_at = _utc_now()
         db.commit()
 
         logger.error(f"Collector ingestion failed: {e}", exc_info=True)
