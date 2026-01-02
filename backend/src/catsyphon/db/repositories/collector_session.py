@@ -262,8 +262,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                 logger.debug(f"Inherited developer_id={developer_id} from parent conversation")
 
         # Use first event timestamp for start_time if provided, else now
-        now = datetime.now(timezone.utc)
+        # Normalize to naive datetime for database storage (all times assumed UTC)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         start_time = first_event_timestamp or now
+        if start_time.tzinfo is not None:
+            start_time = start_time.replace(tzinfo=None)
 
         # Build extra_data (mirrors _build_extra_data in ingestion.py)
         extra_data: dict[str, Any] = {
@@ -340,7 +343,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             event_count_delta: Number of events to add to message_count
         """
         conversation.last_event_sequence = last_sequence
-        conversation.server_received_at = datetime.now(timezone.utc)
+        conversation.server_received_at = datetime.now(timezone.utc).replace(tzinfo=None)
         if event_count_delta > 0:
             conversation.message_count += event_count_delta
         self.session.flush()
@@ -405,6 +408,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         conversation.status = "completed"
         # Use event timestamp if provided, else now
         end_time = event_timestamp or datetime.now(timezone.utc)
+        # Normalize to naive datetime for database storage
+        if end_time.tzinfo is not None:
+            end_time = end_time.replace(tzinfo=None)
         conversation.end_time = end_time
         conversation.last_event_sequence = max(
             conversation.last_event_sequence, final_sequence
@@ -531,7 +537,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             epoch = Epoch(
                 conversation_id=conversation.id,
                 sequence=1,
-                start_time=datetime.now(timezone.utc),
+                start_time=datetime.now(timezone.utc).replace(tzinfo=None),
                 extra_data={"source": "collector"},
             )
             self.session.add(epoch)
