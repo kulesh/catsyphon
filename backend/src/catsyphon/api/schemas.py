@@ -606,6 +606,31 @@ class WatchConfigurationResponse(BaseModel):
         from_attributes = True
 
 
+class SuggestedPath(BaseModel):
+    """A suggested watch directory path."""
+
+    path: str
+    name: str
+    description: str
+    project_count: Optional[int] = None
+
+
+class PathValidationRequest(BaseModel):
+    """Request schema for validating a directory path."""
+
+    path: str
+
+
+class PathValidationResponse(BaseModel):
+    """Response schema for path validation."""
+
+    valid: bool
+    expanded_path: str
+    exists: bool
+    is_directory: bool
+    is_readable: bool
+
+
 # ===== Ingestion Job Schemas =====
 
 

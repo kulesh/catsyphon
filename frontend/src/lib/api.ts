@@ -306,6 +306,32 @@ export async function getWatchConfig(
   return apiFetch<WatchConfigurationResponse>(`/watch/configs/${id}`);
 }
 
+export interface SuggestedPath {
+  path: string;
+  name: string;
+  description: string;
+  project_count: number | null;
+}
+
+export interface PathValidationResponse {
+  valid: boolean;
+  expanded_path: string;
+  exists: boolean;
+  is_directory: boolean;
+  is_readable: boolean;
+}
+
+export async function getSuggestedPaths(): Promise<SuggestedPath[]> {
+  return apiFetch<SuggestedPath[]>('/watch/suggested-paths');
+}
+
+export async function validatePath(path: string): Promise<PathValidationResponse> {
+  return apiFetch<PathValidationResponse>('/watch/validate-path', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
 export async function createWatchConfig(
   data: WatchConfigurationCreate
 ): Promise<WatchConfigurationResponse> {
