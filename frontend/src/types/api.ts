@@ -833,3 +833,15 @@ export interface BenchmarkStatusResponse {
   completed_at?: string | null;
   error?: string | null;
 }
+
+export interface ConversationRecapResponse {
+  conversation_id: string;
+  version: number;
+  summary: string;
+  key_files: string[];
+  blockers: string[];
+  next_steps: string[];
+  metadata: Record<string, any>;
+  canonical_version: number;
+  generated_at: string;
+}

@@ -37,11 +37,11 @@ class RecapRepository(BaseRepository[ConversationRecap]):
         db_recap = ConversationRecap(
             conversation_id=conversation_id,
             version=1,
-            summary=recap.get("summary", ""),
-            key_files=recap.get("key_files", []),
-            blockers=recap.get("blockers", []),
-            next_steps=recap.get("next_steps", []),
-            metadata=recap.get("metadata", {}),
+            summary=recap.get("summary", "") or "",
+            key_files=recap.get("key_files") or [],
+            blockers=recap.get("blockers") or [],
+            next_steps=recap.get("next_steps") or [],
+            metadata=recap.get("metadata") or {},
             canonical_version=canonical_version,
             generated_at=datetime.now().astimezone(),
         )

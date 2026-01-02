@@ -27,6 +27,7 @@ import type {
   ProjectAnalytics,
   BenchmarkResultResponse,
   BenchmarkStatusResponse,
+  ConversationRecapResponse,
   RecommendationListResponse,
   RecommendationResponse,
   RecommendationUpdate,
@@ -226,6 +227,27 @@ export async function getLatestBenchmarkResults(): Promise<BenchmarkResultRespon
   return apiFetch<BenchmarkResultResponse>('/benchmarks/results/latest', {
     headers: getBenchmarkHeaders(),
   });
+}
+
+// ===== Recap Endpoints =====
+
+export async function getConversationRecap(
+  id: string
+): Promise<ConversationRecapResponse> {
+  return apiFetch<ConversationRecapResponse>(`/conversations/${id}/recap`);
+}
+
+export async function generateConversationRecap(
+  id: string,
+  force = false
+): Promise<ConversationRecapResponse> {
+  const params = new URLSearchParams();
+  if (force) params.append('force_regenerate', 'true');
+  const query = params.toString();
+  return apiFetch<ConversationRecapResponse>(
+    `/conversations/${id}/recap${query ? `?${query}` : ''}`,
+    { method: 'POST' }
+  );
 }
 
 // ===== Health Endpoint =====
