@@ -58,7 +58,7 @@ def _to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
         return None
     if dt.tzinfo is not None:
-        return dt.replace(tzinfo=None)
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
 
 
@@ -474,6 +474,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         # Normalize both timestamps to naive UTC for safe comparison
         event_ts = _to_naive_utc(event_timestamp)
         existing_end = _to_naive_utc(conversation.end_time)
+
+        if existing_end is not None and conversation.end_time != existing_end:
+            conversation.end_time = existing_end
 
         # Update end_time to latest event if newer
         if existing_end is None or (event_ts and event_ts > existing_end):

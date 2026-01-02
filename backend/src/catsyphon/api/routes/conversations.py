@@ -323,7 +323,7 @@ async def list_conversations(
             children_count=child_count,
             depth_level=depth,
         )
-        for conv, msg_count, epoch_count, files_count, child_count, depth, _last_activity in results
+        for conv, msg_count, epoch_count, files_count, child_count, _last_activity, depth in results
     ]
 
     return ConversationListResponse(
