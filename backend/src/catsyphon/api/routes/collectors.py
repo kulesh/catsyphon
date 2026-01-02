@@ -12,10 +12,16 @@ import hashlib
 import hmac
 import logging
 import secrets
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
+
+# Semaphore to limit concurrent tagging operations
+# This prevents background tagging threads from exhausting the connection pool
+# during high-throughput API ingestion
+_TAGGING_SEMAPHORE = threading.Semaphore(3)  # Max 3 concurrent tagging operations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
@@ -82,12 +88,20 @@ def _tag_conversation_worker(
     """Background worker that tags a conversation.
 
     Runs in a separate thread with its own database session.
-    This prevents blocking the connection pool during OpenAI API calls.
+    Uses a semaphore to limit concurrent tagging operations and prevent
+    connection pool exhaustion during high-throughput ingestion.
     """
     from catsyphon.db.connection import db_session
 
     pipeline = _get_tagging_pipeline()
     if not pipeline:
+        return
+
+    # Try to acquire semaphore with timeout - skip if too many concurrent taggers
+    if not _TAGGING_SEMAPHORE.acquire(blocking=True, timeout=5.0):
+        logger.debug(
+            f"Skipping tagging for {conversation_id} - too many concurrent operations"
+        )
         return
 
     try:
@@ -119,6 +133,8 @@ def _tag_conversation_worker(
     except Exception as e:
         logger.warning(f"Tagging failed for conversation {conversation_id}: {e}")
         # Don't propagate - tagging is optional
+    finally:
+        _TAGGING_SEMAPHORE.release()
 
 
 def _tag_conversation_async(
@@ -134,8 +150,6 @@ def _tag_conversation_async(
         workspace_id: UUID of the workspace
         db: Database session (unused, kept for API compatibility)
     """
-    import threading
-
     # Spawn background thread for tagging
     thread = threading.Thread(
         target=_tag_conversation_worker,
