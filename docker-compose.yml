@@ -5,7 +5,9 @@ services:
     image: postgres:15-alpine
     container_name: catsyphon-postgres
     # Increase max_connections for multi-worker API deployments (default is 100)
-    command: postgres -c max_connections=200
+    # With 16 workers × (5+5) pool = 160 API + 40 for daemons/admin = 200 comfortable
+    # Set to 300 for headroom during stress testing
+    command: postgres -c max_connections=300
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-catsyphon}
       POSTGRES_USER: ${POSTGRES_USER:-catsyphon}

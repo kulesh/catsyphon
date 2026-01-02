@@ -81,12 +81,14 @@ class Settings(BaseSettings):
     )  # Optional direct override
 
     # Database Connection Pool (CATSYPHON_ prefixed for new settings)
+    # Default sized for 16 workers: 16 × (5 + 5) = 160 API connections
+    # Leaves ~140 for watch daemons and admin with max_connections=300
     db_pool_size: int = Field(
-        default=10, alias="CATSYPHON_DB_POOL_SIZE"
+        default=5, alias="CATSYPHON_DB_POOL_SIZE"
     )  # Base connections per worker
     db_pool_max_overflow: int = Field(
-        default=10, alias="CATSYPHON_DB_POOL_MAX_OVERFLOW"
-    )  # Extra connections per worker
+        default=5, alias="CATSYPHON_DB_POOL_MAX_OVERFLOW"
+    )  # Extra connections per worker during bursts
     db_pool_timeout: int = Field(
         default=30, alias="CATSYPHON_DB_POOL_TIMEOUT"
     )  # Wait time for connection (seconds)

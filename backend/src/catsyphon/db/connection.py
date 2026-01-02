@@ -36,10 +36,10 @@ if settings.database_url.startswith("sqlite"):
 
 else:
     # Connection pool settings optimized for multi-worker deployment:
-    # With 8 uvicorn workers, each worker gets its own pool.
+    # Each uvicorn worker gets its own pool.
     # Total connections = workers × (pool_size + max_overflow)
-    # PostgreSQL max_connections is 200, so we can use:
-    # 8 workers × (10 + 10) = 160 connections for API, leaves 40 for watch daemons/admin
+    # Default: 16 workers × (5 + 5) = 160 API connections
+    # PostgreSQL max_connections=300 leaves ~140 for watch daemons/admin
     # Configure via CATSYPHON_DB_POOL_* environment variables
     engine = create_engine(
         settings.database_url,
