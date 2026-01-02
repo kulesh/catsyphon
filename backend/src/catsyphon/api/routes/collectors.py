@@ -76,52 +76,75 @@ def _get_tagging_pipeline() -> Any:
     return _tagging_pipeline
 
 
-def _tag_conversation_async(
-    conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session
+def _tag_conversation_worker(
+    conversation_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> None:
-    """Tag a conversation after session completion.
+    """Background worker that tags a conversation.
 
-    This runs synchronously but is designed to not block the response.
-    Failures are logged but do not fail the request.
-
-    Args:
-        conversation_id: UUID of the conversation to tag
-        workspace_id: UUID of the workspace
-        db: Database session
+    Runs in a separate thread with its own database session.
+    This prevents blocking the connection pool during OpenAI API calls.
     """
+    from catsyphon.db.connection import db_session
+
     pipeline = _get_tagging_pipeline()
     if not pipeline:
         return
 
     try:
-        conv_repo = ConversationRepository(db)
-        conversation = conv_repo.get_with_relations(conversation_id, workspace_id)
+        with db_session() as session:
+            conv_repo = ConversationRepository(session)
+            conversation = conv_repo.get_with_relations(conversation_id, workspace_id)
 
-        if not conversation:
-            logger.warning(f"Conversation {conversation_id} not found for tagging")
-            return
+            if not conversation:
+                logger.warning(f"Conversation {conversation_id} not found for tagging")
+                return
 
-        # Run tagging pipeline
-        tags, metrics = pipeline.tag_from_canonical(
-            conversation=conversation,
-            session=db,
-            children=[],  # Agent children already have session_end processed separately
-        )
+            # Run tagging pipeline (this makes OpenAI API calls)
+            tags, metrics = pipeline.tag_from_canonical(
+                conversation=conversation,
+                session=session,
+                children=[],  # Agent children already have session_end processed separately
+            )
 
-        # Update conversation with tags
-        conversation.tags = tags
-        db.commit()
+            # Update conversation with tags
+            conversation.tags = tags
+            session.commit()
 
-        logger.info(
-            f"Tagged conversation {conversation_id}: "
-            f"intent={tags.get('intent')}, outcome={tags.get('outcome')}, "
-            f"tokens={metrics.get('llm_total_tokens', 0)}"
-        )
+            logger.info(
+                f"Tagged conversation {conversation_id}: "
+                f"intent={tags.get('intent')}, outcome={tags.get('outcome')}, "
+                f"tokens={metrics.get('llm_total_tokens', 0)}"
+            )
 
     except Exception as e:
         logger.warning(f"Tagging failed for conversation {conversation_id}: {e}")
-        # Don't fail the request - tagging is optional
-        db.rollback()
+        # Don't propagate - tagging is optional
+
+
+def _tag_conversation_async(
+    conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session
+) -> None:
+    """Schedule conversation tagging in a background thread.
+
+    This returns immediately, releasing the request's database connection.
+    The actual tagging runs in a separate thread with its own session.
+
+    Args:
+        conversation_id: UUID of the conversation to tag
+        workspace_id: UUID of the workspace
+        db: Database session (unused, kept for API compatibility)
+    """
+    import threading
+
+    # Spawn background thread for tagging
+    thread = threading.Thread(
+        target=_tag_conversation_worker,
+        args=(conversation_id, workspace_id),
+        daemon=True,  # Don't block shutdown
+        name=f"tagger-{conversation_id}",
+    )
+    thread.start()
+    logger.debug(f"Spawned background tagging thread for conversation {conversation_id}")
 
 
 def generate_api_key() -> tuple[str, str, str]:
@@ -505,23 +528,29 @@ def submit_events(
             "total_ms": processing_time_ms,
         }
 
+        # Extract values BEFORE commit to avoid lazy load after session expires
+        conversation_id = conversation.id
+        workspace_id = collector.workspace_id
+        last_sequence = conversation.last_event_sequence
+        job_id = ingestion_job.id
+
         db.commit()
 
         # Run tagging pipeline after session completion (non-blocking)
         # This provides semantic parity with CLI/Watch/Upload ingestion paths
         if session_completed and settings.openai_api_key:
-            _tag_conversation_async(conversation.id, collector.workspace_id, db)
+            _tag_conversation_async(conversation_id, workspace_id, db)
 
         logger.debug(
-            f"Collector ingestion completed: job={ingestion_job.id}, "
-            f"conversation={conversation.id}, messages={messages_added}, "
+            f"Collector ingestion completed: job={job_id}, "
+            f"conversation={conversation_id}, messages={messages_added}, "
             f"time={processing_time_ms}ms"
         )
 
         return CollectorEventsResponse(
             accepted=len(new_events),
-            last_sequence=conversation.last_event_sequence,
-            conversation_id=conversation.id,
+            last_sequence=last_sequence,
+            conversation_id=conversation_id,
             warnings=warnings,
         )
 
@@ -680,15 +709,21 @@ def complete_session(
         summary=request.summary,
     )
 
+    # Extract values BEFORE commit to avoid lazy load after session expires
+    conversation_id = conversation.id
+    workspace_id = collector.workspace_id
+    message_count = conversation.message_count
+
     db.commit()
 
     # Run tagging pipeline after session completion (non-blocking)
+    # Note: This runs synchronously but uses its own session internally
     if settings.openai_api_key:
-        _tag_conversation_async(conversation.id, collector.workspace_id, db)
+        _tag_conversation_async(conversation_id, workspace_id, db)
 
     return CollectorSessionCompleteResponse(
         session_id=session_id,
-        conversation_id=conversation.id,
+        conversation_id=conversation_id,
         status="completed",
-        total_events=conversation.message_count,
+        total_events=message_count,
     )
