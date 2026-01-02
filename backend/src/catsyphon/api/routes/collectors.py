@@ -12,16 +12,10 @@ import hashlib
 import hmac
 import logging
 import secrets
-import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
-
-# Semaphore to limit concurrent tagging operations
-# This prevents background tagging threads from exhausting the connection pool
-# during high-throughput API ingestion
-_TAGGING_SEMAPHORE = threading.Semaphore(3)  # Max 3 concurrent tagging operations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
@@ -50,115 +44,30 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collectors", tags=["collectors"])
 
-# Lazy-initialized tagging pipeline (only created when needed)
-_tagging_pipeline = None
 
+def _queue_tagging(conversation_id: uuid.UUID, db: Session) -> None:
+    """Queue a conversation for async tagging.
 
-def _get_tagging_pipeline() -> Any:
-    """Get or create the tagging pipeline (lazy initialization).
-
-    Returns:
-        TaggingPipeline instance, or None if tagging is not configured.
-    """
-    global _tagging_pipeline
-    if _tagging_pipeline is None and settings.openai_api_key:
-        from pathlib import Path
-
-        from catsyphon.tagging import TaggingPipeline
-
-        # Convert cache_dir to Path if it's a string
-        cache_dir = None
-        if settings.tagging_cache_dir:
-            cache_dir = Path(settings.tagging_cache_dir)
-
-        _tagging_pipeline = TaggingPipeline(
-            openai_api_key=settings.openai_api_key,
-            openai_model="gpt-4o-mini",
-            cache_dir=cache_dir,
-            cache_ttl_days=settings.tagging_cache_ttl_days,
-            enable_cache=settings.tagging_enable_cache,
-        )
-        logger.info("TaggingPipeline initialized for collector events")
-    return _tagging_pipeline
-
-
-def _tag_conversation_worker(
-    conversation_id: uuid.UUID, workspace_id: uuid.UUID
-) -> None:
-    """Background worker that tags a conversation.
-
-    Runs in a separate thread with its own database session.
-    Uses a semaphore to limit concurrent tagging operations and prevent
-    connection pool exhaustion during high-throughput ingestion.
-    """
-    from catsyphon.db.connection import db_session
-
-    pipeline = _get_tagging_pipeline()
-    if not pipeline:
-        return
-
-    # Try to acquire semaphore with timeout - skip if too many concurrent taggers
-    if not _TAGGING_SEMAPHORE.acquire(blocking=True, timeout=5.0):
-        logger.debug(
-            f"Skipping tagging for {conversation_id} - too many concurrent operations"
-        )
-        return
-
-    try:
-        with db_session() as session:
-            conv_repo = ConversationRepository(session)
-            conversation = conv_repo.get_with_relations(conversation_id, workspace_id)
-
-            if not conversation:
-                logger.warning(f"Conversation {conversation_id} not found for tagging")
-                return
-
-            # Run tagging pipeline (this makes OpenAI API calls)
-            tags, metrics = pipeline.tag_from_canonical(
-                conversation=conversation,
-                session=session,
-                children=[],  # Agent children already have session_end processed separately
-            )
-
-            # Update conversation with tags
-            conversation.tags = tags
-            session.commit()
-
-            logger.info(
-                f"Tagged conversation {conversation_id}: "
-                f"intent={tags.get('intent')}, outcome={tags.get('outcome')}, "
-                f"tokens={metrics.get('llm_total_tokens', 0)}"
-            )
-
-    except Exception as e:
-        logger.warning(f"Tagging failed for conversation {conversation_id}: {e}")
-        # Don't propagate - tagging is optional
-    finally:
-        _TAGGING_SEMAPHORE.release()
-
-
-def _tag_conversation_async(
-    conversation_id: uuid.UUID, workspace_id: uuid.UUID, db: Session
-) -> None:
-    """Schedule conversation tagging in a background thread.
-
-    This returns immediately, releasing the request's database connection.
-    The actual tagging runs in a separate thread with its own session.
+    Adds the conversation to the tagging job queue. The actual tagging
+    is performed by the background TaggingWorker, preventing connection
+    pool exhaustion during high-throughput ingestion.
 
     Args:
         conversation_id: UUID of the conversation to tag
-        workspace_id: UUID of the workspace
-        db: Database session (unused, kept for API compatibility)
+        db: Database session for queue operations
     """
-    # Spawn background thread for tagging
-    thread = threading.Thread(
-        target=_tag_conversation_worker,
-        args=(conversation_id, workspace_id),
-        daemon=True,  # Don't block shutdown
-        name=f"tagger-{conversation_id}",
-    )
-    thread.start()
-    logger.debug(f"Spawned background tagging thread for conversation {conversation_id}")
+    if not settings.openai_api_key:
+        return  # Tagging not configured
+
+    from catsyphon.tagging import TaggingJobQueue
+
+    try:
+        queue = TaggingJobQueue(db)
+        job_id = queue.enqueue(conversation_id)
+        logger.debug(f"Queued tagging job {job_id} for conversation {conversation_id}")
+    except Exception as e:
+        # Don't fail ingestion if queueing fails
+        logger.warning(f"Failed to queue tagging for {conversation_id}: {e}")
 
 
 def generate_api_key() -> tuple[str, str, str]:
@@ -548,12 +457,12 @@ def submit_events(
         last_sequence = conversation.last_event_sequence
         job_id = ingestion_job.id
 
-        db.commit()
-
-        # Run tagging pipeline after session completion (non-blocking)
-        # This provides semantic parity with CLI/Watch/Upload ingestion paths
+        # Queue tagging job BEFORE commit so it's part of the same transaction
+        # This ensures the job is created atomically with the conversation
         if session_completed and settings.openai_api_key:
-            _tag_conversation_async(conversation_id, workspace_id, db)
+            _queue_tagging(conversation_id, db)
+
+        db.commit()
 
         logger.debug(
             f"Collector ingestion completed: job={job_id}, "
@@ -725,15 +634,13 @@ def complete_session(
 
     # Extract values BEFORE commit to avoid lazy load after session expires
     conversation_id = conversation.id
-    workspace_id = collector.workspace_id
     message_count = conversation.message_count
 
-    db.commit()
-
-    # Run tagging pipeline after session completion (non-blocking)
-    # Note: This runs synchronously but uses its own session internally
+    # Queue tagging job BEFORE commit so it's part of the same transaction
     if settings.openai_api_key:
-        _tag_conversation_async(conversation_id, workspace_id, db)
+        _queue_tagging(conversation_id, db)
+
+    db.commit()
 
     return CollectorSessionCompleteResponse(
         session_id=session_id,

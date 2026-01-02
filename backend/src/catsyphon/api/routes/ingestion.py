@@ -18,6 +18,7 @@ from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import (
     IngestionJobResponse,
     IngestionStatsResponse,
+    TaggingQueueStatsResponse,
 )
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
@@ -230,3 +231,37 @@ async def get_watch_config_ingestion_jobs(
     jobs = repo.get_by_watch_config(config_id, limit=page_size, offset=offset)
 
     return [IngestionJobResponse.model_validate(j) for j in jobs]
+
+
+@router.get("/ingestion/tagging-queue", response_model=TaggingQueueStatsResponse)
+async def get_tagging_queue_stats(
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(get_db),
+) -> TaggingQueueStatsResponse:
+    """
+    Get statistics about the async tagging job queue.
+
+    Returns:
+        Tagging queue statistics including pending/processing/completed counts
+        and worker status.
+    """
+    from catsyphon.tagging import TaggingJobQueue, get_worker_stats
+
+    # Get queue stats from database
+    queue = TaggingJobQueue(session)
+    queue_stats = queue.get_stats()
+
+    # Get worker stats (includes running status)
+    worker_stats = get_worker_stats()
+
+    return TaggingQueueStatsResponse(
+        worker_running=worker_stats.get("running", False),
+        pending=queue_stats.pending,
+        processing=queue_stats.processing,
+        completed=queue_stats.completed,
+        failed=queue_stats.failed,
+        total=queue_stats.total,
+        jobs_processed=worker_stats.get("jobs_processed", 0),
+        jobs_succeeded=worker_stats.get("jobs_succeeded", 0),
+        jobs_failed=worker_stats.get("jobs_failed", 0),
+    )

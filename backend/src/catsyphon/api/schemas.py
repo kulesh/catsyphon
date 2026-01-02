@@ -822,6 +822,33 @@ class IngestionStatsResponse(BaseModel):
     )
 
 
+class TaggingQueueStatsResponse(BaseModel):
+    """Response schema for tagging queue statistics."""
+
+    # Worker status
+    worker_running: bool = Field(
+        description="Whether the background tagging worker is currently running"
+    )
+
+    # Queue counts
+    pending: int = Field(default=0, description="Jobs waiting to be processed")
+    processing: int = Field(default=0, description="Jobs currently being processed")
+    completed: int = Field(default=0, description="Successfully completed jobs")
+    failed: int = Field(default=0, description="Jobs that failed after max retries")
+    total: int = Field(default=0, description="Total jobs in queue (all statuses)")
+
+    # Worker stats (if available)
+    jobs_processed: int = Field(
+        default=0, description="Total jobs processed by worker since startup"
+    )
+    jobs_succeeded: int = Field(
+        default=0, description="Jobs that succeeded since startup"
+    )
+    jobs_failed: int = Field(
+        default=0, description="Jobs that failed since startup"
+    )
+
+
 # ===== Setup / Onboarding Schemas =====
 
 

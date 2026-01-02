@@ -1332,3 +1332,90 @@ class AutomationRecommendation(Base):
             f"title={self.title!r}, "
             f"confidence={self.confidence:.2f})>"
         )
+
+
+class TaggingJobStatus(str, enum.Enum):
+    """Status of a tagging job in the async queue."""
+
+    PENDING = "pending"  # Waiting to be processed
+    PROCESSING = "processing"  # Currently being processed by worker
+    COMPLETED = "completed"  # Successfully completed
+    FAILED = "failed"  # Failed after max retries
+
+
+class TaggingJob(Base):
+    """
+    Async tagging job queue entry.
+
+    Provides a PostgreSQL-based job queue for decoupling tagging operations
+    from the request/response cycle. Jobs are created during ingestion and
+    processed by a background worker, eliminating connection pool contention.
+    """
+
+    __tablename__ = "tagging_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
+    # Target conversation to tag
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Job status
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending", index=True
+    )
+
+    # Priority for queue ordering (lower = higher priority)
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+
+    # Retry tracking
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    max_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="3"
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Error tracking
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    conversation: Mapped["Conversation"] = relationship()
+
+    # Partial index for efficient queue polling is created in migration
+    __table_args__ = (
+        Index(
+            "ix_tagging_jobs_pending",
+            "status",
+            "priority",
+            "created_at",
+            postgresql_where=(status == "pending"),
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<TaggingJob(id={self.id}, "
+            f"conversation_id={self.conversation_id}, "
+            f"status={self.status!r}, "
+            f"attempts={self.attempts})>"
+        )

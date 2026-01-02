@@ -28,6 +28,8 @@ from catsyphon.api.routes import (
 from catsyphon.daemon_manager import DaemonManager
 from catsyphon.logging_config import setup_logging
 from catsyphon.startup import run_all_startup_checks
+from catsyphon.tagging import start_worker as start_tagging_worker
+from catsyphon.tagging import stop_worker as stop_tagging_worker
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,10 @@ async def lifespan(app: FastAPI):
     # Start background threads
     daemon_manager.start()
     logger.info("✓ DaemonManager started")
+
+    # Start tagging worker for async tagging job processing
+    start_tagging_worker()
+    logger.info("✓ Tagging worker started")
 
     # Defer loading active configs until server is ready to handle requests.
     # This prevents deadlock when watch configs with use_api=True try to
@@ -105,6 +111,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: Stop all daemons and cleanup
     logger.info("Application shutdown initiated...")
+
+    # Stop tagging worker
+    try:
+        stop_tagging_worker(timeout=10)
+        logger.info("✓ Tagging worker shutdown complete")
+    except Exception as e:
+        logger.error(f"Error stopping tagging worker: {e}", exc_info=True)
+
+    # Stop daemon manager
     try:
         daemon_manager.shutdown(timeout=10)
         logger.info("✓ DaemonManager shutdown complete")
