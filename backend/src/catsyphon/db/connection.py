@@ -40,14 +40,15 @@ else:
     # Total connections = workers × (pool_size + max_overflow)
     # PostgreSQL max_connections is 200, so we can use:
     # 8 workers × (10 + 10) = 160 connections for API, leaves 40 for watch daemons/admin
+    # Configure via CATSYPHON_DB_POOL_* environment variables
     engine = create_engine(
         settings.database_url,
         echo=False,  # Disable SQL logging for performance
-        pool_size=10,  # Base connections per worker (8 workers × 10 = 80)
-        max_overflow=10,  # Extra connections per worker (8 workers × 10 = 80)
+        pool_size=settings.db_pool_size,  # Base connections per worker
+        max_overflow=settings.db_pool_max_overflow,  # Extra connections per worker
         pool_pre_ping=True,  # Verify connections before using
-        pool_timeout=30,  # Wait up to 30s for connection during bursts
-        pool_recycle=300,  # Recycle connections every 5 minutes to prevent stale connections
+        pool_timeout=settings.db_pool_timeout,  # Wait for connection during bursts
+        pool_recycle=settings.db_pool_recycle,  # Recycle connections to prevent stale
     )
 
 # Create session factory

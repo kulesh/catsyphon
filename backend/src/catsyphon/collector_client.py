@@ -16,6 +16,7 @@ from uuid import UUID
 
 import httpx
 
+from catsyphon.config import settings
 from catsyphon.models.parsed import ParsedConversation, ParsedMessage
 
 logger = logging.getLogger(__name__)
@@ -41,14 +42,30 @@ def _serialize_for_json(obj: Any) -> Any:
 
 @dataclass
 class CollectorConfig:
-    """Configuration for the collector client."""
+    """
+    Configuration for the collector client.
+
+    Defaults are loaded from settings (environment variables):
+    - batch_size: CATSYPHON_COLLECTOR_BATCH_SIZE (default: 20)
+    - max_retries: CATSYPHON_COLLECTOR_MAX_RETRIES (default: 3)
+    - timeout: CATSYPHON_COLLECTOR_HTTP_TIMEOUT (default: 30)
+    """
 
     server_url: str
     api_key: str
     collector_id: str
-    batch_size: int = 20
-    max_retries: int = 3
-    timeout: float = 30.0
+    batch_size: int | None = None
+    max_retries: int | None = None
+    timeout: float | None = None
+
+    def __post_init__(self) -> None:
+        """Apply settings defaults for None values."""
+        if self.batch_size is None:
+            self.batch_size = settings.collector_batch_size
+        if self.max_retries is None:
+            self.max_retries = settings.collector_max_retries
+        if self.timeout is None:
+            self.timeout = float(settings.collector_http_timeout)
 
 
 @dataclass

@@ -54,13 +54,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ApiIngestionConfig:
-    """Configuration for API-based ingestion (--use-api mode)."""
+    """
+    Configuration for API-based ingestion (--use-api mode).
+
+    batch_size defaults to CATSYPHON_COLLECTOR_BATCH_SIZE (default: 20).
+    """
 
     enabled: bool = False
     server_url: str = "http://localhost:8000"
     api_key: str = ""
     collector_id: str = ""
-    batch_size: int = 20
+    batch_size: int | None = None
+
+    def __post_init__(self) -> None:
+        """Apply settings defaults for None values."""
+        if self.batch_size is None:
+            self.batch_size = settings.collector_batch_size
 
     @classmethod
     def from_extra_config(cls, extra_config: Optional[dict[str, Any]]) -> "ApiIngestionConfig":
@@ -73,7 +82,7 @@ class ApiIngestionConfig:
             server_url=extra_config.get("api_url", "http://localhost:8000"),
             api_key=extra_config.get("api_key", ""),
             collector_id=extra_config.get("collector_id", ""),
-            batch_size=extra_config.get("api_batch_size", 20),
+            batch_size=extra_config.get("api_batch_size"),  # Uses settings default if None
         )
 
 
@@ -864,11 +873,13 @@ class WatcherDaemon:
 
     def _stats_push_loop(self) -> None:
         """
-        Background thread that pushes stats to queue every 30 seconds.
+        Background thread that pushes stats to queue periodically.
 
         Stats are sent to parent process via multiprocessing.Queue for persistence.
+        Interval is configured via CATSYPHON_WATCH_STATS_INTERVAL (default: 30s).
         """
-        logger.info("Stats push thread started (interval: 30s)")
+        interval = settings.watch_stats_interval
+        logger.info(f"Stats push thread started (interval: {interval}s)")
 
         while not self.shutdown_event.is_set():
             try:
@@ -889,8 +900,8 @@ class WatcherDaemon:
             except Exception as e:
                 logger.error(f"Error in stats push loop: {e}", exc_info=True)
 
-            # Wait 30 seconds before next push
-            self.shutdown_event.wait(timeout=30)
+            # Wait for configured interval before next push
+            self.shutdown_event.wait(timeout=interval)
 
         logger.info("Stats push thread stopped")
 
