@@ -457,8 +457,13 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         if event_timestamp.tzinfo is not None:
             event_timestamp = event_timestamp.replace(tzinfo=None)
 
+        # Also normalize existing end_time (may be aware from old data)
+        existing_end_time = conversation.end_time
+        if existing_end_time is not None and existing_end_time.tzinfo is not None:
+            existing_end_time = existing_end_time.replace(tzinfo=None)
+
         # Update end_time to latest event if newer
-        if conversation.end_time is None or event_timestamp > conversation.end_time:
+        if existing_end_time is None or event_timestamp > existing_end_time:
             conversation.end_time = event_timestamp
         self.session.flush()
 
