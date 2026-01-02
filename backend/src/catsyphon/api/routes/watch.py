@@ -43,20 +43,22 @@ async def get_suggested_paths(
     suggestions = []
     home = Path.home()
 
-    # Known Claude Code log locations
+    # AI coding assistant log locations (parent directories)
     candidates = [
-        (home / ".claude" / "projects", "Claude Code Logs", "All Claude Code projects"),
-        (home / ".claude", "Claude Home", "Root Claude directory"),
+        (home / ".claude", "Claude", "Claude Code logs", "projects"),
+        (home / ".codex", "Codex", "Codex CLI logs", "sessions"),
+        (home / ".opencode", "OpenCode", "OpenCode logs", "sessions"),
     ]
 
-    for path, name, description in candidates:
+    for path, name, description, subdir in candidates:
         if path.exists() and path.is_dir():
-            # Count subdirectories for projects folder
+            # Count projects/sessions in the expected subdirectory
             project_count = None
-            if path.name == "projects":
+            projects_path = path / subdir
+            if projects_path.exists() and projects_path.is_dir():
                 try:
                     project_count = len(
-                        [p for p in path.iterdir() if p.is_dir()]
+                        [p for p in projects_path.iterdir() if p.is_dir()]
                     )
                 except PermissionError:
                     pass

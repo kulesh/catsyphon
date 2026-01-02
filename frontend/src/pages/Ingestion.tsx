@@ -665,6 +665,7 @@ function WatchDirectoriesTab() {
   };
 
   // Quick-add a suggested path and auto-start watching
+  // Uses AI tagging + API mode by default for optimal setup
   const handleQuickAdd = async (path: string) => {
     setPathError(null);
 
@@ -675,10 +676,11 @@ function WatchDirectoriesTab() {
         return;
       }
 
-      // Create the config
+      // Create the config with AI tagging and API mode enabled
       const newConfig = await createWatchConfig({
         directory: validation.expanded_path,
-        enable_tagging: false,
+        enable_tagging: true,
+        extra_config: { use_api: true },
       });
 
       // Auto-start watching
