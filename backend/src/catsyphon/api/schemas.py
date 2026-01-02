@@ -1580,3 +1580,42 @@ class BenchmarkStatusResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+
+
+# ===== Recap Schemas =====
+
+
+class ConversationRecapResponse(BaseModel):
+    """Response schema for conversation recap."""
+
+    conversation_id: UUID
+    version: int
+    summary: str
+    key_files: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    canonical_version: int
+    generated_at: datetime
+
+
+class WeeklyDigestRequest(BaseModel):
+    """Request schema for weekly digest generation."""
+
+    period_start: datetime
+    period_end: datetime
+
+
+class WeeklyDigestResponse(BaseModel):
+    """Response schema for weekly digest."""
+
+    workspace_id: UUID
+    period_start: datetime
+    period_end: datetime
+    version: int
+    summary: str
+    wins: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    generated_at: datetime

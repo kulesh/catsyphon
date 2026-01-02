@@ -15,11 +15,13 @@ from catsyphon.api.routes import (
     canonical,
     collectors,
     conversations,
+    digests,
     ingestion,
     insights,
     metadata,
     plans,
     projects,
+    recaps,
     recommendations,
     setup,
     stats,
@@ -200,6 +202,8 @@ app.include_router(benchmarks.router)  # /benchmarks/* endpoints
 app.include_router(
     conversations.router, prefix="/conversations", tags=["conversations"]
 )
+app.include_router(recaps.router, prefix="/conversations", tags=["recaps"])
+app.include_router(digests.router)
 app.include_router(canonical.router, prefix="/conversations", tags=["canonical"])
 app.include_router(insights.router, prefix="/conversations", tags=["insights"])
 app.include_router(metadata.router, prefix="", tags=["metadata"])
