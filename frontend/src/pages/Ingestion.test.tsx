@@ -40,6 +40,18 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// Mock WorkspaceContext
+vi.mock('@/contexts/WorkspaceContext', () => ({
+  useWorkspace: () => ({
+    currentWorkspace: { id: 'test-workspace-id', name: 'Test Workspace' },
+    workspaces: [{ id: 'test-workspace-id', name: 'Test Workspace' }],
+    isLoading: false,
+    error: null,
+    setCurrentWorkspace: vi.fn(),
+    refreshWorkspaces: vi.fn(),
+  }),
+}));
+
 // Helper to create a mock File object
 const createMockFile = (name: string, type = 'application/jsonl'): File => {
   const blob = new Blob(['mock content'], { type });

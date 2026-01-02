@@ -50,6 +50,7 @@ import type {
   IngestionJobResponse,
 } from '@/types/api';
 import { Tooltip, Sparkline } from '@/components';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 type Tab = 'upload' | 'watch' | 'activity' | 'history';
 
@@ -556,6 +557,7 @@ function BulkUploadTab() {
 
 function WatchDirectoriesTab() {
   const queryClient = useQueryClient();
+  const { currentWorkspace, isLoading: isWorkspaceLoading } = useWorkspace();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newDirectory, setNewDirectory] = useState('');
   const [enableTagging, setEnableTagging] = useState(false);
@@ -563,16 +565,18 @@ function WatchDirectoriesTab() {
   const [pathError, setPathError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
-  // Fetch watch configs
+  // Fetch watch configs - only when workspace is ready
   const { data: configs, isLoading, error } = useQuery({
-    queryKey: ['watchConfigs'],
+    queryKey: ['watchConfigs', currentWorkspace?.id],
     queryFn: () => getWatchConfigs(),
+    enabled: !!currentWorkspace && !isWorkspaceLoading,
   });
 
-  // Fetch suggested paths
+  // Fetch suggested paths - only when workspace is ready
   const { data: suggestions } = useQuery({
-    queryKey: ['watchPathSuggestions'],
+    queryKey: ['watchPathSuggestions', currentWorkspace?.id],
     queryFn: () => getSuggestedPaths(),
+    enabled: !!currentWorkspace && !isWorkspaceLoading,
   });
 
   // Create watch config mutation
@@ -687,7 +691,7 @@ function WatchDirectoriesTab() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isWorkspaceLoading) {
     return (
       <div className="text-center py-12">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
