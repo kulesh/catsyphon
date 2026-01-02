@@ -555,22 +555,24 @@ class FileWatcher(FileSystemEventHandler):
                 created_by=None,
                 enable_incremental=True,
             )
+
+            # Compute fingerprint INSIDE session context (before messages become detached)
+            fingerprint = None
+            if outcome.conversation and hasattr(outcome.conversation, 'messages'):
+                from catsyphon.collector_client import compute_ingestion_fingerprint
+                try:
+                    fingerprint = compute_ingestion_fingerprint(outcome.conversation.messages)
+                    logger.debug(f"Ingestion fingerprint (direct): {fingerprint[:16]}...")
+                except Exception as fp_error:
+                    logger.debug(f"Could not compute fingerprint: {fp_error}")
+
+            # Extract IDs before session closes (to avoid DetachedInstanceError)
+            status = outcome.status or "success"
+            conversation_id = outcome.conversation_id or (
+                outcome.conversation.id if outcome.conversation else None
+            )
+
             session.commit()
-
-        status = outcome.status or "success"
-        conversation_id = outcome.conversation_id or (
-            outcome.conversation.id if outcome.conversation else None
-        )
-
-        # Compute fingerprint for reconciliation
-        fingerprint = None
-        if outcome.conversation and hasattr(outcome.conversation, 'messages'):
-            from catsyphon.collector_client import compute_ingestion_fingerprint
-            try:
-                fingerprint = compute_ingestion_fingerprint(outcome.conversation.messages)
-                logger.debug(f"Ingestion fingerprint (direct): {fingerprint[:16]}...")
-            except Exception as fp_error:
-                logger.debug(f"Could not compute fingerprint: {fp_error}")
 
         if conversation_id:
             logger.info(
