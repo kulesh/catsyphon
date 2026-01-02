@@ -686,8 +686,11 @@ function WatchDirectoriesTab() {
       // Auto-start watching
       await startWatching(newConfig.id);
 
-      // Refresh the list
-      queryClient.invalidateQueries({ queryKey: ['watchConfigs'] });
+      // Refresh both lists - await to ensure UI updates
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['watchConfigs'] }),
+        queryClient.invalidateQueries({ queryKey: ['suggestedPaths'] }),
+      ]);
     } catch (err) {
       alert(`Failed to add directory: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
