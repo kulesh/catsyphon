@@ -573,7 +573,7 @@ function WatchDirectoriesTab() {
   });
 
   // Fetch suggested paths - only when workspace is ready
-  const { data: suggestions } = useQuery({
+  const { data: suggestions, isLoading: isLoadingSuggestions } = useQuery({
     queryKey: ['watchPathSuggestions', currentWorkspace?.id],
     queryFn: () => getSuggestedPaths(),
     enabled: !!currentWorkspace && !isWorkspaceLoading,
@@ -689,14 +689,14 @@ function WatchDirectoriesTab() {
       // Refresh both lists - await to ensure UI updates
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['watchConfigs'] }),
-        queryClient.invalidateQueries({ queryKey: ['suggestedPaths'] }),
+        queryClient.invalidateQueries({ queryKey: ['watchPathSuggestions'] }),
       ]);
     } catch (err) {
       alert(`Failed to add directory: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
-  if (isLoading || isWorkspaceLoading) {
+  if (isLoading || isWorkspaceLoading || isLoadingSuggestions) {
     return (
       <div className="text-center py-12">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
