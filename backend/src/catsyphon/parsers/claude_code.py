@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -110,10 +110,12 @@ class ClaudeCodeParser:
         )
         # Collect parse issues for upstream reporting
         self._collected_issues: list[ParseIssue] = []
+        self._missing_timestamp_warned = False
 
     def _clear_issues(self) -> None:
         """Clear collected issues before a new parse."""
         self._collected_issues = []
+        self._missing_timestamp_warned = False
 
     def _add_warning(
         self,
@@ -824,23 +826,26 @@ class ClaudeCodeParser:
         msg_type = msg_data.get("type")
         subtype = msg_data.get("subtype")
 
-        # Extract timestamp
-        timestamp_str = msg_data.get("timestamp")
+        # Extract timestamp with fallbacks
+        timestamp_str = msg_data.get("timestamp") or self._fallback_timestamp(msg_data)
+        timestamp: datetime
         if not timestamp_str:
-            self._add_warning(
-                f"Non-conversational message {msg_data.get('uuid')} missing timestamp",
-                field="timestamp",
-            )
-            return None
-
-        try:
-            timestamp = parse_iso_timestamp(timestamp_str)
-        except ValueError as e:
-            self._add_warning(
-                f"Invalid timestamp in message {msg_data.get('uuid')}: {e}",
-                field="timestamp",
-            )
-            return None
+            timestamp = datetime.now(timezone.utc)
+            if not self._missing_timestamp_warned:
+                self._add_warning(
+                    "Non-conversational messages missing timestamp; using observed time",
+                    field="timestamp",
+                )
+                self._missing_timestamp_warned = True
+        else:
+            try:
+                timestamp = parse_iso_timestamp(timestamp_str)
+            except ValueError as e:
+                self._add_warning(
+                    f"Invalid timestamp in message {msg_data.get('uuid')}: {e}",
+                    field="timestamp",
+                )
+                return None
 
         # Determine author_role and message_type based on raw type
         author_role = "system"  # Default for all non-conversational
@@ -915,6 +920,26 @@ class ClaudeCodeParser:
             observed_at=observed_at,
             raw_data=msg_data,
         )
+
+    def _fallback_timestamp(self, msg_data: dict[str, Any]) -> Optional[str]:
+        """Infer timestamps for non-conversational records when missing."""
+        msg_type = msg_data.get("type")
+        if msg_type == "file-history-snapshot":
+            snapshot = msg_data.get("snapshot", {})
+            if isinstance(snapshot, dict):
+                snapshot_ts = snapshot.get("timestamp")
+                if snapshot_ts:
+                    return snapshot_ts
+                backups = snapshot.get("trackedFileBackups", {})
+                if isinstance(backups, dict):
+                    backup_times = [
+                        entry.get("backupTime")
+                        for entry in backups.values()
+                        if isinstance(entry, dict) and entry.get("backupTime")
+                    ]
+                    if backup_times:
+                        return max(backup_times)
+        return None
 
     def _map_role_to_author_role(self, role: str) -> str:
         """
