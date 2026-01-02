@@ -25,6 +25,8 @@ import type {
   ProjectSessionsResponse,
   ProjectStats,
   ProjectAnalytics,
+  BenchmarkResultResponse,
+  BenchmarkStatusResponse,
   RecommendationListResponse,
   RecommendationResponse,
   RecommendationUpdate,
@@ -52,11 +54,19 @@ export class ApiError extends Error {
 // ===== Workspace Header =====
 
 const WORKSPACE_STORAGE_KEY = 'catsyphon_current_workspace_id';
+const BENCHMARKS_TOKEN = import.meta.env.VITE_BENCHMARKS_TOKEN as string | undefined;
 
 function getWorkspaceHeaders(): Record<string, string> {
   const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY);
   if (workspaceId) {
     return { 'X-Workspace-Id': workspaceId };
+  }
+  return {};
+}
+
+function getBenchmarkHeaders(): Record<string, string> {
+  if (BENCHMARKS_TOKEN) {
+    return { 'X-Benchmark-Token': BENCHMARKS_TOKEN };
   }
   return {};
 }
@@ -195,6 +205,27 @@ export async function getOverviewStats(
 
   const query = params.toString();
   return apiFetch<OverviewStats>(`/stats/overview${query ? `?${query}` : ''}`);
+}
+
+// ===== Benchmark Endpoints =====
+
+export async function getBenchmarkStatus(): Promise<BenchmarkStatusResponse> {
+  return apiFetch<BenchmarkStatusResponse>('/benchmarks/status', {
+    headers: getBenchmarkHeaders(),
+  });
+}
+
+export async function runBenchmarks(): Promise<BenchmarkStatusResponse> {
+  return apiFetch<BenchmarkStatusResponse>('/benchmarks/run', {
+    method: 'POST',
+    headers: getBenchmarkHeaders(),
+  });
+}
+
+export async function getLatestBenchmarkResults(): Promise<BenchmarkResultResponse> {
+  return apiFetch<BenchmarkResultResponse>('/benchmarks/results/latest', {
+    headers: getBenchmarkHeaders(),
+  });
 }
 
 // ===== Health Endpoint =====

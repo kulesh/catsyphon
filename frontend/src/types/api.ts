@@ -810,3 +810,26 @@ export interface RecommendationSummaryStats {
   by_type: Record<string, number>;
   average_confidence: number;
 }
+
+export interface BenchmarkItem {
+  name: string;
+  status: string;
+  data: Record<string, any>;
+  error?: string | null;
+}
+
+export interface BenchmarkResultResponse {
+  run_id: string;
+  started_at: string;
+  completed_at: string;
+  benchmarks: BenchmarkItem[];
+  environment: Record<string, any>;
+}
+
+export interface BenchmarkStatusResponse {
+  status: string;
+  run_id?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+}

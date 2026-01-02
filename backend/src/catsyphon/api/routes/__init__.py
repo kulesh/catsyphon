@@ -3,6 +3,7 @@ API routes for CatSyphon.
 """
 
 from catsyphon.api.routes import (
+    benchmarks,
     canonical,
     collectors,
     conversations,
@@ -18,6 +19,7 @@ from catsyphon.api.routes import (
 )
 
 __all__ = [
+    "benchmarks",
     "canonical",
     "collectors",
     "conversations",

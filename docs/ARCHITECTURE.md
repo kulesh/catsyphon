@@ -1042,6 +1042,11 @@ class ProjectStats(BaseModel):
 3. **Virtualization**: Large lists use react-virtual (future)
 4. **Memoization**: useMemo/useCallback for expensive computations
 
+### Performance Benchmarks
+
+See [Benchmarks](./benchmarks.md) for how to run and review performance
+benchmarks from the web UI or CLI.
+
 ## Security Considerations
 
 ### Authentication & Authorization
