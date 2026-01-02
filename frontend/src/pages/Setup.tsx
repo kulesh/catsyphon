@@ -15,11 +15,13 @@ import {
   type Organization,
   type Workspace,
 } from '@/lib/api-setup';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 type Step = 'welcome' | 'organization' | 'workspace' | 'success';
 
 export default function Setup() {
   const navigate = useNavigate();
+  const { setCurrentWorkspace, refreshWorkspaces } = useWorkspace();
   const [step, setStep] = useState<Step>('welcome');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +97,8 @@ export default function Setup() {
 
       const created = await createWorkspace(data);
       setWorkspace(created);
+      setCurrentWorkspace(created);
+      await refreshWorkspaces();
       setStep('success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create workspace');
