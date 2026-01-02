@@ -46,7 +46,7 @@ def get_conversation_insights(
     5. Caching the result with activity-based TTL
 
     **Insights Generated:**
-    - **Workflow patterns**: Observable patterns (e.g., "iterative-refinement", "error-driven")
+    - **Workflow patterns**: Observable patterns (e.g., "iterative-refinement")
     - **Productivity indicators**: Signals of productivity (e.g., "high-tool-diversity")
     - **Collaboration quality**: How well human and agent worked together (1-10)
     - **Key moments**: Critical turning points in the conversation
@@ -113,7 +113,7 @@ def get_conversation_insights(
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=500,
-            detail="OpenAI API key not configured. Insights generation requires AI analysis.",
+            detail="OpenAI API key not configured. Insights require AI analysis.",
         )
 
     insights_generator = InsightsGenerator(
@@ -191,20 +191,23 @@ def get_batch_insights(
             status_code=404, detail=f"No conversations found for project {project_id}"
         )
 
-    # Get insights for each conversation (using cache when available)
+    # ===== OPTIMIZED: Batch cache lookup instead of N+1 queries =====
     insights_repo = InsightsRepository(session)
     insights_generator = None  # Lazy init
 
+    # Batch lookup for all conversation IDs at once
+    conversation_ids = [conv.id for conv in conversations]
+    cached_insights = insights_repo.get_cached_batch(conversation_ids)
+
     all_insights = []
-    cache_hits = 0
+    cache_hits = len(cached_insights)
     cache_misses = 0
 
     for conv in conversations:
-        # Check cache first
-        cached = insights_repo.get_cached(conv.id)
+        # Check batch cache lookup
+        cached = cached_insights.get(conv.id)
         if cached:
             all_insights.append(cached.to_response_dict())
-            cache_hits += 1
             continue
 
         # Cache miss - need to generate
