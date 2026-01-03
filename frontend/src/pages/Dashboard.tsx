@@ -5,7 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy } from 'lucide-react';
+import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles } from 'lucide-react';
 import { ApiError, generateWeeklyDigest, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest } from '@/lib/api';
 import { useMemo } from 'react';
 
