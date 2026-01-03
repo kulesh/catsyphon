@@ -6,13 +6,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles } from 'lucide-react';
-import { ApiError, generateWeeklyDigest, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest } from '@/lib/api';
+import { ApiError, generateWeeklyDigest, getBenchmarkAvailability, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest, hasBenchmarkToken } from '@/lib/api';
 import { useMemo, useState } from 'react';
 
 export default function Dashboard() {
   const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
   const [digestPollEnabled, setDigestPollEnabled] = useState(true);
   const [digestMissing, setDigestMissing] = useState(false);
+
+  const benchmarkAvailabilityQuery = useQuery({
+    queryKey: ['benchmarks', 'availability'],
+    queryFn: () => getBenchmarkAvailability(),
+    retry: false,
+    staleTime: 60000,
+  });
+
+  const benchmarkRequiresToken = benchmarkAvailabilityQuery.data?.requires_token ?? false;
+  const benchmarkEnabledByConfig = benchmarkAvailabilityQuery.data?.enabled ?? true;
+  const benchmarkHasToken = hasBenchmarkToken();
+  const benchmarkEnabled =
+    benchmarksAvailable &&
+    benchmarkEnabledByConfig &&
+    (!benchmarkRequiresToken || benchmarkHasToken);
 
   const { data: stats, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
     queryKey: ['stats', 'overview'],
@@ -25,8 +40,8 @@ export default function Dashboard() {
     queryKey: ['benchmarks', 'status'],
     queryFn: () => getBenchmarkStatus(),
     retry: false,
-    enabled: benchmarksAvailable,
-    refetchInterval: benchmarksAvailable ? 15000 : false,
+    enabled: benchmarkEnabled,
+    refetchInterval: benchmarkEnabled ? 15000 : false,
     onError: (err) => {
       if (err instanceof ApiError && err.status === 403) {
         setBenchmarksAvailable(false);
@@ -37,11 +52,9 @@ export default function Dashboard() {
   const benchmarkResultsQuery = useQuery({
     queryKey: ['benchmarks', 'results', 'latest'],
     queryFn: () => getLatestBenchmarkResults(),
-    enabled:
-      benchmarksAvailable &&
-      benchmarkStatusQuery.data?.status === 'completed',
+    enabled: benchmarkEnabled && benchmarkStatusQuery.data?.status === 'completed',
     retry: false,
-    refetchInterval: benchmarksAvailable ? 15000 : false,
+    refetchInterval: benchmarkEnabled ? 15000 : false,
   });
 
   const queryClient = useQueryClient();
@@ -122,8 +135,6 @@ export default function Dashboard() {
   if (!stats) {
     return null;
   }
-
-  const benchmarkEnabled = benchmarksAvailable;
 
   const benchmarkStatus = benchmarkStatusQuery.data?.status;
   const benchmarkRunId = benchmarkStatusQuery.data?.run_id;
@@ -434,9 +445,21 @@ export default function Dashboard() {
           )}
         </div>
 
-        {!benchmarkEnabled && (
+        {!benchmarkEnabledByConfig && (
           <p className="text-sm font-mono text-muted-foreground">
             Benchmarks are disabled. Enable them in the backend settings to see results here.
+          </p>
+        )}
+
+        {benchmarkEnabledByConfig && benchmarkRequiresToken && !benchmarkHasToken && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Benchmarks require a token. Set `VITE_BENCHMARKS_TOKEN` to enable access.
+          </p>
+        )}
+
+        {!benchmarksAvailable && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Benchmarks are unavailable. Check your benchmark token or backend settings.
           </p>
         )}
 

@@ -1582,6 +1582,13 @@ class BenchmarkStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+class BenchmarkAvailabilityResponse(BaseModel):
+    """Response schema for benchmark availability."""
+
+    enabled: bool
+    requires_token: bool
+
+
 # ===== Recap Schemas =====
 
 

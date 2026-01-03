@@ -818,6 +818,11 @@ export interface BenchmarkItem {
   error?: string | null;
 }
 
+export interface BenchmarkAvailabilityResponse {
+  enabled: boolean;
+  requires_token: boolean;
+}
+
 export interface BenchmarkResultResponse {
   run_id: string;
   started_at: string;

@@ -7,20 +7,37 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Activity, Gauge, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import {
   ApiError,
+  getBenchmarkAvailability,
   getBenchmarkStatus,
   getLatestBenchmarkResults,
+  hasBenchmarkToken,
   runBenchmarks,
 } from '@/lib/api';
 
 export default function Benchmarks() {
   const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
+  const availabilityQuery = useQuery({
+    queryKey: ['benchmarks', 'availability'],
+    queryFn: () => getBenchmarkAvailability(),
+    retry: false,
+    staleTime: 60000,
+  });
+
+  const benchmarkRequiresToken = availabilityQuery.data?.requires_token ?? false;
+  const benchmarkEnabledByConfig = availabilityQuery.data?.enabled ?? true;
+  const benchmarkHasToken = hasBenchmarkToken();
+  const benchmarkEnabled =
+    benchmarksAvailable &&
+    benchmarkEnabledByConfig &&
+    (!benchmarkRequiresToken || benchmarkHasToken);
+
   const statusQuery = useQuery({
     queryKey: ['benchmarks', 'status'],
     queryFn: () => getBenchmarkStatus(),
-    enabled: benchmarksAvailable,
+    enabled: benchmarkEnabled,
     retry: false,
     refetchInterval: (data) =>
-      benchmarksAvailable ? (data?.status === 'running' ? 2000 : 10000) : false,
+      benchmarkEnabled ? (data?.status === 'running' ? 2000 : 10000) : false,
     onError: (err) => {
       if (err instanceof ApiError && err.status === 403) {
         setBenchmarksAvailable(false);
@@ -31,8 +48,7 @@ export default function Benchmarks() {
   const resultsQuery = useQuery({
     queryKey: ['benchmarks', 'results', 'latest'],
     queryFn: () => getLatestBenchmarkResults(),
-    enabled:
-      benchmarksAvailable && statusQuery.data?.status === 'completed',
+    enabled: benchmarkEnabled && statusQuery.data?.status === 'completed',
     retry: false,
   });
 
@@ -43,7 +59,7 @@ export default function Benchmarks() {
     },
   });
 
-  const status = statusQuery.data?.status || (benchmarksAvailable ? 'unknown' : 'disabled');
+  const status = statusQuery.data?.status || (benchmarkEnabled ? 'unknown' : 'disabled');
   const lastRunId = statusQuery.data?.run_id;
 
   const results = resultsQuery.data;
@@ -81,7 +97,7 @@ export default function Benchmarks() {
               <button
                 onClick={() => runMutation.mutate()}
                 disabled={
-                  runMutation.isPending || status === 'running' || !benchmarksAvailable
+                  runMutation.isPending || status === 'running' || !benchmarkEnabled
                 }
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 transition disabled:opacity-50"
               >
@@ -90,7 +106,7 @@ export default function Benchmarks() {
               </button>
               <button
                 onClick={() => statusQuery.refetch()}
-                disabled={!benchmarksAvailable}
+                disabled={!benchmarkEnabled}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -99,7 +115,7 @@ export default function Benchmarks() {
             </div>
           </div>
 
-          {!benchmarksAvailable && (
+          {!benchmarkEnabledByConfig && (
             <div className="mt-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
               <div className="flex items-center gap-2 text-amber-300">
                 <AlertTriangle className="w-4 h-4" />
@@ -110,7 +126,29 @@ export default function Benchmarks() {
             </div>
           )}
 
-          {statusQuery.isError && benchmarksAvailable && (
+          {benchmarkEnabledByConfig && benchmarkRequiresToken && !benchmarkHasToken && (
+            <div className="mt-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-2 text-amber-300">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-sm font-mono">
+                  Benchmarks require a token. Set `VITE_BENCHMARKS_TOKEN` to access them.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {!benchmarksAvailable && (
+            <div className="mt-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-2 text-amber-300">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-sm font-mono">
+                  Benchmarks are unavailable. Check your benchmark token or backend settings.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {statusQuery.isError && benchmarkEnabled && (
             <div className="mt-4 p-4 rounded-lg bg-red-500/10 border border-red-500/20">
               <div className="flex items-center gap-2 text-red-300">
                 <AlertTriangle className="w-4 h-4" />

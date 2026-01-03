@@ -25,6 +25,7 @@ import type {
   ProjectSessionsResponse,
   ProjectStats,
   ProjectAnalytics,
+  BenchmarkAvailabilityResponse,
   BenchmarkResultResponse,
   BenchmarkStatusResponse,
   ConversationRecapResponse,
@@ -72,6 +73,10 @@ function getBenchmarkHeaders(): Record<string, string> {
     return { 'X-Benchmark-Token': BENCHMARKS_TOKEN };
   }
   return {};
+}
+
+export function hasBenchmarkToken(): boolean {
+  return Boolean(BENCHMARKS_TOKEN);
 }
 
 // ===== Base Fetch Wrapper =====
@@ -211,6 +216,10 @@ export async function getOverviewStats(
 }
 
 // ===== Benchmark Endpoints =====
+
+export async function getBenchmarkAvailability(): Promise<BenchmarkAvailabilityResponse> {
+  return apiFetch<BenchmarkAvailabilityResponse>('/benchmarks/availability');
+}
 
 export async function getBenchmarkStatus(): Promise<BenchmarkStatusResponse> {
   return apiFetch<BenchmarkStatusResponse>('/benchmarks/status', {
