@@ -42,9 +42,13 @@ class RecapGenerator:
     """Generate recaps using canonical narratives."""
 
     def __init__(
-        self, api_key: str, model: str = "gpt-4o-mini", max_tokens: int = 600
+        self,
+        api_key: str,
+        model: str = "gpt-4o-mini",
+        max_tokens: int = 600,
+        timeout_s: float = 60.0,
     ):
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, timeout=timeout_s)
         self.model = model
         self.max_tokens = max_tokens
 

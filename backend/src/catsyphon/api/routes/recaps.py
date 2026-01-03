@@ -1,5 +1,6 @@
 """Recap API routes."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,6 +19,7 @@ from catsyphon.db.repositories import (
 from catsyphon.recaps import RecapGenerator
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/{conversation_id}/recap", response_model=ConversationRecapResponse)
@@ -100,7 +102,19 @@ def generate_conversation_recap(
 
     generator = RecapGenerator(api_key=settings.openai_api_key)
     children = conversation.children if hasattr(conversation, "children") else []
-    recap, llm_metrics = generator.generate(conversation, session, children=children)
+    logger.info("Generating recap for conversation %s", conversation_id)
+    try:
+        recap, llm_metrics = generator.generate(
+            conversation,
+            session,
+            children=children,
+        )
+    except Exception as exc:
+        logger.exception("Recap generation failed for conversation %s", conversation_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Recap generation failed. Check server logs for details.",
+        ) from exc
 
     metadata = recap.get("metadata", {})
     metadata["llm_metrics"] = llm_metrics
@@ -112,6 +126,7 @@ def generate_conversation_recap(
         canonical_version=llm_metrics.get("canonical_version", 1),
     )
     session.commit()
+    logger.info("Recap saved for conversation %s", conversation_id)
 
     return ConversationRecapResponse(
         conversation_id=saved.conversation_id,
