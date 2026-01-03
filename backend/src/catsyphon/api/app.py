@@ -20,6 +20,7 @@ from catsyphon.api.routes import (
     insights,
     metadata,
     plans,
+    patterns,
     projects,
     recaps,
     recommendations,
@@ -204,6 +205,7 @@ app.include_router(
 )
 app.include_router(recaps.router, prefix="/conversations", tags=["recaps"])
 app.include_router(digests.router)
+app.include_router(patterns.router)
 app.include_router(canonical.router, prefix="/conversations", tags=["canonical"])
 app.include_router(insights.router, prefix="/conversations", tags=["insights"])
 app.include_router(metadata.router, prefix="", tags=["metadata"])

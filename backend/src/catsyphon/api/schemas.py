@@ -1619,3 +1619,29 @@ class WeeklyDigestResponse(BaseModel):
     highlights: list[str] = Field(default_factory=list)
     metrics: dict[str, Any] = Field(default_factory=dict)
     generated_at: datetime
+
+
+# ===== Workflow Pattern Schemas =====
+
+
+class WorkflowPatternExample(BaseModel):
+    """Example conversation for a workflow pattern."""
+
+    conversation_id: UUID
+    summary: Optional[str] = None
+    outcome: Optional[str] = None
+
+
+class WorkflowPatternItem(BaseModel):
+    """Aggregated workflow pattern signal."""
+
+    pattern: str
+    count: int
+    success_rate: Optional[float] = None
+    examples: list[WorkflowPatternExample] = Field(default_factory=list)
+
+
+class WorkflowPatternResponse(BaseModel):
+    """Response schema for workflow pattern library."""
+
+    items: list[WorkflowPatternItem]

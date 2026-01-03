@@ -858,3 +858,20 @@ export interface WeeklyDigestResponse {
   metrics: Record<string, any>;
   generated_at: string;
 }
+
+export interface WorkflowPatternExample {
+  conversation_id: string;
+  summary?: string | null;
+  outcome?: string | null;
+}
+
+export interface WorkflowPatternItem {
+  pattern: string;
+  count: number;
+  success_rate?: number | null;
+  examples: WorkflowPatternExample[];
+}
+
+export interface WorkflowPatternResponse {
+  items: WorkflowPatternItem[];
+}

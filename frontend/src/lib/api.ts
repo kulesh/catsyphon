@@ -29,6 +29,7 @@ import type {
   BenchmarkStatusResponse,
   ConversationRecapResponse,
   WeeklyDigestResponse,
+  WorkflowPatternResponse,
   RecommendationListResponse,
   RecommendationResponse,
   RecommendationUpdate,
@@ -280,6 +281,21 @@ export async function generateWeeklyDigest(
       method: 'POST',
       body: JSON.stringify({ period_start: periodStart, period_end: periodEnd }),
     }
+  );
+}
+
+// ===== Workflow Pattern Endpoints =====
+
+export async function getWorkflowPatterns(
+  startDate?: string,
+  endDate?: string
+): Promise<WorkflowPatternResponse> {
+  const params = new URLSearchParams();
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  const query = params.toString();
+  return apiFetch<WorkflowPatternResponse>(
+    `/patterns/workflow${query ? `?${query}` : ''}`
   );
 }
 
