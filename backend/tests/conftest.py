@@ -189,7 +189,7 @@ def setup_client(db_session: Session):
     This client doesn't create or require a workspace, used for testing
     empty database states during initial setup flow.
     """
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from fastapi.testclient import TestClient
 

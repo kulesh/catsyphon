@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import ConversationRecapResponse
+from catsyphon.canonicalization import CanonicalType
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
-from catsyphon.canonicalization import CanonicalType
 from catsyphon.db.repositories import (
     CanonicalRepository,
     ConversationRepository,

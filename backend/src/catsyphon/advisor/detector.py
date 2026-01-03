@@ -3,7 +3,7 @@
 import json
 import logging
 import time
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from openai import OpenAI
@@ -278,5 +278,7 @@ class SlashCommandDetector:
         repo.bulk_create(conversation_id, db_recommendations)
 
         logger.info(
-            f"Saved {len(recommendations)} recommendations for conversation {conversation_id}"
+            "Saved %s recommendations for conversation %s",
+            len(recommendations),
+            conversation_id,
         )

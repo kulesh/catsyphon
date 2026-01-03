@@ -14,7 +14,6 @@ from typing import Optional
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.conversation import ConversationRepository
-from catsyphon.models.db import TaggingJob, TaggingJobStatus
 
 from .job_queue import TaggingJobQueue
 from .pipeline import TaggingPipeline

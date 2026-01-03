@@ -13,6 +13,8 @@ from fastapi import APIRouter, Header, HTTPException, status
 from catsyphon.api.schemas import BenchmarkResultResponse, BenchmarkStatusResponse
 from catsyphon.benchmarks.runner import (
     run_benchmarks as run_benchmarks_runner,
+)
+from catsyphon.benchmarks.runner import (
     write_results,
 )
 from catsyphon.config import settings

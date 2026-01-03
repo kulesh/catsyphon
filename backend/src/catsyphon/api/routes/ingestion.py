@@ -107,7 +107,8 @@ async def get_ingestion_stats(
     by workspace using repo.get_stats_by_workspace(auth.workspace_id).
 
     Returns:
-        Ingestion statistics including counts by status, source type, and stage-level metrics
+        Ingestion statistics including counts by status, source type, and
+        stage-level metrics
     """
     repo = IngestionJobRepository(session)
     # TODO (Phase 2): Filter stats by workspace

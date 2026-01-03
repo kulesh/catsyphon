@@ -6,6 +6,7 @@ Run this to test startup validation without starting the full server.
 """
 
 import sys
+
 sys.path.insert(0, "src")
 
 from catsyphon.startup import run_all_startup_checks

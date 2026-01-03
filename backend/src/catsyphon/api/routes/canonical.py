@@ -98,7 +98,10 @@ def get_canonical(
     if sampling_strategy not in valid_strategies:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
+            detail=(
+                "Invalid sampling_strategy. Must be one of: "
+                f"{', '.join(valid_strategies)}"
+            ),
         )
 
     # Get conversation with workspace validation
@@ -133,8 +136,9 @@ def get_canonical(
 
         # Build response
         # CanonicalConversation dataclass has direct attributes, not nested metadata
+        # Generate new ID for API response (canonical doesn't have one)
         return CanonicalResponse(
-            id=uuid.uuid4(),  # Generate new ID for API response (canonical doesn't have one)
+            id=uuid.uuid4(),
             conversation_id=uuid.UUID(canonical.conversation_id),
             version=canonical.canonical_version,
             canonical_type=canonical_type,
@@ -219,7 +223,10 @@ def get_canonical_narrative(
     if sampling_strategy not in valid_strategies:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
+            detail=(
+                "Invalid sampling_strategy. Must be one of: "
+                f"{', '.join(valid_strategies)}"
+            ),
         )
 
     # Get conversation with workspace validation
@@ -298,7 +305,10 @@ def regenerate_canonical(
     if request.sampling_strategy not in valid_strategies:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid sampling_strategy. Must be one of: {', '.join(valid_strategies)}",
+            detail=(
+                "Invalid sampling_strategy. Must be one of: "
+                f"{', '.join(valid_strategies)}"
+            ),
         )
 
     # Get conversation with workspace validation

@@ -16,8 +16,7 @@ from fastapi.testclient import TestClient
 
 from catsyphon.api.app import app
 from catsyphon.api.routes.collectors import generate_api_key, verify_api_key
-from catsyphon.db.repositories import CollectorRepository, WorkspaceRepository
-from catsyphon.models.db import CollectorConfig
+from catsyphon.db.repositories import CollectorRepository
 
 
 @pytest.fixture

@@ -124,6 +124,8 @@ def fetch_builtin_credentials(
     """
     from concurrent.futures import (
         ThreadPoolExecutor,
+    )
+    from concurrent.futures import (
         TimeoutError as FuturesTimeoutError,
     )
 
@@ -136,7 +138,7 @@ def fetch_builtin_credentials(
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(_fetch_credentials_http, workspace_id, api_url)
                 return future.result(timeout=10)  # Shorter timeout for faster retries
-        except FuturesTimeoutError as e:
+        except FuturesTimeoutError:
             last_error = Exception(f"Timeout fetching builtin credentials from {api_url}")
         except requests.exceptions.RequestException as e:
             last_error = e

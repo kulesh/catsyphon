@@ -177,7 +177,9 @@ def detect_recommendations(
         existing = rec_repo.get_by_conversation(conversation_id)
         if existing:
             logger.info(
-                f"Returning {len(existing)} existing recommendations for {conversation_id}"
+                "Returning %s existing recommendations for %s",
+                len(existing),
+                conversation_id,
             )
             return DetectionResponse(
                 conversation_id=conversation_id,
@@ -191,7 +193,10 @@ def detect_recommendations(
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=500,
-            detail="OpenAI API key not configured. Recommendation detection requires AI analysis.",
+            detail=(
+                "OpenAI API key not configured. Recommendation detection "
+                "requires AI analysis."
+            ),
         )
 
     # Run detection
@@ -277,7 +282,9 @@ def detect_mcp_recommendations(
         )
         if existing:
             logger.info(
-                f"Returning {len(existing)} existing MCP recommendations for {conversation_id}"
+                "Returning %s existing MCP recommendations for %s",
+                len(existing),
+                conversation_id,
             )
             return DetectionResponse(
                 conversation_id=conversation_id,
@@ -291,7 +298,10 @@ def detect_mcp_recommendations(
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=500,
-            detail="OpenAI API key not configured. MCP detection requires AI analysis.",
+            detail=(
+                "OpenAI API key not configured. MCP detection "
+                "requires AI analysis."
+            ),
         )
 
     # Run MCP detection
@@ -327,7 +337,10 @@ def detect_mcp_recommendations(
     )
 
 
-@router.patch("/recommendations/{recommendation_id}", response_model=RecommendationResponse)
+@router.patch(
+    "/recommendations/{recommendation_id}",
+    response_model=RecommendationResponse,
+)
 def update_recommendation(
     recommendation_id: UUID,
     update: RecommendationUpdate,

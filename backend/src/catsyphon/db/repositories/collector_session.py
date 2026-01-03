@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository

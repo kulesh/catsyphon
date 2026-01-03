@@ -6,11 +6,12 @@ This script updates existing conversations to set the developer_id field
 by extracting the username from the working_directory path.
 """
 
+from sqlalchemy import select
+
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories import DeveloperRepository, WorkspaceRepository
 from catsyphon.models.db import Conversation
 from catsyphon.pipeline.ingestion import _extract_username_from_path
-from sqlalchemy import select
 
 
 def main():
@@ -59,7 +60,7 @@ def main():
         # Commit changes
         db.commit()
 
-        print(f"\nResults:")
+        print("\nResults:")
         print(f"  Updated: {updated_count}")
         print(f"  Skipped (no username in path): {skipped_count}")
         print(f"  Total: {len(conversations)}")

@@ -4,7 +4,6 @@ Project analytics API routes.
 Endpoints for project-level statistics, sessions, and file aggregations.
 """
 
-from collections import defaultdict
 from dataclasses import asdict
 from typing import Any, Optional
 from uuid import UUID
@@ -189,7 +188,9 @@ async def get_project_stats(
         or 0
     )
     total_with_outcome = success_count + failed_count
-    success_rate = success_count / total_with_outcome if total_with_outcome > 0 else None
+    success_rate = (
+        success_count / total_with_outcome if total_with_outcome > 0 else None
+    )
 
     # Average duration using database aggregation
     # Extract seconds from end_time - start_time
@@ -310,7 +311,9 @@ async def get_project_stats(
             sentiment_timeline.append(
                 SentimentTimelinePoint(
                     date=date_str,
-                    avg_sentiment=float(row.avg_sentiment) if row.avg_sentiment else 0.0,
+                    avg_sentiment=(
+                        float(row.avg_sentiment) if row.avg_sentiment else 0.0
+                    ),
                     session_count=row.session_count or 0,
                 )
             )
@@ -580,7 +583,8 @@ async def get_project_analytics(
                 handoff_latencies.append(delta_minutes)
                 if conv.success is True:
                     handoff_successes += 1
-                # Clarifications: count user messages in parent between parent start and agent start
+                # Clarifications: count user messages in parent between parent start
+                # and agent start
                 # Use database count query instead of loading all messages
                 clarifications = (
                     session.query(func.count(Message.id))
@@ -594,7 +598,8 @@ async def get_project_analytics(
                 handoff_clarifications.append(clarifications)
 
     # Influence flows (file introduction -> later adopter)
-    # Load only needed columns for influence calculation (file_path, conversation_id, timestamp)
+    # Load only needed columns for influence calculation (file_path, conversation_id,
+    # timestamp)
     file_touches = (
         session.query(
             FileTouched.file_path,
@@ -805,13 +810,16 @@ async def get_project_insights(
     Get comprehensive insights for a project.
 
     This endpoint aggregates conversation-level insights across a project to provide:
-    - **Pattern Aggregation**: Top workflow patterns, learning opportunities, anti-patterns
-    - **Temporal Trends**: Weekly collaboration quality, agent effectiveness, scope clarity
+    - **Pattern Aggregation**: Top workflow patterns, learning opportunities,
+      anti-patterns
+    - **Temporal Trends**: Weekly collaboration quality, agent effectiveness,
+      scope clarity
     - **LLM Summary**: Narrative overview of the project's AI collaboration health
 
     **Performance Notes:**
     - Uses cached conversation insights when available (instant)
-    - On-demand generation for conversations without cached insights (~2-5s per conversation)
+    - On-demand generation for conversations without cached insights (~2-5s per
+      conversation)
     - LLM summary adds ~1-2s latency (disable with include_summary=false)
     - First-time generation may take 1-2 minutes for projects with many conversations
 
@@ -960,9 +968,9 @@ async def list_project_sessions(
     """
     List all sessions (conversations) for a project with hierarchical ordering.
 
-    Returns paginated list of conversations in hierarchical order (parents followed by children)
-    with lightweight metadata. Default sort is by last_activity (most recent first) with
-    secondary sort by message_count (more content first).
+    Returns paginated list of conversations in hierarchical order (parents followed
+    by children) with lightweight metadata. Default sort is by last_activity (most
+    recent first) with secondary sort by message_count (more content first).
 
     Filters:
     - developer: Filter by developer username
@@ -1027,9 +1035,18 @@ async def list_project_sessions(
     )
 
     # Build response
-    # Tuple order: (conv, msg_count, epoch_count, files_count, children_count, last_activity, depth)
+    # Tuple order: (conv, msg_count, epoch_count, files_count, children_count,
+    # last_activity, depth)
     sessions = []
-    for conv, msg_count, epoch_count, files_count, child_count, last_activity, depth in results:
+    for (
+        conv,
+        msg_count,
+        epoch_count,
+        files_count,
+        child_count,
+        last_activity,
+        depth,
+    ) in results:
         duration_seconds = None
         if conv.end_time and conv.start_time:
             duration_seconds = int((conv.end_time - conv.start_time).total_seconds())
@@ -1045,7 +1062,13 @@ async def list_project_sessions(
                     # Determine status: approved > active > abandoned
                     has_approved = any(p.get("status") == "approved" for p in plans)
                     has_active = any(p.get("status") == "active" for p in plans)
-                    plan_status = "approved" if has_approved else "active" if has_active else "abandoned"
+                    plan_status = (
+                        "approved"
+                        if has_approved
+                        else "active"
+                        if has_active
+                        else "abandoned"
+                    )
 
         sessions.append(
             ProjectSession(
