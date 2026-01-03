@@ -2,27 +2,38 @@
  * Benchmarks page - run and review performance benchmarks.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Activity, Gauge, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import {
+  ApiError,
   getBenchmarkStatus,
   getLatestBenchmarkResults,
   runBenchmarks,
 } from '@/lib/api';
 
 export default function Benchmarks() {
+  const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
   const statusQuery = useQuery({
     queryKey: ['benchmarks', 'status'],
     queryFn: () => getBenchmarkStatus(),
+    enabled: benchmarksAvailable,
+    retry: false,
     refetchInterval: (data) =>
-      data?.status === 'running' ? 2000 : 10000,
+      benchmarksAvailable ? (data?.status === 'running' ? 2000 : 10000) : false,
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 403) {
+        setBenchmarksAvailable(false);
+      }
+    },
   });
 
   const resultsQuery = useQuery({
     queryKey: ['benchmarks', 'results', 'latest'],
     queryFn: () => getLatestBenchmarkResults(),
-    enabled: statusQuery.data?.status === 'completed',
+    enabled:
+      benchmarksAvailable && statusQuery.data?.status === 'completed',
+    retry: false,
   });
 
   const runMutation = useMutation({
@@ -32,7 +43,7 @@ export default function Benchmarks() {
     },
   });
 
-  const status = statusQuery.data?.status || 'unknown';
+  const status = statusQuery.data?.status || (benchmarksAvailable ? 'unknown' : 'disabled');
   const lastRunId = statusQuery.data?.run_id;
 
   const results = resultsQuery.data;
@@ -69,7 +80,9 @@ export default function Benchmarks() {
               </span>
               <button
                 onClick={() => runMutation.mutate()}
-                disabled={runMutation.isPending || status === 'running'}
+                disabled={
+                  runMutation.isPending || status === 'running' || !benchmarksAvailable
+                }
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 transition disabled:opacity-50"
               >
                 <Play className="w-4 h-4" />
@@ -77,6 +90,7 @@ export default function Benchmarks() {
               </button>
               <button
                 onClick={() => statusQuery.refetch()}
+                disabled={!benchmarksAvailable}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -85,7 +99,18 @@ export default function Benchmarks() {
             </div>
           </div>
 
-          {statusQuery.isError && (
+          {!benchmarksAvailable && (
+            <div className="mt-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-2 text-amber-300">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-sm font-mono">
+                  Benchmarks are disabled. Enable them in the backend settings to use this page.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {statusQuery.isError && benchmarksAvailable && (
             <div className="mt-4 p-4 rounded-lg bg-red-500/10 border border-red-500/20">
               <div className="flex items-center gap-2 text-red-300">
                 <AlertTriangle className="w-4 h-4" />
