@@ -1295,8 +1295,8 @@ class ConversationRecap(Base):
     next_steps: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]"
     )
-    metadata: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default="{}"
+    recap_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
     )
     canonical_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     generated_at: Mapped[datetime] = mapped_column(

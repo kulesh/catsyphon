@@ -41,7 +41,7 @@ class RecapRepository(BaseRepository[ConversationRecap]):
             key_files=recap.get("key_files") or [],
             blockers=recap.get("blockers") or [],
             next_steps=recap.get("next_steps") or [],
-            metadata=recap.get("metadata") or {},
+            recap_metadata=recap.get("metadata") or {},
             canonical_version=canonical_version,
             generated_at=datetime.now().astimezone(),
         )

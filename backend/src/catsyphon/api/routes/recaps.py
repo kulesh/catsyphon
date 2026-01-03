@@ -46,7 +46,7 @@ def get_conversation_recap(
         key_files=cached.key_files,
         blockers=cached.blockers,
         next_steps=cached.next_steps,
-        metadata=cached.metadata,
+        metadata=cached.recap_metadata,
         canonical_version=cached.canonical_version,
         generated_at=cached.generated_at,
     )
@@ -80,7 +80,7 @@ def generate_conversation_recap(
             key_files=cached.key_files,
             blockers=cached.blockers,
             next_steps=cached.next_steps,
-            metadata=cached.metadata,
+            metadata=cached.recap_metadata,
             canonical_version=cached.canonical_version,
             generated_at=cached.generated_at,
         )
@@ -120,7 +120,7 @@ def generate_conversation_recap(
         key_files=saved.key_files,
         blockers=saved.blockers,
         next_steps=saved.next_steps,
-        metadata=saved.metadata,
+        metadata=saved.recap_metadata,
         canonical_version=saved.canonical_version,
         generated_at=saved.generated_at,
     )

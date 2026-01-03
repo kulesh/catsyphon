@@ -1,7 +1,7 @@
 """add_recaps_and_weekly_digests
 
 Revision ID: 98a9f0c2b4d1
-Revises: 97643190a1a5
+Revises: 78d25cb250a8
 Create Date: 2026-01-02 18:26:00
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "98a9f0c2b4d1"
-down_revision: Union[str, None] = "97643190a1a5"
+down_revision: Union[str, None] = "78d25cb250a8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
