@@ -845,3 +845,16 @@ export interface ConversationRecapResponse {
   canonical_version: number;
   generated_at: string;
 }
+
+export interface WeeklyDigestResponse {
+  workspace_id: string;
+  period_start: string;
+  period_end: string;
+  version: number;
+  summary: string;
+  wins: string[];
+  blockers: string[];
+  highlights: string[];
+  metrics: Record<string, any>;
+  generated_at: string;
+}

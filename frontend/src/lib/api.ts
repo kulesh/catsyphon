@@ -28,6 +28,7 @@ import type {
   BenchmarkResultResponse,
   BenchmarkStatusResponse,
   ConversationRecapResponse,
+  WeeklyDigestResponse,
   RecommendationListResponse,
   RecommendationResponse,
   RecommendationUpdate,
@@ -247,6 +248,38 @@ export async function generateConversationRecap(
   return apiFetch<ConversationRecapResponse>(
     `/conversations/${id}/recap${query ? `?${query}` : ''}`,
     { method: 'POST' }
+  );
+}
+
+// ===== Digest Endpoints =====
+
+export async function getWeeklyDigest(
+  periodStart?: string,
+  periodEnd?: string
+): Promise<WeeklyDigestResponse> {
+  const params = new URLSearchParams();
+  if (periodStart) params.append('period_start', periodStart);
+  if (periodEnd) params.append('period_end', periodEnd);
+  const query = params.toString();
+  return apiFetch<WeeklyDigestResponse>(
+    `/digests/weekly${query ? `?${query}` : ''}`
+  );
+}
+
+export async function generateWeeklyDigest(
+  periodStart: string,
+  periodEnd: string,
+  force = false
+): Promise<WeeklyDigestResponse> {
+  const params = new URLSearchParams();
+  if (force) params.append('force_regenerate', 'true');
+  const query = params.toString();
+  return apiFetch<WeeklyDigestResponse>(
+    `/digests/weekly${query ? `?${query}` : ''}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ period_start: periodStart, period_end: periodEnd }),
+    }
   );
 }
 

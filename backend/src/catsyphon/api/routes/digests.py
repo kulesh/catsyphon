@@ -2,13 +2,14 @@
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import WeeklyDigestRequest, WeeklyDigestResponse
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import DigestRepository
+from catsyphon.digests import WeeklyDigestGenerator
 
 router = APIRouter(prefix="/digests", tags=["digests"])
 
@@ -53,14 +54,18 @@ def get_weekly_digest(
 def generate_weekly_digest(
     payload: WeeklyDigestRequest,
     auth: AuthContext = Depends(get_auth_context),
+    force_regenerate: bool = Query(
+        default=False, description="Force regeneration even if cached digest exists"
+    ),
     session: Session = Depends(get_db),
 ) -> WeeklyDigestResponse:
     digest_repo = DigestRepository(session)
+    generator = WeeklyDigestGenerator(session)
 
     cached = digest_repo.get_latest(
         auth.workspace_id, payload.period_start, payload.period_end
     )
-    if cached:
+    if cached and not force_regenerate:
         return WeeklyDigestResponse(
             workspace_id=cached.workspace_id,
             period_start=cached.period_start,
@@ -74,7 +79,26 @@ def generate_weekly_digest(
             generated_at=cached.generated_at,
         )
 
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Weekly digest generation not implemented yet",
+    digest = generator.generate(
+        auth.workspace_id, payload.period_start, payload.period_end
+    )
+    saved = digest_repo.save(
+        auth.workspace_id,
+        payload.period_start,
+        payload.period_end,
+        digest,
+    )
+    session.commit()
+
+    return WeeklyDigestResponse(
+        workspace_id=saved.workspace_id,
+        period_start=saved.period_start,
+        period_end=saved.period_end,
+        version=saved.version,
+        summary=saved.summary,
+        wins=saved.wins,
+        blockers=saved.blockers,
+        highlights=saved.highlights,
+        metrics=saved.metrics,
+        generated_at=saved.generated_at,
     )

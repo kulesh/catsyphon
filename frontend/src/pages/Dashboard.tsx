@@ -2,11 +2,12 @@
  * Dashboard page - Observatory Mission Control.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge } from 'lucide-react';
-import { ApiError, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats } from '@/lib/api';
+import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy } from 'lucide-react';
+import { ApiError, generateWeeklyDigest, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest } from '@/lib/api';
+import { useMemo } from 'react';
 
 export default function Dashboard() {
   const { data: stats, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
@@ -29,6 +30,38 @@ export default function Dashboard() {
     enabled: benchmarkStatusQuery.data?.status === 'completed',
     retry: false,
     refetchInterval: 15000,
+  });
+
+  const queryClient = useQueryClient();
+  const digestWindow = useMemo(() => {
+    const end = new Date();
+    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return {
+      periodStart: start.toISOString(),
+      periodEnd: end.toISOString(),
+    };
+  }, []);
+
+  const digestQuery = useQuery({
+    queryKey: ['digests', 'weekly', digestWindow.periodStart, digestWindow.periodEnd],
+    queryFn: () => getWeeklyDigest(digestWindow.periodStart, digestWindow.periodEnd),
+    retry: false,
+    refetchInterval: 60000,
+  });
+
+  const digestMutation = useMutation({
+    mutationFn: ({ force }: { force: boolean }) =>
+      generateWeeklyDigest(
+        digestWindow.periodStart,
+        digestWindow.periodEnd,
+        force
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        ['digests', 'weekly', digestWindow.periodStart, digestWindow.periodEnd],
+        data
+      );
+    },
   });
 
   if (isLoading) {
@@ -73,6 +106,37 @@ export default function Dashboard() {
   const benchmarkStatus = benchmarkStatusQuery.data?.status;
   const benchmarkRunId = benchmarkStatusQuery.data?.run_id;
   const benchmarkResults = benchmarkResultsQuery.data;
+  const digest = digestQuery.data;
+  const digestMissing =
+    digestQuery.error instanceof ApiError && digestQuery.error.status === 404;
+
+  const digestMarkdown = digest
+    ? [
+        `# Weekly Digest`,
+        ``,
+        digest.summary,
+        ``,
+        digest.wins.length ? `## Wins` : ``,
+        ...digest.wins.map((item) => `- ${item}`),
+        digest.blockers.length ? `` : ``,
+        digest.blockers.length ? `## Blockers` : ``,
+        ...digest.blockers.map((item) => `- ${item}`),
+        digest.highlights.length ? `` : ``,
+        digest.highlights.length ? `## Highlights` : ``,
+        ...digest.highlights.map((item) => `- ${item}`),
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+    : '';
+
+  const handleCopyDigest = async () => {
+    if (!digestMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(digestMarkdown);
+    } catch (err) {
+      console.error('Failed to copy digest', err);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -241,6 +305,100 @@ export default function Dashboard() {
           </p>
         </div>
       )}
+
+      {/* Weekly Digest Panel */}
+      <div className="observatory-card p-6 mb-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+          <div className="flex items-center gap-3">
+            <Terminal className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-xl font-heading font-semibold text-foreground">
+              Weekly Digest
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {digest && (
+              <button
+                onClick={handleCopyDigest}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors text-sm"
+              >
+                <ClipboardCopy className="w-4 h-4" />
+                Copy Markdown
+              </button>
+            )}
+            <button
+              onClick={() => digestMutation.mutate({ force: Boolean(digest) })}
+              disabled={digestMutation.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+            >
+              {digestMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {digest ? 'Regenerating...' : 'Generating...'}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  {digest ? 'Regenerate' : 'Generate Digest'}
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {digestQuery.isLoading && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Loading digest...
+          </p>
+        )}
+
+        {digestMissing && (
+          <p className="text-sm font-mono text-muted-foreground">
+            No digest yet for this week. Generate one to get a summary.
+          </p>
+        )}
+
+        {digestQuery.isError && !digestMissing && (
+          <p className="text-sm font-mono text-muted-foreground">
+            {digestQuery.error?.message || 'Unable to load digest.'}
+          </p>
+        )}
+
+        {digest && (
+          <div className="space-y-4">
+            <p className="text-sm text-foreground">{digest.summary}</p>
+            {digest.wins.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Wins</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {digest.wins.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {digest.blockers.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Blockers</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {digest.blockers.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {digest.highlights.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Highlights</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {digest.highlights.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {benchmarkEnabled && (
         <div className="observatory-card p-6 mb-8">
