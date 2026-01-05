@@ -34,7 +34,6 @@ from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
     CollectorRepository,
     CollectorSessionRepository,
-    ConversationRepository,
     WorkspaceRepository,
 )
 from catsyphon.models.db import CollectorConfig, IngestionJob
@@ -337,13 +336,13 @@ def submit_events(
 
         # Tools that modify files (for FileTouched tracking)
         # Maps tool_name -> change_type for semantic parity with direct ingestion
-        FILE_MODIFYING_TOOLS = {
+        file_modifying_tools = {
             "Edit": "write",
             "Write": "write",
             "NotebookEdit": "write",
             "MultiEdit": "write",
         }
-        FILE_READING_TOOLS = {"Read", "Glob", "Grep"}
+        file_reading_tools = {"Read", "Glob", "Grep"}
 
         # Process new events
         warnings = []
@@ -379,8 +378,8 @@ def submit_events(
                     # Extract file_path from tool parameters
                     file_path = params.get("file_path") or params.get("path")
                     if file_path:
-                        if tool_name in FILE_MODIFYING_TOOLS:
-                            change_type = FILE_MODIFYING_TOOLS[tool_name]
+                        if tool_name in file_modifying_tools:
+                            change_type = file_modifying_tools[tool_name]
                             session_repo.add_file_touched(
                                 conversation=conversation,
                                 file_path=file_path,
@@ -388,7 +387,7 @@ def submit_events(
                                 timestamp=event.emitted_at,
                             )
                             files_touched += 1
-                        elif tool_name in FILE_READING_TOOLS:
+                        elif tool_name in file_reading_tools:
                             session_repo.add_file_touched(
                                 conversation=conversation,
                                 file_path=file_path,
@@ -450,7 +449,6 @@ def submit_events(
 
         # Extract values BEFORE commit to avoid lazy load after session expires
         conversation_id = conversation.id
-        workspace_id = collector.workspace_id
         last_sequence = conversation.last_event_sequence
         job_id = ingestion_job.id
 

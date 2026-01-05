@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from catsyphon.config import settings
 from catsyphon.api.routes import benchmarks as benchmarks_route
+from catsyphon.config import settings
 
 
 class _ImmediateThread:

@@ -138,7 +138,10 @@ def _message_to_response(message) -> MessageResponse:
 
 
 def _extract_plans_from_extra_data(extra_data: dict | None) -> list[PlanResponse]:
-    """Extract plan data from conversation's extra_data and convert to response schema."""
+    """Extract plan data from conversation's extra_data.
+
+    Convert to response schema.
+    """
     if not extra_data:
         return []
 
@@ -323,7 +326,15 @@ async def list_conversations(
             children_count=child_count,
             depth_level=depth,
         )
-        for conv, msg_count, epoch_count, files_count, child_count, _last_activity, depth in results
+        for (
+            conv,
+            msg_count,
+            epoch_count,
+            files_count,
+            child_count,
+            _last_activity,
+            depth,
+        ) in results
     ]
 
     return ConversationListResponse(
@@ -439,7 +450,11 @@ async def tag_conversation(
     if conversation.message_count < min_messages:
         raise HTTPException(
             status_code=400,
-            detail=f"Conversation too short to tag. Minimum {min_messages} messages required (found {conversation.message_count}).",
+            detail=(
+                "Conversation too short to tag. Minimum "
+                f"{min_messages} messages required "
+                f"(found {conversation.message_count})."
+            ),
         )
 
     # Convert database conversation to ParsedConversation for tagging pipeline

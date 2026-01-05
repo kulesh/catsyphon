@@ -25,8 +25,12 @@ import type {
   ProjectSessionsResponse,
   ProjectStats,
   ProjectAnalytics,
+  BenchmarkAvailabilityResponse,
   BenchmarkResultResponse,
   BenchmarkStatusResponse,
+  ConversationRecapResponse,
+  WeeklyDigestResponse,
+  WorkflowPatternResponse,
   RecommendationListResponse,
   RecommendationResponse,
   RecommendationUpdate,
@@ -69,6 +73,10 @@ function getBenchmarkHeaders(): Record<string, string> {
     return { 'X-Benchmark-Token': BENCHMARKS_TOKEN };
   }
   return {};
+}
+
+export function hasBenchmarkToken(): boolean {
+  return Boolean(BENCHMARKS_TOKEN);
 }
 
 // ===== Base Fetch Wrapper =====
@@ -209,6 +217,10 @@ export async function getOverviewStats(
 
 // ===== Benchmark Endpoints =====
 
+export async function getBenchmarkAvailability(): Promise<BenchmarkAvailabilityResponse> {
+  return apiFetch<BenchmarkAvailabilityResponse>('/benchmarks/availability');
+}
+
 export async function getBenchmarkStatus(): Promise<BenchmarkStatusResponse> {
   return apiFetch<BenchmarkStatusResponse>('/benchmarks/status', {
     headers: getBenchmarkHeaders(),
@@ -226,6 +238,74 @@ export async function getLatestBenchmarkResults(): Promise<BenchmarkResultRespon
   return apiFetch<BenchmarkResultResponse>('/benchmarks/results/latest', {
     headers: getBenchmarkHeaders(),
   });
+}
+
+// ===== Recap Endpoints =====
+
+export async function getConversationRecap(
+  id: string
+): Promise<ConversationRecapResponse> {
+  return apiFetch<ConversationRecapResponse>(`/conversations/${id}/recap`);
+}
+
+export async function generateConversationRecap(
+  id: string,
+  force = false
+): Promise<ConversationRecapResponse> {
+  const params = new URLSearchParams();
+  if (force) params.append('force_regenerate', 'true');
+  const query = params.toString();
+  return apiFetch<ConversationRecapResponse>(
+    `/conversations/${id}/recap${query ? `?${query}` : ''}`,
+    { method: 'POST' }
+  );
+}
+
+// ===== Digest Endpoints =====
+
+export async function getWeeklyDigest(
+  periodStart?: string,
+  periodEnd?: string
+): Promise<WeeklyDigestResponse> {
+  const params = new URLSearchParams();
+  if (periodStart) params.append('period_start', periodStart);
+  if (periodEnd) params.append('period_end', periodEnd);
+  const query = params.toString();
+  return apiFetch<WeeklyDigestResponse>(
+    `/digests/weekly${query ? `?${query}` : ''}`
+  );
+}
+
+export async function generateWeeklyDigest(
+  periodStart: string,
+  periodEnd: string,
+  force = false
+): Promise<WeeklyDigestResponse> {
+  const params = new URLSearchParams();
+  if (force) params.append('force_regenerate', 'true');
+  const query = params.toString();
+  return apiFetch<WeeklyDigestResponse>(
+    `/digests/weekly${query ? `?${query}` : ''}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ period_start: periodStart, period_end: periodEnd }),
+    }
+  );
+}
+
+// ===== Workflow Pattern Endpoints =====
+
+export async function getWorkflowPatterns(
+  startDate?: string,
+  endDate?: string
+): Promise<WorkflowPatternResponse> {
+  const params = new URLSearchParams();
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  const query = params.toString();
+  return apiFetch<WorkflowPatternResponse>(
+    `/patterns/workflow${query ? `?${query}` : ''}`
+  );
 }
 
 // ===== Health Endpoint =====

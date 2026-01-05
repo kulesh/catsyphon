@@ -118,8 +118,8 @@ class TestWorkspaceIsolation:
     def workspace_a(self, db_session):
         """Create test workspace A."""
         from catsyphon.db.repositories import (
-            WorkspaceRepository,
             OrganizationRepository,
+            WorkspaceRepository,
         )
 
         org_repo = OrganizationRepository(db_session)
@@ -138,8 +138,8 @@ class TestWorkspaceIsolation:
     def workspace_b(self, db_session):
         """Create test workspace B."""
         from catsyphon.db.repositories import (
-            WorkspaceRepository,
             OrganizationRepository,
+            WorkspaceRepository,
         )
 
         org_repo = OrganizationRepository(db_session)

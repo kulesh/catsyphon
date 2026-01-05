@@ -5,8 +5,8 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight, Terminal } from 'lucide-react';
-import { getConversation, getCanonicalNarrative, tagConversation, getConversationInsights } from '@/lib/api';
+import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight, Terminal, ClipboardCopy } from 'lucide-react';
+import { ApiError, generateConversationRecap, getCanonicalNarrative, getConversation, getConversationInsights, getConversationRecap, tagConversation } from '@/lib/api';
 import { groupFilesByPath } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
@@ -43,6 +43,15 @@ export default function ConversationDetail() {
     queryFn: () => getConversationInsights(id!),
     enabled: !!id && activeTab === 'insights',
     staleTime: 60000 * 5, // Cache for 5 minutes
+  });
+
+  // Recap query (overview only)
+  const { data: recap, isLoading: isLoadingRecap, error: recapError } = useQuery({
+    queryKey: ['conversation-recap', id],
+    queryFn: () => getConversationRecap(id!),
+    enabled: !!id && activeTab === 'overview',
+    staleTime: 60000 * 5,
+    retry: false,
   });
 
   // Tab configuration - Plan tab only shown if conversation has plans
@@ -85,6 +94,53 @@ export default function ConversationDetail() {
     if (!id) return;
     setTagError(null);
     tagMutation.mutate({ conversationId: id, force: Boolean(hasTags) });
+  };
+
+  const recapMutation = useMutation({
+    mutationFn: ({ conversationId, force }: { conversationId: string; force: boolean }) =>
+      generateConversationRecap(conversationId, force),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['conversation-recap', id], data);
+    },
+  });
+
+  const recapMissing =
+    recapError instanceof ApiError && recapError.status === 404;
+
+  const recapUnavailable =
+    recapError instanceof ApiError && recapError.status === 500;
+
+  const recapMarkdown = recap
+    ? [
+        `# Session Recap`,
+        ``,
+        recap.summary,
+        ``,
+        recap.key_files.length ? `## Key Files` : ``,
+        ...recap.key_files.map((file) => `- \`${file}\``),
+        recap.blockers.length ? `` : ``,
+        recap.blockers.length ? `## Blockers` : ``,
+        ...recap.blockers.map((item) => `- ${item}`),
+        recap.next_steps.length ? `` : ``,
+        recap.next_steps.length ? `## Next Steps` : ``,
+        ...recap.next_steps.map((item) => `- ${item}`),
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+    : '';
+
+  const handleRecapClick = () => {
+    if (!id) return;
+    recapMutation.mutate({ conversationId: id, force: Boolean(recap) });
+  };
+
+  const handleCopyRecap = async () => {
+    if (!recapMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(recapMarkdown);
+    } catch (err) {
+      console.error('Failed to copy recap', err);
+    }
   };
 
   if (isLoading) {
@@ -657,6 +713,101 @@ export default function ConversationDetail() {
           </details>
         </div>
       )}
+
+      {/* Recap Section */}
+      <div className="bg-card border border-border rounded-lg p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Recap</h2>
+          <div className="flex items-center gap-2">
+            {recap && (
+              <button
+                onClick={handleCopyRecap}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors text-sm"
+              >
+                <ClipboardCopy className="h-4 w-4" />
+                Copy Markdown
+              </button>
+            )}
+            <button
+              onClick={handleRecapClick}
+              disabled={recapMutation.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+            >
+              {recapMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {recap ? 'Regenerating...' : 'Generating...'}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  {recap ? 'Regenerate' : 'Generate Recap'}
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {isLoadingRecap && (
+          <p className="text-sm text-muted-foreground">Loading recap...</p>
+        )}
+
+        {recapUnavailable && (
+          <p className="text-sm text-muted-foreground">
+            Recaps require an OpenAI API key.
+          </p>
+        )}
+
+        {recapMissing && (
+          <p className="text-sm text-muted-foreground">
+            No recap yet. Generate one to summarize this session.
+          </p>
+        )}
+
+        {recapError && !recapMissing && !recapUnavailable && (
+          <p className="text-sm text-muted-foreground">
+            {recapError.message}
+          </p>
+        )}
+
+        {recap && (
+          <div className="space-y-4">
+            <p className="text-sm text-foreground">{recap.summary}</p>
+            {recap.key_files.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Key Files</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {recap.key_files.map((file) => (
+                    <span key={file} className="px-2 py-0.5 rounded bg-primary/5 text-xs font-mono">
+                      {file}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {recap.blockers.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Blockers</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {recap.blockers.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {recap.next_steps.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Next Steps</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {recap.next_steps.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Tags Section */}
       <div className="bg-card border border-border rounded-lg p-6 mb-6">

@@ -10,9 +10,10 @@ based on the outcome tag value:
 - outcome="unknown" or "abandoned" → success=None (no outcome)
 """
 
+from sqlalchemy import select
+
 from catsyphon.db.connection import db_session
 from catsyphon.models.db import Conversation
-from sqlalchemy import select, update
 
 
 def main():
@@ -57,7 +58,7 @@ def main():
         # Commit changes
         db.commit()
 
-        print(f"\nResults:")
+        print("\nResults:")
         print(f"  Updated to success=True: {updated_success}")
         print(f"  Updated to success=False: {updated_failed}")
         print(f"  Updated to success=None: {updated_null}")

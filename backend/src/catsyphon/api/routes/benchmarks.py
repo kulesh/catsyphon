@@ -10,9 +10,15 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, status
 
-from catsyphon.api.schemas import BenchmarkResultResponse, BenchmarkStatusResponse
+from catsyphon.api.schemas import (
+    BenchmarkAvailabilityResponse,
+    BenchmarkResultResponse,
+    BenchmarkStatusResponse,
+)
 from catsyphon.benchmarks.runner import (
     run_benchmarks as run_benchmarks_runner,
+)
+from catsyphon.benchmarks.runner import (
     write_results,
 )
 from catsyphon.config import settings
@@ -50,6 +56,14 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value)
+
+
+@router.get("/availability", response_model=BenchmarkAvailabilityResponse)
+async def get_benchmark_availability() -> BenchmarkAvailabilityResponse:
+    return BenchmarkAvailabilityResponse(
+        enabled=settings.benchmarks_enabled,
+        requires_token=bool(settings.benchmarks_token),
+    )
 
 
 def _require_benchmark_access(token: str | None) -> None:

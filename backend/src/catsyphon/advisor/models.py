@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-
 # MCP Categories Registry - detection signals for external tool integrations
 MCP_CATEGORIES: dict[str, dict[str, Any]] = {
     "browser-automation": {

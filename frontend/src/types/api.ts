@@ -818,6 +818,11 @@ export interface BenchmarkItem {
   error?: string | null;
 }
 
+export interface BenchmarkAvailabilityResponse {
+  enabled: boolean;
+  requires_token: boolean;
+}
+
 export interface BenchmarkResultResponse {
   run_id: string;
   started_at: string;
@@ -832,4 +837,46 @@ export interface BenchmarkStatusResponse {
   started_at?: string | null;
   completed_at?: string | null;
   error?: string | null;
+}
+
+export interface ConversationRecapResponse {
+  conversation_id: string;
+  version: number;
+  summary: string;
+  key_files: string[];
+  blockers: string[];
+  next_steps: string[];
+  metadata: Record<string, any>;
+  canonical_version: number;
+  generated_at: string;
+}
+
+export interface WeeklyDigestResponse {
+  workspace_id: string;
+  period_start: string;
+  period_end: string;
+  version: number;
+  summary: string;
+  wins: string[];
+  blockers: string[];
+  highlights: string[];
+  metrics: Record<string, any>;
+  generated_at: string;
+}
+
+export interface WorkflowPatternExample {
+  conversation_id: string;
+  summary?: string | null;
+  outcome?: string | null;
+}
+
+export interface WorkflowPatternItem {
+  pattern: string;
+  count: number;
+  success_rate?: number | null;
+  examples: WorkflowPatternExample[];
+}
+
+export interface WorkflowPatternResponse {
+  items: WorkflowPatternItem[];
 }

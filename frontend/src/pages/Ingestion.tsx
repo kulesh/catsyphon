@@ -42,7 +42,6 @@ import {
   getSuggestedPaths,
   validatePath,
   type UpdateMode,
-  type SuggestedPath,
 } from '@/lib/api';
 import type {
   UploadResult,
@@ -657,7 +656,7 @@ function WatchDirectoriesTab() {
         enable_tagging: enableTagging,
         extra_config: useApiMode ? { use_api: true } : undefined,
       });
-    } catch (err) {
+    } catch {
       setPathError('Failed to validate path');
     } finally {
       setIsValidating(false);

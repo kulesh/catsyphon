@@ -2,13 +2,33 @@
  * Dashboard page - Observatory Mission Control.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge } from 'lucide-react';
-import { ApiError, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats } from '@/lib/api';
+import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles } from 'lucide-react';
+import { ApiError, generateWeeklyDigest, getBenchmarkAvailability, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest, hasBenchmarkToken } from '@/lib/api';
+import { useMemo, useState } from 'react';
 
 export default function Dashboard() {
+  const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
+  const [digestPollEnabled, setDigestPollEnabled] = useState(true);
+  const [digestMissing, setDigestMissing] = useState(false);
+
+  const benchmarkAvailabilityQuery = useQuery({
+    queryKey: ['benchmarks', 'availability'],
+    queryFn: () => getBenchmarkAvailability(),
+    retry: false,
+    staleTime: 60000,
+  });
+
+  const benchmarkRequiresToken = benchmarkAvailabilityQuery.data?.requires_token ?? false;
+  const benchmarkEnabledByConfig = benchmarkAvailabilityQuery.data?.enabled ?? true;
+  const benchmarkHasToken = hasBenchmarkToken();
+  const benchmarkEnabled =
+    benchmarksAvailable &&
+    benchmarkEnabledByConfig &&
+    (!benchmarkRequiresToken || benchmarkHasToken);
+
   const { data: stats, isLoading, error, dataUpdatedAt, isFetching } = useQuery({
     queryKey: ['stats', 'overview'],
     queryFn: () => getOverviewStats(),
@@ -20,15 +40,66 @@ export default function Dashboard() {
     queryKey: ['benchmarks', 'status'],
     queryFn: () => getBenchmarkStatus(),
     retry: false,
-    refetchInterval: 15000,
+    enabled: benchmarkEnabled,
+    refetchInterval: benchmarkEnabled ? 15000 : false,
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 403) {
+        setBenchmarksAvailable(false);
+      }
+    },
   });
 
   const benchmarkResultsQuery = useQuery({
     queryKey: ['benchmarks', 'results', 'latest'],
     queryFn: () => getLatestBenchmarkResults(),
-    enabled: benchmarkStatusQuery.data?.status === 'completed',
+    enabled: benchmarkEnabled && benchmarkStatusQuery.data?.status === 'completed',
     retry: false,
-    refetchInterval: 15000,
+    refetchInterval: benchmarkEnabled ? 15000 : false,
+  });
+
+  const queryClient = useQueryClient();
+  const digestWindow = useMemo(() => {
+    const end = new Date();
+    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return {
+      periodStart: start.toISOString(),
+      periodEnd: end.toISOString(),
+    };
+  }, []);
+
+  const digestQuery = useQuery({
+    queryKey: ['digests', 'weekly', digestWindow.periodStart, digestWindow.periodEnd],
+    queryFn: () => getWeeklyDigest(digestWindow.periodStart, digestWindow.periodEnd),
+    retry: false,
+    enabled: digestPollEnabled,
+    refetchInterval: digestPollEnabled ? 60000 : false,
+    onSuccess: () => {
+      setDigestMissing(false);
+      setDigestPollEnabled(true);
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 404) {
+        setDigestMissing(true);
+        setDigestPollEnabled(false);
+      }
+    },
+  });
+
+  const digestMutation = useMutation({
+    mutationFn: ({ force }: { force: boolean }) =>
+      generateWeeklyDigest(
+        digestWindow.periodStart,
+        digestWindow.periodEnd,
+        force
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        ['digests', 'weekly', digestWindow.periodStart, digestWindow.periodEnd],
+        data
+      );
+      setDigestMissing(false);
+      setDigestPollEnabled(true);
+    },
   });
 
   if (isLoading) {
@@ -65,14 +136,37 @@ export default function Dashboard() {
     return null;
   }
 
-  const benchmarkEnabled =
-    benchmarkStatusQuery.data ||
-    (benchmarkStatusQuery.error instanceof ApiError &&
-      benchmarkStatusQuery.error.status !== 403);
-
   const benchmarkStatus = benchmarkStatusQuery.data?.status;
   const benchmarkRunId = benchmarkStatusQuery.data?.run_id;
   const benchmarkResults = benchmarkResultsQuery.data;
+  const digest = digestQuery.data;
+  const digestMarkdown = digest
+    ? [
+        `# Weekly Digest`,
+        ``,
+        digest.summary,
+        ``,
+        digest.wins.length ? `## Wins` : ``,
+        ...digest.wins.map((item) => `- ${item}`),
+        digest.blockers.length ? `` : ``,
+        digest.blockers.length ? `## Blockers` : ``,
+        ...digest.blockers.map((item) => `- ${item}`),
+        digest.highlights.length ? `` : ``,
+        digest.highlights.length ? `## Highlights` : ``,
+        ...digest.highlights.map((item) => `- ${item}`),
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+    : '';
+
+  const handleCopyDigest = async () => {
+    if (!digestMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(digestMarkdown);
+    } catch (err) {
+      console.error('Failed to copy digest', err);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -242,72 +336,182 @@ export default function Dashboard() {
         </div>
       )}
 
-      {benchmarkEnabled && (
-        <div className="observatory-card p-6 mb-8">
-          <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
-            <div className="flex items-center gap-3">
-              <Gauge className="w-5 h-5 text-cyan-400" />
-              <h2 className="text-lg font-heading text-foreground">
-                Performance Benchmarks
-              </h2>
-            </div>
-            {benchmarkStatus && (
-              <span className="text-xs font-mono text-muted-foreground">
-                STATUS {benchmarkStatus.toUpperCase()}
-              </span>
+      {/* Weekly Digest Panel */}
+      <div className="observatory-card p-6 mb-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+          <div className="flex items-center gap-3">
+            <Terminal className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-xl font-heading font-semibold text-foreground">
+              Weekly Digest
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {digest && (
+              <button
+                onClick={handleCopyDigest}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors text-sm"
+              >
+                <ClipboardCopy className="w-4 h-4" />
+                Copy Markdown
+              </button>
+            )}
+            <button
+              onClick={() => digestMutation.mutate({ force: Boolean(digest) })}
+              disabled={digestMutation.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+            >
+              {digestMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {digest ? 'Regenerating...' : 'Generating...'}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  {digest ? 'Regenerate' : 'Generate Digest'}
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {digestQuery.isLoading && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Loading digest...
+          </p>
+        )}
+
+        {digestMissing && (
+          <p className="text-sm font-mono text-muted-foreground">
+            No digest yet for this week. Generate one to get a summary.
+          </p>
+        )}
+
+        {digestQuery.isError && !digestMissing && (
+          <p className="text-sm font-mono text-muted-foreground">
+            {digestQuery.error?.message || 'Unable to load digest.'}
+          </p>
+        )}
+
+        {digest && (
+          <div className="space-y-4">
+            <p className="text-sm text-foreground">{digest.summary}</p>
+            {digest.wins.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Wins</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {digest.wins.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {digest.blockers.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Blockers</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {digest.blockers.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {digest.highlights.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">Highlights</h4>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                  {digest.highlights.map((item, idx) => (
+                    <li key={`${item}-${idx}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
+        )}
+      </div>
 
-          {benchmarkStatusQuery.isLoading && (
-            <p className="text-sm font-mono text-muted-foreground">
-              Loading benchmark status...
-            </p>
-          )}
-
-          {benchmarkStatusQuery.isError && (
-            <p className="text-sm font-mono text-muted-foreground">
-              {benchmarkStatusQuery.error?.message || 'Benchmarks unavailable'}
-            </p>
-          )}
-
-          {benchmarkRunId && (
-            <p className="text-xs font-mono text-muted-foreground mb-3">
-              Latest run: {benchmarkRunId}
-            </p>
-          )}
-
-          {benchmarkResults && (
-            <div className="space-y-3">
-              {benchmarkResults.benchmarks.map((benchmark) => (
-                <div
-                  key={benchmark.name}
-                  className="rounded-lg border border-border/60 bg-card/60 p-3"
-                >
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <span className="text-sm font-semibold text-foreground">
-                      {benchmark.name}
-                    </span>
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {benchmark.status.toUpperCase()}
-                    </span>
-                  </div>
-                  {benchmark.data?.overhead_ratio && (
-                    <p className="text-xs font-mono text-muted-foreground">
-                      Registry overhead:{' '}
-                      {(benchmark.data.overhead_ratio * 100).toFixed(2)}%
-                    </p>
-                  )}
-                  {benchmark.data?.reason && (
-                    <p className="text-xs font-mono text-muted-foreground">
-                      {benchmark.data.reason}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+      <div className="observatory-card p-6 mb-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+          <div className="flex items-center gap-3">
+            <Gauge className="w-5 h-5 text-cyan-400" />
+            <h2 className="text-lg font-heading text-foreground">
+              Performance Benchmarks
+            </h2>
+          </div>
+          {benchmarkStatus && benchmarkEnabled && (
+            <span className="text-xs font-mono text-muted-foreground">
+              STATUS {benchmarkStatus.toUpperCase()}
+            </span>
           )}
         </div>
-      )}
+
+        {!benchmarkEnabledByConfig && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Benchmarks are disabled. Enable them in the backend settings to see results here.
+          </p>
+        )}
+
+        {benchmarkEnabledByConfig && benchmarkRequiresToken && !benchmarkHasToken && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Benchmarks require a token. Set `VITE_BENCHMARKS_TOKEN` to enable access.
+          </p>
+        )}
+
+        {!benchmarksAvailable && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Benchmarks are unavailable. Check your benchmark token or backend settings.
+          </p>
+        )}
+
+        {benchmarkEnabled && benchmarkStatusQuery.isLoading && (
+          <p className="text-sm font-mono text-muted-foreground">
+            Loading benchmark status...
+          </p>
+        )}
+
+        {benchmarkEnabled && benchmarkStatusQuery.isError && (
+          <p className="text-sm font-mono text-muted-foreground">
+            {benchmarkStatusQuery.error?.message || 'Benchmarks unavailable'}
+          </p>
+        )}
+
+        {benchmarkEnabled && benchmarkRunId && (
+          <p className="text-xs font-mono text-muted-foreground mb-3">
+            Latest run: {benchmarkRunId}
+          </p>
+        )}
+
+        {benchmarkEnabled && benchmarkResults && (
+          <div className="space-y-3">
+            {benchmarkResults.benchmarks.map((benchmark) => (
+              <div
+                key={benchmark.name}
+                className="rounded-lg border border-border/60 bg-card/60 p-3"
+              >
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className="text-sm font-semibold text-foreground">
+                    {benchmark.name}
+                  </span>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {benchmark.status.toUpperCase()}
+                  </span>
+                </div>
+                {benchmark.data?.overhead_ratio && (
+                  <p className="text-xs font-mono text-muted-foreground">
+                    Registry overhead:{' '}
+                    {(benchmark.data.overhead_ratio * 100).toFixed(2)}%
+                  </p>
+                )}
+                {benchmark.data?.reason && (
+                  <p className="text-xs font-mono text-muted-foreground">
+                    {benchmark.data.reason}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Observatory Data Analysis Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">

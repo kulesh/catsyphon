@@ -1,14 +1,15 @@
 """Tests for MCP server opportunity detection."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from catsyphon.advisor.mcp_detector import MCPDetector
 from catsyphon.advisor.models import (
     MCP_CATEGORIES,
-    MCPRecommendation,
     MCPDetectionResult,
+    MCPRecommendation,
 )
-from catsyphon.advisor.mcp_detector import MCPDetector
 
 
 class TestMCPCategories:

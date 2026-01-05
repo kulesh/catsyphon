@@ -1271,6 +1271,112 @@ class ConversationInsights(Base):
         }
 
 
+class ConversationRecap(Base):
+    """Cached recap for a conversation."""
+
+    __tablename__ = "conversation_recaps"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    key_files: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    blockers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    next_steps: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    recap_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    canonical_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "version", name="uq_conversation_recaps_version"
+        ),
+    )
+
+    conversation: Mapped["Conversation"] = relationship()
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConversationRecap(id={self.id}, "
+            f"conversation_id={self.conversation_id}, "
+            f"version={self.version})>"
+        )
+
+
+class WeeklyDigest(Base):
+    """Weekly digest for a workspace."""
+
+    __tablename__ = "weekly_digests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    period_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    wins: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    blockers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    highlights: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "period_start",
+            "period_end",
+            "version",
+            name="uq_weekly_digest_workspace_period",
+        ),
+    )
+
+    workspace: Mapped["Workspace"] = relationship()
+
+    def __repr__(self) -> str:
+        return (
+            f"<WeeklyDigest(id={self.id}, "
+            f"workspace_id={self.workspace_id}, "
+            f"period_start={self.period_start})>"
+        )
+
+
 class AutomationRecommendation(Base):
     """AI-detected automation opportunities for workflow optimization.
 
