@@ -16,17 +16,17 @@ from catsyphon.tagging.llm_logger import llm_logger
 RECAP_PROMPT = """You are generating a concise developer recap for a coding session.
 
 Return ONLY valid JSON in this exact shape:
-{
+{{
   "summary": "1-3 sentences, plain language",
   "key_files": ["path/one", "path/two"],
   "blockers": ["Short blocker", "Short blocker"],
   "next_steps": ["Short next step", "Short next step"],
-  "metadata": {
+  "metadata": {{
     "intent": "best-effort guess",
     "outcome": "success|partial|failed|abandoned|unknown",
     "confidence": 0.0
-  }
-}
+  }}
+}}
 
 Guidelines:
 - key_files must be file paths that appear in the narrative.
