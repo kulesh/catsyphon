@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any, Optional, Set
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from catsyphon.models.db import RawLog
+    from catsyphon.models.parsed import ParsedConversation
+    from catsyphon.parsers.incremental import IncrementalParseResult
     from catsyphon.tagging.pipeline import TaggingPipeline
 
 from sqlalchemy.exc import OperationalError
@@ -603,54 +606,139 @@ class FileWatcher(FileSystemEventHandler):
             self.retry_queue.remove(file_path)
 
     def _process_file_via_api(self, file_path: Path) -> None:
-        """Process file using the Collector Events API."""
+        """Process file using the Collector Events API with incremental parsing support."""
         import uuid
 
         from catsyphon.collector_client import compute_ingestion_fingerprint
+        from catsyphon.utils.hashing import calculate_file_hash, calculate_partial_hash
 
-        # Parse the file
-        parsed = self.parser_registry.parse(file_path)
+        # Check for existing raw_log to enable incremental parsing
+        # Store state as plain values to avoid detached session issues
+        existing_raw_log_state: Optional[dict] = None
+        change_type = None
+        try:
+            with background_session() as session:
+                raw_log_repo = RawLogRepository(session)
+                existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+
+                if existing_raw_log:
+                    # Copy state to plain dict to avoid detached session issues
+                    existing_raw_log_state = {
+                        "last_processed_offset": existing_raw_log.last_processed_offset or 0,
+                        "last_processed_line": existing_raw_log.last_processed_line or 0,
+                        "file_size_bytes": existing_raw_log.file_size_bytes or 0,
+                        "partial_hash": existing_raw_log.partial_hash,
+                    }
+
+                    # Detect type of change
+                    change_type = detect_file_change_type(
+                        file_path,
+                        existing_raw_log_state["last_processed_offset"],
+                        existing_raw_log_state["file_size_bytes"],
+                        existing_raw_log_state["partial_hash"],
+                    )
+
+                    if change_type == ChangeType.UNCHANGED:
+                        logger.debug(f"Skipping {file_path.name} (unchanged)")
+                        with self._stats_lock:
+                            self.stats.files_skipped += 1
+                            self.stats.last_activity = datetime.now()
+                        return
+
+                    logger.debug(f"File {file_path.name} change type: {change_type.value}")
+        except Exception as e:
+            logger.debug(f"Could not check incremental state for {file_path.name}: {e}")
+            # Continue with full parse
+
+        # Try incremental parsing if we have existing state and file was appended
+        incremental_result = None
+        if existing_raw_log_state and change_type == ChangeType.APPEND:
+            try:
+                incremental_parser = self.parser_registry.find_incremental_parser(file_path)
+                if incremental_parser:
+                    incremental_result = incremental_parser.parse_incremental(
+                        file_path,
+                        existing_raw_log_state["last_processed_offset"],
+                        existing_raw_log_state["last_processed_line"],
+                    )
+                    if incremental_result and incremental_result.new_messages:
+                        logger.info(
+                            f"Incremental parse: {len(incremental_result.new_messages)} new messages "
+                            f"in {file_path.name}"
+                        )
+            except Exception as e:
+                logger.warning(f"Incremental parse failed for {file_path.name}: {e}, falling back to full parse")
+                incremental_result = None
+
+        # Full parse if no incremental result
+        parsed = None
+        if not incremental_result:
+            parsed = self.parser_registry.parse(file_path)
 
         # Use parsed session_id if available (from log file), otherwise generate from path
         # Using the real session_id is critical for parent-child linking to work
-        session_id = getattr(parsed, 'session_id', None)
+        if parsed:
+            session_id = getattr(parsed, 'session_id', None)
+        else:
+            # For incremental, we need the session_id from the existing raw_log's conversation
+            session_id = file_path.stem  # UUID is typically the filename stem
         if not session_id:
             # Fallback to UUID from file path if parser didn't extract session_id
             session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(file_path)))
             logger.debug(f"No session_id in parsed data, using generated: {session_id}")
 
-        # Extract agent info from parsed conversation
-        agent_type = getattr(parsed, 'agent_type', 'claude-code')
-        agent_version = getattr(parsed, 'agent_version', 'unknown')
-        working_directory = getattr(parsed, 'working_directory', None)
-        git_branch = getattr(parsed, 'git_branch', None)
-        parent_session_id = getattr(parsed, 'parent_session_id', None)
+        # Send to API
+        if incremental_result and incremental_result.new_messages:
+            # Incremental: send only new messages
+            result = self._collector_client.ingest_incremental_messages(
+                messages=incremental_result.new_messages,
+                session_id=session_id,
+            )
+            accepted = result.get("accepted", 0)
+            conversation_id = result.get("conversation_id")
+            messages_for_fingerprint = incremental_result.new_messages
+        else:
+            # Full parse: send entire conversation
+            agent_type = getattr(parsed, 'agent_type', 'claude-code')
+            agent_version = getattr(parsed, 'agent_version', 'unknown')
+            working_directory = getattr(parsed, 'working_directory', None)
+            git_branch = getattr(parsed, 'git_branch', None)
+            parent_session_id = getattr(parsed, 'parent_session_id', None)
 
-        # Send to API with all hierarchy information
-        result = self._collector_client.ingest_conversation(
+            result = self._collector_client.ingest_conversation(
+                parsed=parsed,
+                session_id=session_id,
+                agent_type=agent_type,
+                agent_version=agent_version,
+                working_directory=working_directory,
+                git_branch=git_branch,
+                parent_session_id=parent_session_id,
+            )
+            accepted = result.get("accepted", 0)
+            conversation_id = result.get("conversation_id")
+            messages_for_fingerprint = parsed.messages if parsed else []
+
+        # Update raw_log state for future incremental parsing
+        self._update_raw_log_state(
+            file_path=file_path,
+            conversation_id=conversation_id,
             parsed=parsed,
-            session_id=session_id,
-            agent_type=agent_type,
-            agent_version=agent_version,
-            working_directory=working_directory,
-            git_branch=git_branch,
-            parent_session_id=parent_session_id,
+            incremental_result=incremental_result,
+            has_existing_raw_log=existing_raw_log_state is not None,
         )
-
-        conversation_id = result.get("conversation_id")
-        accepted = result.get("accepted", 0)
 
         # Compute fingerprint for reconciliation
         fingerprint = None
-        if parsed.messages:
+        if messages_for_fingerprint:
             try:
-                fingerprint = compute_ingestion_fingerprint(parsed.messages)
+                fingerprint = compute_ingestion_fingerprint(messages_for_fingerprint)
                 logger.debug(f"Ingestion fingerprint (API): {fingerprint[:16]}...")
             except Exception as fp_error:
                 logger.debug(f"Could not compute fingerprint: {fp_error}")
 
+        mode = "incr" if incremental_result else "full"
         logger.info(
-            f"✓ API {file_path.name} → conversation {conversation_id} "
+            f"✓ API[{mode}] {file_path.name} → conversation {conversation_id} "
             f"({accepted} events)"
             + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
         )
@@ -662,6 +750,116 @@ class FileWatcher(FileSystemEventHandler):
         # Remove from retry queue if present
         if self.retry_queue:
             self.retry_queue.remove(file_path)
+
+    def _update_raw_log_state(
+        self,
+        file_path: Path,
+        conversation_id: Optional[str],
+        parsed: Optional["ParsedConversation"],
+        incremental_result: Optional["IncrementalParseResult"],
+        has_existing_raw_log: bool,
+    ) -> None:
+        """
+        Update or create raw_log entry to track file state for incremental parsing.
+
+        This enables future incremental parsing by storing:
+        - last_processed_offset: Where to resume parsing
+        - file_size_bytes: For change detection
+        - partial_hash: For integrity verification
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        from catsyphon.utils.hashing import calculate_partial_hash
+
+        try:
+            with background_session() as session:
+                raw_log_repo = RawLogRepository(session)
+
+                # Get current file stats
+                file_size = file_path.stat().st_size
+
+                if incremental_result:
+                    # Update existing raw_log with new state
+                    new_offset = incremental_result.last_processed_offset
+                    new_line = incremental_result.last_processed_line
+                    partial_hash = incremental_result.partial_hash
+                elif parsed:
+                    # Full parse: offset is entire file
+                    new_offset = file_size
+                    new_line = len(parsed.messages) if parsed.messages else 0
+                    partial_hash = calculate_partial_hash(file_path, file_size)
+                else:
+                    return  # Nothing to update
+
+                if has_existing_raw_log:
+                    # Re-fetch raw_log in this session to avoid detached instance errors
+                    existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                    if existing_raw_log:
+                        raw_log_repo.update_state(
+                            raw_log=existing_raw_log,
+                            last_processed_offset=new_offset,
+                            last_processed_line=new_line,
+                            file_size_bytes=file_size,
+                            partial_hash=partial_hash,
+                        )
+                        logger.debug(
+                            f"Updated raw_log state: offset={new_offset}, size={file_size}"
+                        )
+                        session.commit()
+                        return
+                    # If not found (maybe deleted), fall through to create
+
+                if conversation_id and parsed:
+                    # Create new raw_log entry
+                    from uuid import UUID
+
+                    try:
+                        conv_uuid = (
+                            UUID(conversation_id)
+                            if isinstance(conversation_id, str)
+                            else conversation_id
+                        )
+                        raw_log_repo.create_from_file(
+                            conversation_id=conv_uuid,
+                            agent_type=parsed.agent_type or "claude-code",
+                            log_format="jsonl",
+                            file_path=file_path,
+                        )
+                        # Immediately update state (create_from_file reads entire file)
+                        new_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                        if new_raw_log:
+                            raw_log_repo.update_state(
+                                raw_log=new_raw_log,
+                                last_processed_offset=new_offset,
+                                last_processed_line=new_line,
+                                file_size_bytes=file_size,
+                                partial_hash=partial_hash,
+                            )
+                        logger.debug(
+                            f"Created raw_log for {file_path.name}: offset={new_offset}, size={file_size}"
+                        )
+                        session.commit()
+                    except IntegrityError:
+                        # Another worker already created raw_log - try to update it instead
+                        session.rollback()
+                        existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                        if existing_raw_log:
+                            raw_log_repo.update_state(
+                                raw_log=existing_raw_log,
+                                last_processed_offset=new_offset,
+                                last_processed_line=new_line,
+                                file_size_bytes=file_size,
+                                partial_hash=partial_hash,
+                            )
+                            session.commit()
+                            logger.debug(
+                                f"Updated existing raw_log (after race): offset={new_offset}"
+                            )
+                    except Exception as create_error:
+                        logger.debug(f"Could not create raw_log: {create_error}")
+
+        except Exception as e:
+            logger.warning(f"Failed to update raw_log state for {file_path.name}: {e}")
 
 
 class WatcherDaemon:

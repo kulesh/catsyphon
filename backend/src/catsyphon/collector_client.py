@@ -437,6 +437,47 @@ class CollectorClient:
             logger.warning(f"Failed to complete session: {e}")
             return {}
 
+    def ingest_incremental_messages(
+        self,
+        messages: list[ParsedMessage],
+        session_id: str,
+    ) -> dict[str, Any]:
+        """
+        Ingest only new messages for an existing session (incremental update).
+
+        Unlike ingest_conversation, this method:
+        - Does NOT send session_start event (session already exists)
+        - Does NOT send session_end event (session may still be active)
+        - Only sends message and tool_call events for new messages
+
+        Args:
+            messages: List of new ParsedMessage objects to ingest
+            session_id: Existing session identifier
+
+        Returns:
+            Response dict with conversation_id and ingestion stats
+        """
+        if not messages:
+            return {"accepted": 0, "conversation_id": None, "total_events": 0}
+
+        events: list[dict[str, Any]] = []
+
+        # Convert only new messages to events
+        for msg in messages:
+            events.extend(self._message_to_events(msg))
+
+        if not events:
+            return {"accepted": 0, "conversation_id": None, "total_events": 0}
+
+        # Send events in batches (no session completion for incremental)
+        result = self._send_events(session_id, events)
+
+        logger.debug(
+            f"Incremental ingest: {len(messages)} messages → {result.get('accepted', 0)} events"
+        )
+
+        return result
+
 
 def compute_ingestion_fingerprint(
     messages: list[Any],
