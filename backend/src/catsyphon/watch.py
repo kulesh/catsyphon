@@ -613,7 +613,8 @@ class FileWatcher(FileSystemEventHandler):
         from catsyphon.utils.hashing import calculate_file_hash, calculate_partial_hash
 
         # Check for existing raw_log to enable incremental parsing
-        existing_raw_log = None
+        # Store state as plain values to avoid detached session issues
+        existing_raw_log_state: Optional[dict] = None
         change_type = None
         try:
             with background_session() as session:
@@ -621,12 +622,20 @@ class FileWatcher(FileSystemEventHandler):
                 existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
 
                 if existing_raw_log:
+                    # Copy state to plain dict to avoid detached session issues
+                    existing_raw_log_state = {
+                        "last_processed_offset": existing_raw_log.last_processed_offset or 0,
+                        "last_processed_line": existing_raw_log.last_processed_line or 0,
+                        "file_size_bytes": existing_raw_log.file_size_bytes or 0,
+                        "partial_hash": existing_raw_log.partial_hash,
+                    }
+
                     # Detect type of change
                     change_type = detect_file_change_type(
                         file_path,
-                        existing_raw_log.last_processed_offset or 0,
-                        existing_raw_log.file_size_bytes or 0,
-                        existing_raw_log.partial_hash,
+                        existing_raw_log_state["last_processed_offset"],
+                        existing_raw_log_state["file_size_bytes"],
+                        existing_raw_log_state["partial_hash"],
                     )
 
                     if change_type == ChangeType.UNCHANGED:
@@ -643,14 +652,14 @@ class FileWatcher(FileSystemEventHandler):
 
         # Try incremental parsing if we have existing state and file was appended
         incremental_result = None
-        if existing_raw_log and change_type == ChangeType.APPEND:
+        if existing_raw_log_state and change_type == ChangeType.APPEND:
             try:
                 incremental_parser = self.parser_registry.find_incremental_parser(file_path)
                 if incremental_parser:
                     incremental_result = incremental_parser.parse_incremental(
                         file_path,
-                        existing_raw_log.last_processed_offset or 0,
-                        existing_raw_log.last_processed_line or 0,
+                        existing_raw_log_state["last_processed_offset"],
+                        existing_raw_log_state["last_processed_line"],
                     )
                     if incremental_result and incremental_result.new_messages:
                         logger.info(
@@ -715,7 +724,7 @@ class FileWatcher(FileSystemEventHandler):
             conversation_id=conversation_id,
             parsed=parsed,
             incremental_result=incremental_result,
-            existing_raw_log=existing_raw_log,
+            has_existing_raw_log=existing_raw_log_state is not None,
         )
 
         # Compute fingerprint for reconciliation
@@ -748,7 +757,7 @@ class FileWatcher(FileSystemEventHandler):
         conversation_id: Optional[str],
         parsed: Optional["ParsedConversation"],
         incremental_result: Optional["IncrementalParseResult"],
-        existing_raw_log: Optional["RawLog"],
+        has_existing_raw_log: bool,
     ) -> None:
         """
         Update or create raw_log entry to track file state for incremental parsing.
@@ -758,6 +767,8 @@ class FileWatcher(FileSystemEventHandler):
         - file_size_bytes: For change detection
         - partial_hash: For integrity verification
         """
+        from sqlalchemy.exc import IntegrityError
+
         from catsyphon.utils.hashing import calculate_partial_hash
 
         try:
@@ -780,23 +791,34 @@ class FileWatcher(FileSystemEventHandler):
                 else:
                     return  # Nothing to update
 
-                if existing_raw_log:
-                    # Update existing entry
-                    raw_log_repo.update_state(
-                        raw_log=existing_raw_log,
-                        last_processed_offset=new_offset,
-                        last_processed_line=new_line,
-                        file_size_bytes=file_size,
-                        partial_hash=partial_hash,
-                    )
-                    logger.debug(
-                        f"Updated raw_log state: offset={new_offset}, size={file_size}"
-                    )
-                elif conversation_id and parsed:
+                if has_existing_raw_log:
+                    # Re-fetch raw_log in this session to avoid detached instance errors
+                    existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                    if existing_raw_log:
+                        raw_log_repo.update_state(
+                            raw_log=existing_raw_log,
+                            last_processed_offset=new_offset,
+                            last_processed_line=new_line,
+                            file_size_bytes=file_size,
+                            partial_hash=partial_hash,
+                        )
+                        logger.debug(
+                            f"Updated raw_log state: offset={new_offset}, size={file_size}"
+                        )
+                        session.commit()
+                        return
+                    # If not found (maybe deleted), fall through to create
+
+                if conversation_id and parsed:
                     # Create new raw_log entry
                     from uuid import UUID
+
                     try:
-                        conv_uuid = UUID(conversation_id) if isinstance(conversation_id, str) else conversation_id
+                        conv_uuid = (
+                            UUID(conversation_id)
+                            if isinstance(conversation_id, str)
+                            else conversation_id
+                        )
                         raw_log_repo.create_from_file(
                             conversation_id=conv_uuid,
                             agent_type=parsed.agent_type or "claude-code",
@@ -816,10 +838,25 @@ class FileWatcher(FileSystemEventHandler):
                         logger.debug(
                             f"Created raw_log for {file_path.name}: offset={new_offset}, size={file_size}"
                         )
+                        session.commit()
+                    except IntegrityError:
+                        # Another worker already created raw_log - try to update it instead
+                        session.rollback()
+                        existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                        if existing_raw_log:
+                            raw_log_repo.update_state(
+                                raw_log=existing_raw_log,
+                                last_processed_offset=new_offset,
+                                last_processed_line=new_line,
+                                file_size_bytes=file_size,
+                                partial_hash=partial_hash,
+                            )
+                            session.commit()
+                            logger.debug(
+                                f"Updated existing raw_log (after race): offset={new_offset}"
+                            )
                     except Exception as create_error:
                         logger.debug(f"Could not create raw_log: {create_error}")
-
-                session.commit()
 
         except Exception as e:
             logger.warning(f"Failed to update raw_log state for {file_path.name}: {e}")
