@@ -12,15 +12,15 @@ import hashlib
 import hmac
 import logging
 import secrets
-import time
 import uuid
-from datetime import datetime, timezone
-from typing import Annotated, Any
+from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from catsyphon.api.schemas import (
+    CollectorEvent as PydanticCollectorEvent,
     CollectorEventsRequest,
     CollectorEventsResponse,
     CollectorRegisterRequest,
@@ -36,16 +36,36 @@ from catsyphon.db.repositories import (
     CollectorSessionRepository,
     WorkspaceRepository,
 )
-from catsyphon.models.db import CollectorConfig, IngestionJob
+from catsyphon.models.db import CollectorConfig
+from catsyphon.services.ingestion_service import (
+    CollectorEvent as InternalCollectorEvent,
+    IngestionService,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collectors", tags=["collectors"])
 
 
-def _utc_now() -> datetime:
-    """Return current UTC time as naive datetime for database storage."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+def _convert_pydantic_event(event: PydanticCollectorEvent) -> InternalCollectorEvent:
+    """Convert Pydantic CollectorEvent to internal CollectorEvent."""
+    # Compute hash if not provided
+    event_hash = event.event_hash
+    if not event_hash:
+        import json
+
+        data_dict = event.data.model_dump(exclude_none=True)
+        content = json.dumps(data_dict, sort_keys=True, default=str)
+        hash_input = f"{event.type}:{event.emitted_at.isoformat()}:{content}"
+        event_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:32]
+
+    return InternalCollectorEvent(
+        type=event.type,
+        emitted_at=event.emitted_at,
+        observed_at=event.observed_at,
+        event_hash=event_hash,
+        data=event.data.model_dump(exclude_none=True),
+    )
 
 
 def _queue_tagging(conversation_id: uuid.UUID, db: Session) -> None:
@@ -71,23 +91,6 @@ def _queue_tagging(conversation_id: uuid.UUID, db: Session) -> None:
     except Exception as e:
         # Don't fail ingestion if queueing fails
         logger.warning(f"Failed to queue tagging for {conversation_id}: {e}")
-
-
-def _compute_event_hash(event: Any) -> str:
-    """Compute content-based hash for event deduplication.
-
-    If the event already has an event_hash, return it.
-    Otherwise, compute from event type, timestamp, and data.
-    """
-    if event.event_hash:
-        return event.event_hash
-
-    import json
-
-    data_dict = event.data.model_dump(exclude_none=True)
-    content = json.dumps(data_dict, sort_keys=True, default=str)
-    hash_input = f"{event.type}:{event.emitted_at.isoformat()}:{content}"
-    return hashlib.sha256(hash_input.encode()).hexdigest()[:32]
 
 
 def generate_api_key() -> tuple[str, str, str]:
@@ -247,245 +250,45 @@ def submit_events(
     Events are deduplicated by content hash (event_hash field).
     Duplicate events are silently ignored, making re-ingestion idempotent.
     """
-    start_time = time.time()
-    start_datetime = _utc_now()
-
+    # Authenticate collector
     collector = get_collector_from_auth(authorization, x_collector_id, db)
 
-    session_repo = CollectorSessionRepository(db)
-    # Note: We create IngestionJob directly rather than using repository
-    # to avoid extra queries when we just need to insert
+    # Convert Pydantic events to internal events
+    internal_events = [_convert_pydantic_event(e) for e in request.events]
 
-    # Create ingestion job for tracking
-    ingestion_job = IngestionJob(
-        source_type="collector",
+    # Process events using unified service
+    service = IngestionService(db)
+    outcome = service.process_events(
+        events=internal_events,
+        session_id=request.session_id,
+        workspace_id=collector.workspace_id,
         collector_id=collector.id,
-        status="processing",
-        started_at=start_datetime,
-        messages_added=0,
-        metrics={},
+        source_type="collector",
+        enable_tagging=True,  # Always enable tagging for collector API
     )
-    db.add(ingestion_job)
-    db.flush()
 
-    try:
-        # Sort events by timestamp for consistent ordering
-        sorted_events = sorted(request.events, key=lambda e: e.emitted_at)
-
-        # Get or create session
-        first_event = sorted_events[0]
-        session_data = first_event.data
-
-        # Extract known fields and additional metadata for semantic parity
-        # session_data.model_dump() gives us all fields including extra ones
-        session_data_dict = session_data.model_dump(exclude_none=True)
-        known_fields = {
-            "agent_type",
-            "agent_version",
-            "working_directory",
-            "git_branch",
-            "parent_session_id",
-            "context_semantics",
-            "slug",
-            "summaries",
-            "compaction_events",
-        }
-        session_metadata = {
-            k: v for k, v in session_data_dict.items() if k not in known_fields
-        }
-
-        conversation, created = session_repo.get_or_create_session(
-            collector_session_id=request.session_id,
-            workspace_id=collector.workspace_id,
-            collector_id=collector.id,
-            agent_type=session_data.agent_type or "unknown",
-            agent_version=session_data.agent_version,
-            working_directory=session_data.working_directory,
-            git_branch=session_data.git_branch,
-            parent_session_id=session_data.parent_session_id,
-            context_semantics=session_data.context_semantics,
-            first_event_timestamp=first_event.emitted_at,  # Use event timestamp
-            # New fields for semantic parity
-            slug=session_data.slug,
-            summaries=session_data.summaries,
-            compaction_events=session_data.compaction_events,
-            session_metadata=session_metadata if session_metadata else None,
+    # Handle errors
+    if outcome.status == "error":
+        logger.error(f"Collector ingestion failed: {outcome.error_message}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=outcome.error_message or "Ingestion failed",
         )
 
-        # Update ingestion job with conversation
-        ingestion_job.conversation_id = conversation.id
+    # Commit the transaction
+    db.commit()
 
-        # Content-based deduplication: filter out events we already have
-        # Compute hashes for events that don't have them (backwards compatibility)
-        existing_hashes = session_repo.get_event_hashes(conversation.id)
-        events_with_hashes = [
-            (e, _compute_event_hash(e)) for e in sorted_events
-        ]
-        new_events_with_hashes = [
-            (e, h) for e, h in events_with_hashes
-            if h not in existing_hashes
-        ]
-        new_events = [e for e, _ in new_events_with_hashes]
-        # Map events to their hashes for later use
-        event_hash_map = {id(e): h for e, h in events_with_hashes}
+    logger.debug(
+        f"Collector ingestion completed: conversation={outcome.conversation_id}, "
+        f"messages={outcome.messages_added}, time={outcome.processing_time_ms}ms"
+    )
 
-        # Track message-like events added
-        messages_added = 0
-        files_touched = 0
-        session_completed = False  # Track if session_end was processed
-
-        # Tools that modify files (for FileTouched tracking)
-        # Maps tool_name -> change_type for semantic parity with direct ingestion
-        file_modifying_tools = {
-            "Edit": "write",
-            "Write": "write",
-            "NotebookEdit": "write",
-            "MultiEdit": "write",
-        }
-        file_reading_tools = {"Read", "Glob", "Grep"}
-
-        # Process new events
-        warnings = []
-        for event in new_events:
-            # Skip session_start for existing sessions
-            if event.type == "session_start" and not created:
-                continue
-
-            # Add message for message-like events
-            if event.type in (
-                "message",
-                "tool_call",
-                "tool_result",
-                "thinking",
-                "error",
-            ):
-                session_repo.add_message(
-                    conversation=conversation,
-                    event_type=event.type,
-                    emitted_at=event.emitted_at,
-                    observed_at=event.observed_at,
-                    data=event.data.model_dump(exclude_none=True),
-                    event_hash=event_hash_map.get(id(event)),
-                )
-                messages_added += 1
-
-                # Track file touches from tool_call events (semantic parity)
-                # Mirrors FileTouched creation in pipeline/ingestion.py
-                if event.type == "tool_call" and event.data.tool_name:
-                    tool_name = event.data.tool_name
-                    params = event.data.parameters or {}
-
-                    # Extract file_path from tool parameters
-                    file_path = params.get("file_path") or params.get("path")
-                    if file_path:
-                        if tool_name in file_modifying_tools:
-                            change_type = file_modifying_tools[tool_name]
-                            session_repo.add_file_touched(
-                                conversation=conversation,
-                                file_path=file_path,
-                                change_type=change_type,
-                                timestamp=event.emitted_at,
-                            )
-                            files_touched += 1
-                        elif tool_name in file_reading_tools:
-                            session_repo.add_file_touched(
-                                conversation=conversation,
-                                file_path=file_path,
-                                change_type="read",
-                                timestamp=event.emitted_at,
-                            )
-                            files_touched += 1
-
-            # Handle session_end - include plans and files for semantic parity
-            if event.type == "session_end":
-                session_repo.complete_session(
-                    conversation=conversation,
-                    final_sequence=0,  # No longer used, kept for API compatibility
-                    outcome=event.data.outcome or "unknown",
-                    summary=event.data.summary,
-                    event_timestamp=event.emitted_at,  # Use event timestamp
-                    # New fields for semantic parity
-                    plans=event.data.plans,
-                    files_touched=event.data.files_touched,
-                )
-                session_completed = True
-
-        # Update event count and last activity timestamp
-        if new_events:
-            # Update message count (sequence is now computed per-message)
-            session_repo.update_sequence(
-                conversation=conversation,
-                last_sequence=conversation.message_count + len(new_events),
-                event_count_delta=len(new_events),
-            )
-            # Update end_time to latest event's timestamp (for "last activity")
-            last_event = max(new_events, key=lambda e: e.emitted_at)
-            session_repo.update_last_activity(
-                conversation=conversation,
-                event_timestamp=last_event.emitted_at,
-            )
-
-        # Try to link any orphaned collector sessions (deferred parent linking)
-        linked = session_repo.link_orphaned_collectors(collector.workspace_id)
-        if linked > 0:
-            logger.info(f"Linked {linked} orphaned collector sessions to parents")
-
-        # Calculate processing time
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
-        # Update ingestion job as successful
-        ingestion_job.status = "success"
-        ingestion_job.messages_added = messages_added
-        ingestion_job.processing_time_ms = processing_time_ms
-        ingestion_job.completed_at = _utc_now()
-        ingestion_job.metrics = {
-            "events_received": len(sorted_events),
-            "events_accepted": len(new_events),
-            "events_deduplicated": len(sorted_events) - len(new_events),
-            "files_touched": files_touched,
-            "session_created": created,
-            "total_ms": processing_time_ms,
-        }
-
-        # Extract values BEFORE commit to avoid lazy load after session expires
-        conversation_id = conversation.id
-        last_sequence = conversation.last_event_sequence
-        job_id = ingestion_job.id
-
-        # Queue tagging job BEFORE commit so it's part of the same transaction
-        # This ensures the job is created atomically with the conversation
-        if session_completed and settings.openai_api_key:
-            _queue_tagging(conversation_id, db)
-
-        db.commit()
-
-        logger.debug(
-            f"Collector ingestion completed: job={job_id}, "
-            f"conversation={conversation_id}, messages={messages_added}, "
-            f"time={processing_time_ms}ms"
-        )
-
-        return CollectorEventsResponse(
-            accepted=len(new_events),
-            last_sequence=last_sequence,
-            conversation_id=conversation_id,
-            warnings=warnings,
-        )
-
-    except HTTPException:
-        # Re-raise HTTP exceptions (already handled above)
-        raise
-    except Exception as e:
-        # Mark job as failed
-        processing_time_ms = int((time.time() - start_time) * 1000)
-        ingestion_job.status = "failed"
-        ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
-        ingestion_job.processing_time_ms = processing_time_ms
-        ingestion_job.completed_at = _utc_now()
-        db.commit()
-
-        logger.error(f"Collector ingestion failed: {e}", exc_info=True)
-        raise
+    return CollectorEventsResponse(
+        accepted=outcome.events_accepted,
+        last_sequence=outcome.last_sequence,
+        conversation_id=outcome.conversation_id,
+        warnings=outcome.warnings or [],
+    )
 
 
 @router.get(

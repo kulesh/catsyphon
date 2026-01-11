@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from catsyphon.watch import RetryEntry, WatcherDaemon
+from catsyphon.watch import ApiIngestionConfig, RetryEntry, WatcherDaemon
 
 
 @pytest.fixture
@@ -16,12 +16,27 @@ def temp_watch_dir(tmp_path):
     return watch_dir
 
 
+@pytest.fixture
+def mock_api_config():
+    """API configuration with mock credentials for testing."""
+    return ApiIngestionConfig(
+        server_url="http://localhost:8000",
+        api_key="test-api-key",
+        collector_id="test-collector-id",
+        batch_size=20,
+    )
+
+
 class TestWatcherDaemonInitialization:
     """Tests for WatcherDaemon initialization."""
 
-    def test_init_with_minimal_params(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_init_with_minimal_params(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test daemon initialization with minimal parameters."""
-        daemon = WatcherDaemon(directory=temp_watch_dir)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
 
         assert daemon.directory == temp_watch_dir
         assert daemon.project_name is None
@@ -37,8 +52,12 @@ class TestWatcherDaemonInitialization:
         assert daemon.shutdown_event is not None
         assert daemon.retry_thread is None
 
-    def test_init_with_all_params(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_init_with_all_params(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test daemon initialization with all parameters."""
+        mock_collector_client.return_value = Mock()
         daemon = WatcherDaemon(
             directory=temp_watch_dir,
             project_name="test-project",
@@ -48,6 +67,7 @@ class TestWatcherDaemonInitialization:
             max_retries=5,
             debounce_seconds=2.0,
             enable_tagging=False,
+            api_config=mock_api_config,
         )
 
         assert daemon.project_name == "test-project"
@@ -57,25 +77,35 @@ class TestWatcherDaemonInitialization:
         assert daemon.debounce_seconds == 2.0
         assert daemon.enable_tagging is False
 
+    @patch("catsyphon.collector_client.CollectorClient")
     @patch("catsyphon.watch.settings")
-    def test_init_with_tagging_enabled(self, mock_settings, temp_watch_dir):
+    def test_init_with_tagging_enabled(
+        self, mock_settings, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test daemon initialization with tagging enabled."""
         mock_settings.openai_api_key = "test-key"
         mock_settings.openai_model = "gpt-4o-mini"
         mock_settings.tagging_cache_dir = "/tmp/cache"
         mock_settings.tagging_cache_ttl_days = 7
         mock_settings.tagging_enable_cache = True
+        mock_collector_client.return_value = Mock()
 
         with patch("catsyphon.tagging.TaggingPipeline") as mock_tagging_pipeline:
-            daemon = WatcherDaemon(directory=temp_watch_dir, enable_tagging=True)
+            daemon = WatcherDaemon(
+                directory=temp_watch_dir, enable_tagging=True, api_config=mock_api_config
+            )
 
             assert daemon.enable_tagging is True
             # Tagging pipeline should be initialized
             mock_tagging_pipeline.assert_called_once()
 
-    def test_observer_scheduled_for_directory(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_observer_scheduled_for_directory(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that observer is scheduled to watch the directory."""
-        daemon = WatcherDaemon(directory=temp_watch_dir)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
 
         # Verify observer has a watch scheduled
         # (watchdog library doesn't expose watches directly, so we verify it doesn't error)
@@ -86,10 +116,14 @@ class TestWatcherDaemonInitialization:
 class TestWatcherDaemonLifecycle:
     """Tests for daemon start/stop lifecycle."""
 
+    @patch("catsyphon.collector_client.CollectorClient")
     @patch("catsyphon.watch.signal.signal")
-    def test_start_initializes_components(self, mock_signal, temp_watch_dir):
+    def test_start_initializes_components(
+        self, mock_signal, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that start() initializes all components."""
-        daemon = WatcherDaemon(directory=temp_watch_dir)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
 
         # Mock observer and thread to prevent actual start
         daemon.observer = Mock()
@@ -109,9 +143,13 @@ class TestWatcherDaemonLifecycle:
         # Verify retry thread was created
         assert daemon.retry_thread is not None
 
-    def test_stop_shuts_down_gracefully(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_stop_shuts_down_gracefully(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that stop() shuts down all components."""
-        daemon = WatcherDaemon(directory=temp_watch_dir)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
 
         # Mock observer
         daemon.observer = Mock()
@@ -125,10 +163,14 @@ class TestWatcherDaemonLifecycle:
         daemon.observer.stop.assert_called_once()
         daemon.observer.join.assert_called_once_with(timeout=3)
 
+    @patch("catsyphon.collector_client.CollectorClient")
     @patch("catsyphon.watch.sys.exit")
-    def test_signal_handler_stops_daemon(self, mock_exit, temp_watch_dir):
+    def test_signal_handler_stops_daemon(
+        self, mock_exit, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that signal handler triggers graceful shutdown."""
-        daemon = WatcherDaemon(directory=temp_watch_dir)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
         daemon.observer = Mock()
 
         # Simulate signal
@@ -143,9 +185,15 @@ class TestWatcherDaemonLifecycle:
 class TestRetryLoop:
     """Tests for background retry loop."""
 
-    def test_retry_loop_processes_ready_files(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_retry_loop_processes_ready_files(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that retry loop processes files ready for retry."""
-        daemon = WatcherDaemon(directory=temp_watch_dir, retry_interval=1)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(
+            directory=temp_watch_dir, retry_interval=1, api_config=mock_api_config
+        )
 
         # Create a test file to retry
         test_file = temp_watch_dir / "test.jsonl"
@@ -177,9 +225,15 @@ class TestRetryLoop:
             daemon.event_handler._process_file.assert_called_once_with(test_file)
             assert daemon.stats.files_retried == 1
 
-    def test_retry_loop_handles_errors_gracefully(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_retry_loop_handles_errors_gracefully(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that retry loop handles errors without crashing."""
-        daemon = WatcherDaemon(directory=temp_watch_dir, retry_interval=1)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(
+            directory=temp_watch_dir, retry_interval=1, api_config=mock_api_config
+        )
 
         # Mock get_ready_files to raise an exception
         with patch.object(
@@ -194,9 +248,15 @@ class TestRetryLoop:
             # Verify stats not incremented on error
             assert daemon.stats.files_retried == 0
 
-    def test_retry_loop_respects_shutdown_event(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_retry_loop_respects_shutdown_event(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that retry loop stops when shutdown event is set."""
-        daemon = WatcherDaemon(directory=temp_watch_dir, retry_interval=1)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(
+            directory=temp_watch_dir, retry_interval=1, api_config=mock_api_config
+        )
 
         # Set shutdown immediately
         daemon.shutdown_event.set()
@@ -210,9 +270,15 @@ class TestRetryLoop:
         # Should exit immediately without processing
         daemon.event_handler._process_file.assert_not_called()
 
-    def test_retry_loop_skips_files_on_shutdown(self, temp_watch_dir):
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_retry_loop_skips_files_on_shutdown(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
         """Test that retry loop stops processing when shutdown during iteration."""
-        daemon = WatcherDaemon(directory=temp_watch_dir, retry_interval=1)
+        mock_collector_client.return_value = Mock()
+        daemon = WatcherDaemon(
+            directory=temp_watch_dir, retry_interval=1, api_config=mock_api_config
+        )
 
         # Create multiple test files
         files = [temp_watch_dir / f"test{i}.jsonl" for i in range(3)]

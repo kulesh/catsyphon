@@ -545,6 +545,10 @@ def ingest_conversation(
     """
     Ingest a parsed conversation into the database.
 
+    .. deprecated::
+        This is an internal function. Use :class:`catsyphon.services.IngestionService`
+        for new code. This function may be removed in a future version.
+
     Args:
         session: Database session
         parsed: Parsed conversation from parser

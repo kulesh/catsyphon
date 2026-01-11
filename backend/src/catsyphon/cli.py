@@ -5,8 +5,6 @@ Minimal CLI providing essential commands for automation and server management.
 For interactive features, use the web UI.
 """
 
-import time
-
 import typer
 from rich.console import Console
 
@@ -88,25 +86,14 @@ def ingest(
     console.print(f"  LLM tagging: {enable_tagging}")
     console.print()
 
-    # Initialize tagging pipeline if enabled
-    tagging_pipeline = None
+    # Validate tagging configuration if enabled
     if enable_tagging:
         if not settings.openai_api_key:
             console.print(
                 "[bold red]Error:[/bold red] OPENAI_API_KEY not set in environment"
             )
             raise typer.Exit(1)
-
-        from catsyphon.tagging import TaggingPipeline
-
-        tagging_pipeline = TaggingPipeline(
-            openai_api_key=settings.openai_api_key,
-            openai_model=settings.openai_model,
-            cache_dir=Path(settings.tagging_cache_dir),
-            cache_ttl_days=settings.tagging_cache_ttl_days,
-            enable_cache=settings.tagging_enable_cache,
-        )
-        console.print("[green]✓ LLM tagging pipeline initialized[/green]\n")
+        console.print("[green]✓ LLM tagging will be queued after ingestion[/green]\n")
 
     # Get parser registry
     registry = get_default_registry()
@@ -150,79 +137,55 @@ def ingest(
         try:
             console.print(f"[blue]Ingesting:[/blue] {log_file.name}... ", end="")
 
-            # Run tagging if enabled (pre-parse for tagging only to avoid double LLM work)
-            tags = None
-            llm_metrics = None
-            tagging_duration_ms = None
-            parsed_for_tags = None
-            if tagging_pipeline:
-                console.print("  [cyan]Tagging...[/cyan] ", end="")
-                try:
-                    tagging_start_ms = time.time() * 1000
-                    parsed_for_tags = registry.parse(log_file)
-                    tags, llm_metrics = tagging_pipeline.tag_conversation(
-                        parsed_for_tags
-                    )
-                    tagging_duration_ms = (time.time() * 1000) - tagging_start_ms
-                    console.print(
-                        f"[green]✓[/green] ({tagging_duration_ms:.0f}ms) "
-                        f"intent={tags.get('intent')}, "
-                        f"outcome={tags.get('outcome')}, "
-                        f"sentiment={tags.get('sentiment')}"
-                    )
-                except Exception as tag_error:
-                    console.print(f"[yellow]⚠ Tagging failed:[/yellow] {tag_error}")
-                    tags = None  # Continue without tags
-                    tagging_duration_ms = None
-
             # Store to database (unless dry-run)
             if not dry_run:
                 from catsyphon.db.connection import db_session
-                from catsyphon.exceptions import DuplicateFileError
-                from catsyphon.pipeline.orchestrator import ingest_log_file
+                from catsyphon.pipeline.ingestion import _get_or_create_default_workspace
+                from catsyphon.services import IngestionService
 
                 try:
                     with db_session() as session:
-                        outcome = ingest_log_file(
-                            session=session,
+                        # Get default workspace
+                        workspace_id = _get_or_create_default_workspace(session)
+
+                        # Use unified ingestion service
+                        service = IngestionService(session)
+                        outcome = service.ingest_from_file(
                             file_path=log_file,
-                            registry=registry,
+                            workspace_id=workspace_id,
                             project_name=project,
                             developer_username=developer,
-                            tags=tags,
-                            skip_duplicates=skip_duplicates,
-                            update_mode=update_mode,
                             source_type="cli",
-                            source_config_id=None,
-                            created_by=None,
-                            enable_incremental=True,
+                            enable_tagging=enable_tagging,
                         )
                         session.commit()
+
                         status_label = outcome.status
-                        if status_label in {"duplicate", "skipped"}:
+                        if status_label == "error":
+                            color = "red"
+                            console.print(f"  [red]✗ Error:[/red] {outcome.error_message}")
+                            failed += 1
+                            continue
+                        elif status_label in {"duplicate", "skipped"}:
                             color = "yellow"
                         else:
                             color = "green"
 
                         verb = "Stored" if status_label == "success" else status_label
-                        conv_id = outcome.conversation_id or (
-                            outcome.conversation.id if outcome.conversation else None
-                        )
+                        conv_id = outcome.conversation_id
+                        tagging_note = " (tagging queued)" if enable_tagging and status_label == "success" else ""
                         if conv_id:
                             console.print(
                                 f"  [{color}]✓ {verb}[/{color}] "
-                                f"conversation={conv_id}"
+                                f"conversation={conv_id}{tagging_note}"
                             )
                         else:
-                            console.print(f"  [{color}]✓ {verb}[/{color}]")
+                            console.print(f"  [{color}]✓ {verb}[/{color}]{tagging_note}")
 
                     if outcome.status in {"duplicate", "skipped"}:
                         skipped += 1
                     else:
                         successful += 1
-                except DuplicateFileError as dup_error:
-                    console.print(f"  [yellow]⊘ Duplicate:[/yellow] {dup_error}")
-                    skipped += 1
                 except Exception as db_error:
                     console.print(f"  [red]✗ DB Error:[/red] {str(db_error)}")
                     failed += 1

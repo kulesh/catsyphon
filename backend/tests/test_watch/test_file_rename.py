@@ -5,19 +5,34 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from catsyphon.watch import FileWatcher, RetryQueue, WatcherStats
+from catsyphon.watch import ApiIngestionConfig, FileWatcher, RetryQueue, WatcherStats
 
 
 @pytest.fixture
-def file_watcher():
-    """Create a FileWatcher instance for testing."""
-    return FileWatcher(
-        project_name="test-project",
-        developer_username="test-user",
-        retry_queue=RetryQueue(),
-        stats=WatcherStats(),
-        debounce_seconds=0.1,  # Short debounce for tests
+def mock_api_config():
+    """API configuration with mock credentials for testing."""
+    return ApiIngestionConfig(
+        server_url="http://localhost:8000",
+        api_key="test-api-key",
+        collector_id="test-collector-id",
+        batch_size=20,
     )
+
+
+@pytest.fixture
+def file_watcher(mock_api_config):
+    """Create a FileWatcher instance for testing with mock API config."""
+    # Mock the collector client to avoid actual HTTP connections
+    with patch("catsyphon.collector_client.CollectorClient") as mock_client:
+        mock_client.return_value = Mock()
+        return FileWatcher(
+            project_name="test-project",
+            developer_username="test-user",
+            retry_queue=RetryQueue(),
+            stats=WatcherStats(),
+            debounce_seconds=0.1,  # Short debounce for tests
+            api_config=mock_api_config,
+        )
 
 
 class TestFileRenameHandling:

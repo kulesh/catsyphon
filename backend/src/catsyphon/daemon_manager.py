@@ -329,17 +329,16 @@ class DaemonManager:
         max_retries = extra_config.get("max_retries", 3)
         debounce_seconds = extra_config.get("debounce_seconds", 1.0)
 
-        # Extract API mode options (for --use-api functionality)
-        use_api = extra_config.get("use_api", False)
+        # Extract API configuration (all watch daemons use API mode)
         api_url = extra_config.get("api_url", "http://localhost:8000")
         api_key = extra_config.get("api_key", "")
         collector_id = extra_config.get("collector_id", "")
         api_batch_size = extra_config.get("api_batch_size", 20)
 
-        # Auto-fetch builtin credentials if API mode enabled but no credentials provided
-        if use_api and (not api_key or not collector_id):
+        # Always fetch builtin credentials if not provided
+        if not api_key or not collector_id:
             logger.info(
-                f"API mode enabled for {config.directory} - fetching builtin credentials"
+                f"Fetching API credentials for {config.directory}"
             )
             try:
                 collector_id, api_key = fetch_builtin_credentials(
@@ -352,7 +351,7 @@ class DaemonManager:
             except Exception as e:
                 logger.error(f"Failed to fetch builtin credentials: {e}")
                 raise ValueError(
-                    f"API mode enabled but failed to fetch credentials: {e}"
+                    f"Watch daemon requires API credentials: {e}"
                 ) from e
 
         # Create stats queue for IPC
@@ -372,8 +371,7 @@ class DaemonManager:
                 debounce_seconds,
                 config.enable_tagging,
                 stats_queue,
-                # API mode options
-                use_api,
+                # API configuration
                 api_url,
                 api_key,
                 collector_id,
