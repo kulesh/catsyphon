@@ -89,8 +89,7 @@ class SlashCommandDetector:
 
             # Filter by minimum confidence
             recommendations = [
-                r for r in recommendations
-                if r.confidence >= self.min_confidence
+                r for r in recommendations if r.confidence >= self.min_confidence
             ]
 
             # Save to database if requested
@@ -143,6 +142,7 @@ class SlashCommandDetector:
             DetectionResult with recommendations
         """
         import asyncio
+
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
@@ -261,19 +261,21 @@ class SlashCommandDetector:
         # Convert to database format and save
         db_recommendations = []
         for rec in recommendations:
-            db_recommendations.append({
-                "recommendation_type": "slash_command",
-                "title": rec.title,
-                "description": rec.description,
-                "confidence": rec.confidence,
-                "priority": rec.priority,
-                "evidence": rec.evidence,
-                "suggested_implementation": {
-                    "command_name": rec.command_name,
-                    "trigger_phrases": rec.trigger_phrases,
-                    "template": rec.template,
-                },
-            })
+            db_recommendations.append(
+                {
+                    "recommendation_type": "slash_command",
+                    "title": rec.title,
+                    "description": rec.description,
+                    "confidence": rec.confidence,
+                    "priority": rec.priority,
+                    "evidence": rec.evidence,
+                    "suggested_implementation": {
+                        "command_name": rec.command_name,
+                        "trigger_phrases": rec.trigger_phrases,
+                        "template": rec.template,
+                    },
+                }
+            )
 
         repo.bulk_create(conversation_id, db_recommendations)
 

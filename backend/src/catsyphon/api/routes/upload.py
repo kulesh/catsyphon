@@ -111,9 +111,9 @@ async def upload_conversation_logs(
                                 filename=uploaded_file.filename,
                                 status="duplicate",
                                 conversation_id=outcome.conversation_id,
-                                message_count=conv.message_count if conv else None,
-                                epoch_count=len(conv.epochs) if conv else None,
-                                files_count=len(conv.files_touched) if conv else None,
+                                message_count=conv.message_count if conv else 0,
+                                epoch_count=len(conv.epochs) if conv else 0,
+                                files_count=len(conv.files_touched) if conv else 0,
                             )
                         )
                     else:

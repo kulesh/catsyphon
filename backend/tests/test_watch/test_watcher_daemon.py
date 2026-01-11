@@ -92,7 +92,9 @@ class TestWatcherDaemonInitialization:
 
         with patch("catsyphon.tagging.TaggingPipeline") as mock_tagging_pipeline:
             daemon = WatcherDaemon(
-                directory=temp_watch_dir, enable_tagging=True, api_config=mock_api_config
+                directory=temp_watch_dir,
+                enable_tagging=True,
+                api_config=mock_api_config,
             )
 
             assert daemon.enable_tagging is True

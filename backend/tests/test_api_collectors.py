@@ -209,7 +209,9 @@ class TestEventSubmission:
 
         assert response.status_code == 401
 
-    def test_submit_events_no_sequence_gap_check(self, client, db_session, workspace_with_collector):
+    def test_submit_events_no_sequence_gap_check(
+        self, client, db_session, workspace_with_collector
+    ):
         """Test that events are accepted regardless of sequence order (content-based dedup)."""
         collector = workspace_with_collector["collector"]
         api_key = workspace_with_collector["api_key"]
@@ -272,7 +274,9 @@ class TestEventSubmission:
         assert response.status_code == 202
         assert response.json()["accepted"] == 1
 
-    def test_submit_events_deduplication(self, client, db_session, workspace_with_collector):
+    def test_submit_events_deduplication(
+        self, client, db_session, workspace_with_collector
+    ):
         """Test that duplicate message events are ignored via content-based hashing."""
         collector = workspace_with_collector["collector"]
         api_key = workspace_with_collector["api_key"]
@@ -342,7 +346,9 @@ class TestEventSubmission:
 class TestSessionStatus:
     """Tests for GET /collectors/sessions/{session_id} endpoint."""
 
-    def test_get_session_status_success(self, client, db_session, workspace_with_collector):
+    def test_get_session_status_success(
+        self, client, db_session, workspace_with_collector
+    ):
         """Test getting session status."""
         collector = workspace_with_collector["collector"]
         api_key = workspace_with_collector["api_key"]
@@ -415,7 +421,9 @@ class TestSessionStatus:
 class TestSessionCompletion:
     """Tests for POST /collectors/sessions/{session_id}/complete endpoint."""
 
-    def test_complete_session_success(self, client, db_session, workspace_with_collector):
+    def test_complete_session_success(
+        self, client, db_session, workspace_with_collector
+    ):
         """Test completing a session."""
         collector = workspace_with_collector["collector"]
         api_key = workspace_with_collector["api_key"]
@@ -585,7 +593,9 @@ class TestEventValidation:
 class TestBuiltinCredentials:
     """Tests for GET /collectors/builtin/credentials endpoint."""
 
-    def test_get_builtin_credentials_creates_new(self, client, db_session, sample_workspace):
+    def test_get_builtin_credentials_creates_new(
+        self, client, db_session, sample_workspace
+    ):
         """Test getting builtin credentials creates new collector if none exists."""
         response = client.get(
             "/collectors/builtin/credentials",

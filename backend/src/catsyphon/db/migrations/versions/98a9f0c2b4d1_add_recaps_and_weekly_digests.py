@@ -50,7 +50,9 @@ def upgrade() -> None:
             server_default=sa.text("'{}'::jsonb"),
             nullable=False,
         ),
-        sa.Column("canonical_version", sa.Integer(), server_default="1", nullable=False),
+        sa.Column(
+            "canonical_version", sa.Integer(), server_default="1", nullable=False
+        ),
         sa.Column("generated_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column(
             "created_at",

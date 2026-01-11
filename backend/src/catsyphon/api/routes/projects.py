@@ -135,10 +135,7 @@ async def get_project_stats(
 
     # Session count using database aggregation
     session_count = (
-        session.query(func.count(Conversation.id))
-        .filter(conv_filter)
-        .scalar()
-        or 0
+        session.query(func.count(Conversation.id)).filter(conv_filter).scalar() or 0
     )
 
     if session_count == 0:
@@ -277,11 +274,7 @@ async def get_project_stats(
 
     # ===== SENTIMENT TIMELINE (using aggregation) =====
     # Get conversation IDs for epoch query
-    conversation_ids = (
-        session.query(Conversation.id)
-        .filter(conv_filter)
-        .all()
-    )
+    conversation_ids = session.query(Conversation.id).filter(conv_filter).all()
     conversation_id_list = [c[0] for c in conversation_ids]
 
     sentiment_timeline: list[SentimentTimelinePoint] = []
@@ -381,16 +374,20 @@ async def get_project_analytics(
     # This significantly reduces memory usage
     from sqlalchemy.orm import load_only
 
-    conv_query = session.query(Conversation).filter(conv_filter).options(
-        load_only(
-            Conversation.id,
-            Conversation.developer_id,
-            Conversation.agent_type,
-            Conversation.start_time,
-            Conversation.end_time,
-            Conversation.success,
-            Conversation.parent_conversation_id,
-            Conversation.tags,
+    conv_query = (
+        session.query(Conversation)
+        .filter(conv_filter)
+        .options(
+            load_only(
+                Conversation.id,
+                Conversation.developer_id,
+                Conversation.agent_type,
+                Conversation.start_time,
+                Conversation.end_time,
+                Conversation.success,
+                Conversation.parent_conversation_id,
+                Conversation.tags,
+            )
         )
     )
     conversations = conv_query.all()
@@ -420,9 +417,9 @@ async def get_project_analytics(
             Message.conversation_id,
             func.count(case((Message.role == "assistant", 1))).label("assistant_count"),
             func.count(case((Message.role == "user", 1))).label("user_count"),
-            func.count(
-                case((Message.role == "assistant", Message.tool_calls))
-            ).label("assistant_tool_count"),
+            func.count(case((Message.role == "assistant", Message.tool_calls))).label(
+                "assistant_tool_count"
+            ),
             func.count(case((Message.role == "user", Message.tool_calls))).label(
                 "user_tool_count"
             ),
@@ -542,9 +539,8 @@ async def get_project_analytics(
 
         # Lines and first-change latency (using pre-aggregated data)
         conv_file_stats = file_stats_by_conv.get(conv.id, {})
-        lines_changed = (
-            conv_file_stats.get("lines_added", 0)
-            + conv_file_stats.get("lines_deleted", 0)
+        lines_changed = conv_file_stats.get("lines_added", 0) + conv_file_stats.get(
+            "lines_deleted", 0
         )
         impact_lines_total += lines_changed
         if lines_changed > 0:
@@ -1065,9 +1061,7 @@ async def list_project_sessions(
                     plan_status = (
                         "approved"
                         if has_approved
-                        else "active"
-                        if has_active
-                        else "abandoned"
+                        else "active" if has_active else "abandoned"
                     )
 
         sessions.append(

@@ -13,7 +13,6 @@ import hmac
 import logging
 import secrets
 import uuid
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -21,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from catsyphon.api.schemas import (
     CollectorEvent as PydanticCollectorEvent,
+)
+from catsyphon.api.schemas import (
     CollectorEventsRequest,
     CollectorEventsResponse,
     CollectorRegisterRequest,
@@ -39,6 +40,8 @@ from catsyphon.db.repositories import (
 from catsyphon.models.db import CollectorConfig
 from catsyphon.services.ingestion_service import (
     CollectorEvent as InternalCollectorEvent,
+)
+from catsyphon.services.ingestion_service import (
     IngestionService,
 )
 

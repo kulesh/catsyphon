@@ -144,14 +144,14 @@ class TaggingWorker:
                 # Load conversation
                 conv_repo = ConversationRepository(session)
                 # Use workspace_id from conversation's workspace
-                conversation = session.query(
-                    conv_repo.model
-                ).filter_by(id=job.conversation_id).first()
+                conversation = (
+                    session.query(conv_repo.model)
+                    .filter_by(id=job.conversation_id)
+                    .first()
+                )
 
                 if not conversation:
-                    raise ValueError(
-                        f"Conversation {job.conversation_id} not found"
-                    )
+                    raise ValueError(f"Conversation {job.conversation_id} not found")
 
                 # Run tagging pipeline
                 tags, metrics = pipeline.tag_from_canonical(

@@ -129,7 +129,9 @@ class TestHandleFileRename:
 
         with patch("catsyphon.watch.background_session") as mock_background_session:
             # Simulate database error
-            mock_background_session.side_effect = Exception("Database connection failed")
+            mock_background_session.side_effect = Exception(
+                "Database connection failed"
+            )
 
             with patch.object(file_watcher, "_handle_file_event") as mock_process:
                 # Should not raise exception

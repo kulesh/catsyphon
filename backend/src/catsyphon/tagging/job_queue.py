@@ -88,7 +88,9 @@ class TaggingJobQueue:
         self.session.add(job)
         self.session.flush()  # Get the ID without committing
 
-        logger.debug(f"Enqueued tagging job {job.id} for conversation {conversation_id}")
+        logger.debug(
+            f"Enqueued tagging job {job.id} for conversation {conversation_id}"
+        )
         return job.id
 
     def claim_next(self) -> Optional[TaggingJob]:
@@ -255,6 +257,8 @@ class TaggingJobQueue:
         )
 
         if result > 0:
-            logger.info(f"Purged {result} completed tagging jobs older than {days} days")
+            logger.info(
+                f"Purged {result} completed tagging jobs older than {days} days"
+            )
 
         return result

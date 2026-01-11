@@ -140,7 +140,9 @@ def ingest(
             # Store to database (unless dry-run)
             if not dry_run:
                 from catsyphon.db.connection import db_session
-                from catsyphon.pipeline.ingestion import _get_or_create_default_workspace
+                from catsyphon.pipeline.ingestion import (
+                    _get_or_create_default_workspace,
+                )
                 from catsyphon.services import IngestionService
 
                 try:
@@ -163,7 +165,9 @@ def ingest(
                         status_label = outcome.status
                         if status_label == "error":
                             color = "red"
-                            console.print(f"  [red]✗ Error:[/red] {outcome.error_message}")
+                            console.print(
+                                f"  [red]✗ Error:[/red] {outcome.error_message}"
+                            )
                             failed += 1
                             continue
                         elif status_label in {"duplicate", "skipped"}:
@@ -173,14 +177,20 @@ def ingest(
 
                         verb = "Stored" if status_label == "success" else status_label
                         conv_id = outcome.conversation_id
-                        tagging_note = " (tagging queued)" if enable_tagging and status_label == "success" else ""
+                        tagging_note = (
+                            " (tagging queued)"
+                            if enable_tagging and status_label == "success"
+                            else ""
+                        )
                         if conv_id:
                             console.print(
                                 f"  [{color}]✓ {verb}[/{color}] "
                                 f"conversation={conv_id}{tagging_note}"
                             )
                         else:
-                            console.print(f"  [{color}]✓ {verb}[/{color}]{tagging_note}")
+                            console.print(
+                                f"  [{color}]✓ {verb}[/{color}]{tagging_note}"
+                            )
 
                     if outcome.status in {"duplicate", "skipped"}:
                         skipped += 1

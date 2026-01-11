@@ -22,7 +22,9 @@ def upgrade() -> None:
     # Create tagging_jobs table for async tagging queue
     op.create_table(
         "tagging_jobs",
-        sa.Column("id", sa.UUID(), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column(
+            "id", sa.UUID(), server_default=sa.text("gen_random_uuid()"), nullable=False
+        ),
         sa.Column("conversation_id", sa.UUID(), nullable=False),
         sa.Column(
             "status",

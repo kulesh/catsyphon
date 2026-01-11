@@ -31,10 +31,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Backfill NULL roles with "system" before making NOT NULL
-    op.execute("""
+    op.execute(
+        """
         UPDATE messages SET role = 'system'
         WHERE role IS NULL
-    """)
+    """
+    )
 
     op.alter_column(
         "messages",

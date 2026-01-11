@@ -139,7 +139,9 @@ def fetch_builtin_credentials(
                 future = executor.submit(_fetch_credentials_http, workspace_id, api_url)
                 return future.result(timeout=10)  # Shorter timeout for faster retries
         except FuturesTimeoutError:
-            last_error = Exception(f"Timeout fetching builtin credentials from {api_url}")
+            last_error = Exception(
+                f"Timeout fetching builtin credentials from {api_url}"
+            )
         except requests.exceptions.RequestException as e:
             last_error = e
         except Exception as e:
@@ -337,9 +339,7 @@ class DaemonManager:
 
         # Always fetch builtin credentials if not provided
         if not api_key or not collector_id:
-            logger.info(
-                f"Fetching API credentials for {config.directory}"
-            )
+            logger.info(f"Fetching API credentials for {config.directory}")
             try:
                 collector_id, api_key = fetch_builtin_credentials(
                     workspace_id=config.workspace_id,
@@ -350,9 +350,7 @@ class DaemonManager:
                 )
             except Exception as e:
                 logger.error(f"Failed to fetch builtin credentials: {e}")
-                raise ValueError(
-                    f"Watch daemon requires API credentials: {e}"
-                ) from e
+                raise ValueError(f"Watch daemon requires API credentials: {e}") from e
 
         # Create stats queue for IPC
         stats_queue: "Queue[dict[str, Any]]" = Queue()

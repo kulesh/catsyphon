@@ -45,15 +45,19 @@ def _db_to_response(rec) -> RecommendationResponse:
     )
 
     # Build suggested implementation with both slash command and MCP fields
-    impl_obj = SuggestedImplementation(
-        command_name=impl.get("command_name"),
-        trigger_phrases=impl.get("trigger_phrases", []),
-        template=impl.get("template"),
-        category=impl.get("category"),
-        suggested_mcps=impl.get("suggested_mcps", []),
-        use_cases=impl.get("use_cases", []),
-        friction_score=impl.get("friction_score"),
-    ) if impl else None
+    impl_obj = (
+        SuggestedImplementation(
+            command_name=impl.get("command_name"),
+            trigger_phrases=impl.get("trigger_phrases", []),
+            template=impl.get("template"),
+            category=impl.get("category"),
+            suggested_mcps=impl.get("suggested_mcps", []),
+            use_cases=impl.get("use_cases", []),
+            friction_score=impl.get("friction_score"),
+        )
+        if impl
+        else None
+    )
 
     return RecommendationResponse(
         id=rec.id,
@@ -299,8 +303,7 @@ def detect_mcp_recommendations(
         raise HTTPException(
             status_code=500,
             detail=(
-                "OpenAI API key not configured. MCP detection "
-                "requires AI analysis."
+                "OpenAI API key not configured. MCP detection " "requires AI analysis."
             ),
         )
 
@@ -429,7 +432,9 @@ def get_recommendations_summary(
     )
 
 
-@router.get("/recommendations/high-confidence", response_model=list[RecommendationResponse])
+@router.get(
+    "/recommendations/high-confidence", response_model=list[RecommendationResponse]
+)
 def get_high_confidence_recommendations(
     auth: AuthContext = Depends(get_auth_context),
     min_confidence: float = Query(default=0.7, ge=0.0, le=1.0),

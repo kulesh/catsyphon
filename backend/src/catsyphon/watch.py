@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Optional, Set
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from catsyphon.models.db import RawLog
     from catsyphon.models.parsed import ParsedConversation
     from catsyphon.parsers.incremental import IncrementalParseResult
     from catsyphon.tagging.pipeline import TaggingPipeline
@@ -71,7 +70,9 @@ class ApiIngestionConfig:
             self.batch_size = settings.collector_batch_size
 
     @classmethod
-    def from_extra_config(cls, extra_config: Optional[dict[str, Any]]) -> "ApiIngestionConfig":
+    def from_extra_config(
+        cls, extra_config: Optional[dict[str, Any]]
+    ) -> "ApiIngestionConfig":
         """Create from watch configuration extra_config."""
         if not extra_config:
             return cls()
@@ -80,7 +81,9 @@ class ApiIngestionConfig:
             server_url=extra_config.get("api_url", "http://localhost:8000"),
             api_key=extra_config.get("api_key", ""),
             collector_id=extra_config.get("collector_id", ""),
-            batch_size=extra_config.get("api_batch_size"),  # Uses settings default if None
+            batch_size=extra_config.get(
+                "api_batch_size"
+            ),  # Uses settings default if None
         )
 
 
@@ -525,7 +528,6 @@ class FileWatcher(FileSystemEventHandler):
         import uuid
 
         from catsyphon.collector_client import compute_ingestion_fingerprint
-        from catsyphon.utils.hashing import calculate_file_hash, calculate_partial_hash
 
         # Check for existing raw_log to enable incremental parsing
         # Store state as plain values to avoid detached session issues
@@ -539,8 +541,10 @@ class FileWatcher(FileSystemEventHandler):
                 if existing_raw_log:
                     # Copy state to plain dict to avoid detached session issues
                     existing_raw_log_state = {
-                        "last_processed_offset": existing_raw_log.last_processed_offset or 0,
-                        "last_processed_line": existing_raw_log.last_processed_line or 0,
+                        "last_processed_offset": existing_raw_log.last_processed_offset
+                        or 0,
+                        "last_processed_line": existing_raw_log.last_processed_line
+                        or 0,
                         "file_size_bytes": existing_raw_log.file_size_bytes or 0,
                         "partial_hash": existing_raw_log.partial_hash,
                     }
@@ -560,7 +564,9 @@ class FileWatcher(FileSystemEventHandler):
                             self.stats.last_activity = datetime.now()
                         return
 
-                    logger.debug(f"File {file_path.name} change type: {change_type.value}")
+                    logger.debug(
+                        f"File {file_path.name} change type: {change_type.value}"
+                    )
         except Exception as e:
             logger.debug(f"Could not check incremental state for {file_path.name}: {e}")
             # Continue with full parse
@@ -569,7 +575,9 @@ class FileWatcher(FileSystemEventHandler):
         incremental_result = None
         if existing_raw_log_state and change_type == ChangeType.APPEND:
             try:
-                incremental_parser = self.parser_registry.find_incremental_parser(file_path)
+                incremental_parser = self.parser_registry.find_incremental_parser(
+                    file_path
+                )
                 if incremental_parser:
                     incremental_result = incremental_parser.parse_incremental(
                         file_path,
@@ -582,7 +590,9 @@ class FileWatcher(FileSystemEventHandler):
                             f"in {file_path.name}"
                         )
             except Exception as e:
-                logger.warning(f"Incremental parse failed for {file_path.name}: {e}, falling back to full parse")
+                logger.warning(
+                    f"Incremental parse failed for {file_path.name}: {e}, falling back to full parse"
+                )
                 incremental_result = None
 
         # Full parse if no incremental result
@@ -593,7 +603,7 @@ class FileWatcher(FileSystemEventHandler):
         # Use parsed session_id if available (from log file), otherwise generate from path
         # Using the real session_id is critical for parent-child linking to work
         if parsed:
-            session_id = getattr(parsed, 'session_id', None)
+            session_id = getattr(parsed, "session_id", None)
         else:
             # For incremental, we need the session_id from the existing raw_log's conversation
             session_id = file_path.stem  # UUID is typically the filename stem
@@ -614,11 +624,11 @@ class FileWatcher(FileSystemEventHandler):
             messages_for_fingerprint = incremental_result.new_messages
         else:
             # Full parse: send entire conversation
-            agent_type = getattr(parsed, 'agent_type', 'claude-code')
-            agent_version = getattr(parsed, 'agent_version', 'unknown')
-            working_directory = getattr(parsed, 'working_directory', None)
-            git_branch = getattr(parsed, 'git_branch', None)
-            parent_session_id = getattr(parsed, 'parent_session_id', None)
+            agent_type = getattr(parsed, "agent_type", "claude-code")
+            agent_version = getattr(parsed, "agent_version", "unknown")
+            working_directory = getattr(parsed, "working_directory", None)
+            git_branch = getattr(parsed, "git_branch", None)
+            parent_session_id = getattr(parsed, "parent_session_id", None)
 
             result = self._collector_client.ingest_conversation(
                 parsed=parsed,
@@ -654,8 +664,7 @@ class FileWatcher(FileSystemEventHandler):
         mode = "incr" if incremental_result else "full"
         logger.info(
             f"✓ API[{mode}] {file_path.name} → conversation {conversation_id} "
-            f"({accepted} events)"
-            + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
+            f"({accepted} events)" + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
         )
 
         with self._stats_lock:

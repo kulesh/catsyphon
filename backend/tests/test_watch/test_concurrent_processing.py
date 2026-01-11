@@ -176,9 +176,7 @@ class TestConcurrentProcessing:
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_file", return_value=False):
                         # Also mock failure tracking to avoid database issues
-                        with patch(
-                            "catsyphon.pipeline.failure_tracking.track_failure"
-                        ):
+                        with patch("catsyphon.pipeline.failure_tracking.track_failure"):
                             # Process file (will error)
                             file_watcher._process_file(test_file)
 

@@ -55,7 +55,9 @@ def upgrade() -> None:
         ),
         sa.Column(
             "thread_type",
-            postgresql.ENUM("main", "agent", "background", name="thread_type", create_type=False),
+            postgresql.ENUM(
+                "main", "agent", "background", name="thread_type", create_type=False
+            ),
             nullable=False,
             server_default="main",
         ),

@@ -19,9 +19,7 @@ def test_to_naive_utc_converts_timezone_aware():
 def test_update_last_activity_handles_mixed_timezones(db_session, sample_conversation):
     repo = CollectorSessionRepository(db_session)
 
-    sample_conversation.end_time = datetime(
-        2026, 1, 2, 8, 0, 0, tzinfo=timezone.utc
-    )
+    sample_conversation.end_time = datetime(2026, 1, 2, 8, 0, 0, tzinfo=timezone.utc)
     event_timestamp = datetime(
         2026, 1, 2, 10, 0, 0, tzinfo=timezone(timedelta(hours=2))
     )

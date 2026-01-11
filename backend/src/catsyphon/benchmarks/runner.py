@@ -67,7 +67,9 @@ def benchmark_parser_registry_overhead() -> BenchmarkResult:
             status="skipped",
             data={
                 "reason": "No parser fixtures found",
-                "fixture_dir": str(_repo_root() / "backend/tests/test_parsers/fixtures"),
+                "fixture_dir": str(
+                    _repo_root() / "backend/tests/test_parsers/fixtures"
+                ),
             },
         )
 
@@ -178,4 +180,3 @@ def write_results(run_id: str, results: dict[str, Any]) -> Path:
     output_path = output_dir / f"{run_id}.json"
     output_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return output_path
-

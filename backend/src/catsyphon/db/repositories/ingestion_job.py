@@ -533,9 +533,7 @@ class IngestionJobRepository(BaseRepository[IngestionJob]):
             llm_filter = base_filter + [
                 IngestionJob.metrics["llm_tagging_ms"].isnot(None),
                 func.coalesce(
-                    func.cast(
-                        IngestionJob.metrics["llm_cache_hit"].astext, Boolean
-                    ),
+                    func.cast(IngestionJob.metrics["llm_cache_hit"].astext, Boolean),
                     False,
                 ).is_(False),
             ]

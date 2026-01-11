@@ -307,9 +307,7 @@ class TestIngestCommand:
         finally:
             Path(temp_path).unlink(missing_ok=True)
 
-    def test_ingest_force_calls_ingestion_service(
-        self, db_session, sample_workspace
-    ):
+    def test_ingest_force_calls_ingestion_service(self, db_session, sample_workspace):
         """Test that --force flag successfully ingests via IngestionService."""
         from catsyphon.services.ingestion_service import IngestionOutcome
 

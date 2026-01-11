@@ -64,6 +64,7 @@ def ingest_log_file(
         IngestOutcome containing conversation and job metadata
     """
     import warnings
+
     warnings.warn(
         "ingest_log_file is deprecated. Use IngestionService.ingest_from_file instead.",
         DeprecationWarning,

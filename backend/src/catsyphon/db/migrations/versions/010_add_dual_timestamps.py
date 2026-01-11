@@ -33,11 +33,13 @@ def upgrade() -> None:
     )
 
     # Backfill: use timestamp for emitted, created_at for observed
-    op.execute("""
+    op.execute(
+        """
         UPDATE messages SET
             emitted_at = COALESCE(timestamp, created_at),
             observed_at = created_at
-    """)
+    """
+    )
 
     # Make columns NOT NULL after backfill
     op.alter_column("messages", "emitted_at", nullable=False)

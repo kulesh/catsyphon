@@ -55,14 +55,16 @@ def upgrade() -> None:
 
     # Backfill from existing role column
     # Map: user -> human, system -> system, assistant -> assistant
-    op.execute("""
+    op.execute(
+        """
         UPDATE messages SET author_role = CASE role
             WHEN 'user' THEN 'human'::author_role
             WHEN 'system' THEN 'system'::author_role
             WHEN 'assistant' THEN 'assistant'::author_role
             ELSE 'assistant'::author_role
         END
-    """)
+    """
+    )
 
     # Make column NOT NULL after backfill
     op.alter_column("messages", "author_role", nullable=False)

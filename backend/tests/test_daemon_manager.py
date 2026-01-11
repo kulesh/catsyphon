@@ -404,7 +404,9 @@ class TestDaemonManager:
         assert manager._shutdown_event.is_set()
 
     @patch("catsyphon.daemon_manager.background_session")
-    def test_load_active_configs(self, mock_background_session, watch_config, sample_workspace):
+    def test_load_active_configs(
+        self, mock_background_session, watch_config, sample_workspace
+    ):
         """Test loading active configs on startup."""
         # Mark config as active
         watch_config.is_active = True

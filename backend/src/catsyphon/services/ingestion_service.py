@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from catsyphon.config import settings
 from catsyphon.db.repositories.collector_session import CollectorSessionRepository
 from catsyphon.db.repositories.raw_log import RawLogRepository
-from catsyphon.models.db import Conversation, IngestionJob
+from catsyphon.models.db import IngestionJob
 from catsyphon.parsers.registry import ParserRegistry
 
 if TYPE_CHECKING:
@@ -41,7 +41,9 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _compute_event_hash(event_type: str, emitted_at: datetime, data: dict) -> str:
+def _compute_event_hash(
+    event_type: str, emitted_at: datetime, data: dict[str, Any]
+) -> str:
     """
     Compute a content-based hash for event deduplication.
 
@@ -274,7 +276,9 @@ class IngestionService:
 
             # Content-based deduplication
             existing_hashes = self.session_repo.get_event_hashes(conversation.id)
-            new_events = [e for e in sorted_events if e.event_hash not in existing_hashes]
+            new_events = [
+                e for e in sorted_events if e.event_hash not in existing_hashes
+            ]
 
             # Process events
             messages_added = 0
@@ -296,7 +300,13 @@ class IngestionService:
                     continue
 
                 # Add message for message-like events
-                if event.type in ("message", "tool_call", "tool_result", "thinking", "error"):
+                if event.type in (
+                    "message",
+                    "tool_call",
+                    "tool_result",
+                    "thinking",
+                    "error",
+                ):
                     self.session_repo.add_message(
                         conversation=conversation,
                         event_type=event.type,
@@ -435,18 +445,22 @@ class IngestionService:
         if parsed.summaries:
             session_start_data["summaries"] = _serialize_for_json(parsed.summaries)
         if parsed.compaction_events:
-            session_start_data["compaction_events"] = _serialize_for_json(parsed.compaction_events)
+            session_start_data["compaction_events"] = _serialize_for_json(
+                parsed.compaction_events
+            )
         if parsed.metadata:
             for key, value in parsed.metadata.items():
                 if key not in session_start_data:
                     session_start_data[key] = _serialize_for_json(value)
 
         start_time = parsed.start_time or _utc_now()
-        events.append(self._create_event(
-            event_type="session_start",
-            emitted_at=start_time,
-            data=session_start_data,
-        ))
+        events.append(
+            self._create_event(
+                event_type="session_start",
+                emitted_at=start_time,
+                data=session_start_data,
+            )
+        )
 
         # Message events
         for msg in parsed.messages:
@@ -460,17 +474,19 @@ class IngestionService:
             }
             if parsed.plans:
                 session_end_data["plans"] = [
-                    plan.to_dict() if hasattr(plan, 'to_dict') else plan
+                    plan.to_dict() if hasattr(plan, "to_dict") else plan
                     for plan in parsed.plans
                 ]
             if parsed.files_touched:
                 session_end_data["files_touched"] = parsed.files_touched
 
-            events.append(self._create_event(
-                event_type="session_end",
-                emitted_at=parsed.end_time,
-                data=session_end_data,
-            ))
+            events.append(
+                self._create_event(
+                    event_type="session_end",
+                    emitted_at=parsed.end_time,
+                    data=session_end_data,
+                )
+            )
 
         return events
 
@@ -486,7 +502,7 @@ class IngestionService:
             "system": "system",
             "tool": "tool",
         }
-        author_role = msg.author_role or role_mapping.get(msg.role, "assistant")
+        author_role = msg.author_role or role_mapping.get(msg.role or "", "assistant")
         event_time = msg.emitted_at or msg.timestamp or _utc_now()
 
         # Determine message_type
@@ -505,29 +521,33 @@ class IngestionService:
                 tool_event_time = tool_call.timestamp or event_time
                 tool_use_id = f"tool_{tool_event_time.isoformat()}_{idx}"
 
-                events.append(self._create_event(
-                    event_type="tool_call",
-                    emitted_at=tool_event_time,
-                    data={
-                        "tool_name": tool_call.tool_name,
-                        "tool_use_id": tool_use_id,
-                        "parameters": tool_call.parameters or {},
-                    },
-                ))
+                events.append(
+                    self._create_event(
+                        event_type="tool_call",
+                        emitted_at=tool_event_time,
+                        data={
+                            "tool_name": tool_call.tool_name,
+                            "tool_use_id": tool_use_id,
+                            "parameters": tool_call.parameters or {},
+                        },
+                    )
+                )
 
                 if tool_call.result is not None:
                     result_value = tool_call.result
                     if not isinstance(result_value, str):
                         result_value = json.dumps(result_value)
-                    events.append(self._create_event(
-                        event_type="tool_result",
-                        emitted_at=tool_event_time,
-                        data={
-                            "tool_use_id": tool_use_id,
-                            "success": tool_call.success,
-                            "result": result_value,
-                        },
-                    ))
+                    events.append(
+                        self._create_event(
+                            event_type="tool_result",
+                            emitted_at=tool_event_time,
+                            data={
+                                "tool_use_id": tool_use_id,
+                                "success": tool_call.success,
+                                "result": result_value,
+                            },
+                        )
+                    )
 
         # Main message event
         data: dict[str, Any] = {
@@ -546,11 +566,13 @@ class IngestionService:
         if msg.thinking_metadata:
             data["thinking_metadata"] = msg.thinking_metadata
 
-        events.append(self._create_event(
-            event_type="message",
-            emitted_at=event_time,
-            data=data,
-        ))
+        events.append(
+            self._create_event(
+                event_type="message",
+                emitted_at=event_time,
+                data=data,
+            )
+        )
 
         return events
 
