@@ -81,7 +81,13 @@ catsyphon/
    - **Change Detection**: Automatically detects file changes (APPEND, TRUNCATE, REWRITE, UNCHANGED)
    - **State Tracking**: Stores parsing state (offset, line number, hash) in `raw_logs` table
    - **Graceful Degradation**: Falls back to full reparse if incremental parsing fails
-   - **Watch Daemon Integration**: Live file monitoring automatically uses incremental parsing for appends
+
+7. **Dual Connection Pool Architecture**: Separate database connection pools prevent resource contention
+   - **API Pool** (`SessionLocal`): Standard pooled connections for API requests (pool_size=5, max_overflow=5)
+   - **Background Pool** (`BackgroundSessionLocal`): NullPool for background workers (creates fresh connections on demand)
+   - **Why**: Background workers (daemon manager, tagging worker, watch daemon) don't need pooling and shouldn't compete with API requests
+   - **Usage**: Use `db_session()` for API/CLI operations, `background_session()` for background workers
+   - **Key Files**: `backend/src/catsyphon/db/connection.py`
 
 ### Incremental Parsing Details
 
@@ -220,14 +226,48 @@ Comprehensive test coverage in `backend/tests/test_pipeline_metrics.py`:
 
 ## Development Commands
 
-### Environment Setup
+### Quick Start (Recommended)
+
+Use the development script for easy management:
+
+```bash
+# Start everything (Colima, PostgreSQL, API server)
+./scripts/dev.sh start
+
+# Stop everything
+./scripts/dev.sh stop
+
+# Restart everything
+./scripts/dev.sh restart
+
+# Reset database (WARNING: deletes all data)
+./scripts/dev.sh reset
+
+# Check status
+./scripts/dev.sh status
+```
+
+The script handles:
+- Colima/Docker startup
+- PostgreSQL port forwarding (required for Colima with vz driver)
+- Database migrations
+- File descriptor limits (increases from macOS default of 256 to 4096)
+- API server with optimal worker count
+
+### Manual Environment Setup
 
 ```bash
 # Install tools (Python 3.11, Node 20, uv, pnpm)
 mise install
 
+# Start Colima (Docker runtime)
+colima start
+
 # Start PostgreSQL
 docker-compose up -d
+
+# Set up port forwarding (required for Colima with vz driver)
+ssh -F ~/.config/colima/_lima/colima/ssh.config -L 5432:localhost:5432 -N -f lima-colima
 
 # Backend setup
 cd backend
@@ -237,6 +277,18 @@ uv run alembic upgrade head       # Run migrations
 # Frontend setup
 cd frontend
 pnpm install                      # Install dependencies
+```
+
+### Known Issues
+
+**Colima Port Forwarding**: Colima with `vz` (macOS Virtualization Framework) doesn't automatically forward Docker container ports to the host. The dev script handles this automatically, or manually run:
+```bash
+ssh -F ~/.config/colima/_lima/colima/ssh.config -L 5432:localhost:5432 -N -f lima-colima
+```
+
+**File Descriptor Limits**: macOS has a default soft limit of 256 file descriptors, which is too low for multi-worker setups. Increase with:
+```bash
+ulimit -n 4096
 ```
 
 ### Backend Development

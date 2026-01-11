@@ -37,7 +37,7 @@ else:
     from watchdog.observers import Observer
 
 from catsyphon.config import settings
-from catsyphon.db.connection import db_session
+from catsyphon.db.connection import background_session
 from catsyphon.db.repositories.raw_log import RawLogRepository
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers.base import EmptyFileError
@@ -377,7 +377,7 @@ class FileWatcher(FileSystemEventHandler):
                 try:
                     from catsyphon.utils.hashing import calculate_file_hash
 
-                    with db_session() as session:
+                    with background_session() as session:
                         raw_log_repo = RawLogRepository(session)
                         file_hash = calculate_file_hash(file_path)
 
@@ -412,7 +412,7 @@ class FileWatcher(FileSystemEventHandler):
             # If file already tracked, detect change type before parsing to allow fast skip
             if is_real_file:
                 try:
-                    with db_session() as session:
+                    with background_session() as session:
                         raw_log_repo = RawLogRepository(session)
                         existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
 
@@ -502,7 +502,7 @@ class FileWatcher(FileSystemEventHandler):
             dest_path: New file path after rename
         """
         try:
-            with db_session() as session:
+            with background_session() as session:
                 raw_log_repo = RawLogRepository(session)
 
                 # Find raw_log by old path
@@ -549,7 +549,7 @@ class FileWatcher(FileSystemEventHandler):
                 )
                 tags = None  # Continue without tags
 
-        with db_session() as session:
+        with background_session() as session:
             outcome = ingest_conversation(
                 session=session,
                 file_path=file_path,
@@ -921,7 +921,7 @@ class WatcherDaemon:
         try:
             from catsyphon.db.repositories.raw_log import RawLogRepository as RawLogRepo
 
-            with db_session() as session:
+            with background_session() as session:
                 raw_log_repo = RawLogRepo(session)
 
                 # Resolve symlinks to match how files are stored in database
@@ -1037,7 +1037,7 @@ class WatcherDaemon:
                         "No workspace_id configured for orphan linking - skipping"
                     )
                 else:
-                    with db_session() as session:
+                    with background_session() as session:
                         linked_count = link_orphaned_agents(session, self.workspace_id)
                         if linked_count > 0:
                             logger.info(f"Linked {linked_count} orphaned agent(s)")
