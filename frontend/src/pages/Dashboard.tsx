@@ -278,7 +278,7 @@ export default function Dashboard() {
                 width={280}
                 height={24}
                 color="#34d399"
-                fillOpacity={0.15}
+                variant="bar"
               />
             </div>
           )}

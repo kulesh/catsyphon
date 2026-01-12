@@ -233,11 +233,11 @@ async def get_overview_stats(
     else:
         success_rate = None
 
-    # Message activity over last 60 minutes (5-minute buckets for sparkline)
+    # Message activity over last 60 minutes (1-minute buckets for bar chart)
     message_activity_60m = []
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=60)
-        bucket_seconds = 300  # 5 minutes
+        bucket_seconds = 60  # 1 minute
 
         message_activity_query = (
             session.query(

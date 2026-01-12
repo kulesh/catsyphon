@@ -491,7 +491,7 @@ class OverviewStats(BaseModel):
     )  # approved, active, abandoned
     conversations_with_plans: int = 0  # Conversations that have at least one plan
 
-    # Message activity sparkline (last 60 minutes, 5-min buckets)
+    # Message activity bar chart (last 60 minutes, 1-min buckets)
     message_activity_60m: list[MessageActivityPoint] = Field(default_factory=list)
 
 
