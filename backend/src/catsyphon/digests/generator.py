@@ -22,11 +22,12 @@ class WeeklyDigestGenerator:
         period_start: datetime,
         period_end: datetime,
     ) -> dict[str, Any]:
+        # Don't load relations - digest only needs conversation metadata and tags
         conversations = self.conversation_repo.get_by_filters(
             workspace_id=workspace_id,
             start_date=period_start,
             end_date=period_end,
-            load_relations=True,
+            load_relations=False,
         )
 
         total_sessions = len(conversations)
