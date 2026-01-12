@@ -3,11 +3,13 @@
 # CatSyphon Development Script
 #
 # Usage:
-#   ./scripts/dev.sh start    - Start all services (PostgreSQL, API server)
+#   ./scripts/dev.sh start    - Start all services (PostgreSQL, API server, frontend)
 #   ./scripts/dev.sh stop     - Stop all services
 #   ./scripts/dev.sh restart  - Restart all services
 #   ./scripts/dev.sh reset    - Delete all data and start fresh
 #   ./scripts/dev.sh status   - Show status of all services
+#   ./scripts/dev.sh backend  - Start backend only (Colima, PostgreSQL, API)
+#   ./scripts/dev.sh frontend - Start frontend only
 #
 # Requirements:
 #   - Colima (Docker runtime for macOS)
@@ -23,6 +25,7 @@ FRONTEND_DIR="$PROJECT_ROOT/frontend"
 API_PORT="${API_PORT:-8000}"
 API_WORKERS="${API_WORKERS:-4}"  # 4 workers recommended to avoid file descriptor exhaustion
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
 # Increase file descriptor limit (macOS default of 256 is too low)
 ulimit -n 4096 2>/dev/null || true
@@ -59,13 +62,48 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Minimum recommended Colima resources
+MIN_COLIMA_CPUS=4
+MIN_COLIMA_MEMORY_GB=4
+
+# Check if Docker is actually responsive (with timeout to detect hung daemon)
+docker_is_responsive() {
+    # Use timeout to prevent hanging on dead socket
+    # Docker should respond within 5 seconds if healthy
+    timeout 5 docker info &>/dev/null
+}
+
+# Check Colima resource allocation and warn/fix if insufficient
+check_colima_resources() {
+    local current_cpus=$(colima list -j 2>/dev/null | jq -r '.[0].cpu // 0')
+    local current_memory=$(colima list -j 2>/dev/null | jq -r '.[0].memory // 0')
+    # Memory is in bytes, convert to GB
+    local current_memory_gb=$((current_memory / 1024 / 1024 / 1024))
+
+    if [[ "$current_cpus" -lt "$MIN_COLIMA_CPUS" ]] || [[ "$current_memory_gb" -lt "$MIN_COLIMA_MEMORY_GB" ]]; then
+        log_warn "Colima has insufficient resources (${current_cpus} CPUs, ${current_memory_gb}GB RAM)"
+        log_warn "Recommended: ${MIN_COLIMA_CPUS} CPUs, ${MIN_COLIMA_MEMORY_GB}GB RAM"
+        log_info "Recreating Colima with recommended resources..."
+
+        colima stop --force 2>/dev/null || true
+        sleep 2
+        colima delete --force 2>/dev/null || true
+        sleep 2
+
+        log_info "Starting Colima with ${MIN_COLIMA_CPUS} CPUs and ${MIN_COLIMA_MEMORY_GB}GB RAM..."
+        colima start --cpu ${MIN_COLIMA_CPUS} --memory ${MIN_COLIMA_MEMORY_GB}
+        return $?
+    fi
+    return 0
+}
+
 # Check if Colima is running AND Docker is accessible
 check_colima() {
     if ! colima status &>/dev/null; then
         return 1
     fi
-    # Also verify Docker is actually accessible
-    if ! docker info &>/dev/null; then
+    # Also verify Docker is actually accessible (with timeout)
+    if ! docker_is_responsive; then
         return 1
     fi
     return 0
@@ -75,32 +113,61 @@ check_colima() {
 start_colima() {
     # Check if Colima claims to be running
     if colima status &>/dev/null; then
-        # Verify Docker is actually working
-        if docker info &>/dev/null; then
-            log_info "Colima is already running"
-            return 0
+        # Verify Docker is actually working (with timeout to detect dead VM)
+        log_info "Checking Docker daemon health..."
+        if docker_is_responsive; then
+            log_success "Colima is already running and healthy"
+            # Check if resources are sufficient
+            check_colima_resources
+            return $?
         else
-            log_warn "Colima is running but Docker is not accessible - restarting..."
-            colima stop 2>/dev/null || true
-            sleep 2
+            log_warn "Colima reports running but Docker daemon is not responsive"
+            log_warn "This usually means the Lima VM crashed (e.g., after sleep/wake)"
+            log_info "Force-stopping Colima..."
+            colima stop --force 2>/dev/null || true
+            sleep 3
         fi
+    fi
+
+    # Check if Colima exists but is stopped - verify resources before starting
+    if colima list -j 2>/dev/null | jq -e '.[0]' &>/dev/null; then
+        check_colima_resources || true
+    else
+        # First time setup - create with recommended resources
+        log_info "Creating Colima with ${MIN_COLIMA_CPUS} CPUs and ${MIN_COLIMA_MEMORY_GB}GB RAM..."
+        colima start --cpu ${MIN_COLIMA_CPUS} --memory ${MIN_COLIMA_MEMORY_GB}
+
+        # Wait for Docker to be ready
+        local retries=15
+        while [[ $retries -gt 0 ]]; do
+            if docker_is_responsive; then
+                log_success "Colima started and Docker is responsive"
+                return 0
+            fi
+            sleep 1
+            ((retries--))
+        done
+
+        log_error "Colima started but Docker is not responding"
+        return 1
     fi
 
     log_info "Starting Colima..."
     colima start
 
     # Wait for Docker to be ready
-    local retries=10
+    local retries=15
     while [[ $retries -gt 0 ]]; do
-        if docker info &>/dev/null; then
-            log_success "Colima started"
+        if docker_is_responsive; then
+            log_success "Colima started and Docker is responsive"
             return 0
         fi
         sleep 1
         ((retries--))
     done
 
-    log_error "Colima started but Docker is not accessible"
+    log_error "Colima started but Docker is not responding"
+    log_error "Try: colima stop --force && colima start"
     return 1
 }
 
@@ -166,8 +233,12 @@ start_postgres() {
 stop_postgres() {
     log_info "Stopping PostgreSQL container..."
     cd "$PROJECT_ROOT"
-    docker-compose down 2>&1 | grep -v "^WARN" || true
-    log_success "PostgreSQL stopped"
+    if docker_is_responsive; then
+        docker-compose down 2>&1 | grep -v "^WARN" || true
+        log_success "PostgreSQL stopped"
+    else
+        log_warn "Docker not responsive - container already stopped or VM crashed"
+    fi
 }
 
 # Reset PostgreSQL (delete all data)
@@ -244,6 +315,84 @@ stop_api() {
     fi
 }
 
+# Wait for API to be healthy
+wait_for_api_health() {
+    log_info "Waiting for API to be healthy..."
+    local retries=30
+    while [[ $retries -gt 0 ]]; do
+        local health=$(curl -s "http://localhost:${API_PORT}/health" 2>/dev/null || echo "")
+        if echo "$health" | grep -q '"status":"healthy"'; then
+            log_success "API is healthy"
+            return 0
+        elif echo "$health" | grep -q '"database":"unhealthy"'; then
+            log_warn "API responding but database unhealthy, waiting..."
+        fi
+        sleep 1
+        ((retries--))
+    done
+    log_error "API health check timed out"
+    return 1
+}
+
+# Start frontend dev server
+start_frontend() {
+    log_info "Starting frontend dev server on port ${FRONTEND_PORT}..."
+    cd "$FRONTEND_DIR"
+
+    # Check if already running
+    if lsof -ti :${FRONTEND_PORT} &>/dev/null; then
+        log_warn "Port ${FRONTEND_PORT} is already in use (frontend may already be running)"
+        return 0
+    fi
+
+    # Check if pnpm is available
+    if ! command -v pnpm &>/dev/null; then
+        log_error "pnpm not found. Please install it: npm install -g pnpm"
+        return 1
+    fi
+
+    # Install dependencies if needed
+    if [[ ! -d "node_modules" ]]; then
+        log_info "Installing frontend dependencies..."
+        pnpm install
+    fi
+
+    # Start in background
+    nohup pnpm dev --port ${FRONTEND_PORT} > /tmp/catsyphon-frontend.log 2>&1 &
+
+    # Wait for server to start
+    local retries=15
+    while [[ $retries -gt 0 ]]; do
+        if lsof -ti :${FRONTEND_PORT} &>/dev/null; then
+            log_success "Frontend started on http://localhost:${FRONTEND_PORT}"
+            return 0
+        fi
+        sleep 1
+        ((retries--))
+    done
+
+    log_error "Frontend failed to start. Check /tmp/catsyphon-frontend.log for details"
+    return 1
+}
+
+# Stop frontend dev server
+stop_frontend() {
+    log_info "Stopping frontend dev server..."
+    local pids=$(lsof -ti :${FRONTEND_PORT} 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo "$pids" | xargs kill 2>/dev/null || true
+        sleep 1
+        # Force kill if still running
+        pids=$(lsof -ti :${FRONTEND_PORT} 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+        fi
+        log_success "Frontend stopped"
+    else
+        log_info "Frontend was not running"
+    fi
+}
+
 # Show status of all services
 show_status() {
     echo ""
@@ -285,6 +434,13 @@ show_status() {
         echo -e "Health:     ${GREEN}API responding${NC}, database: ${db_status}"
     fi
 
+    # Frontend
+    if lsof -i :${FRONTEND_PORT} &>/dev/null; then
+        echo -e "Frontend:   ${GREEN}running${NC} on port ${FRONTEND_PORT}"
+    else
+        echo -e "Frontend:   ${RED}stopped${NC}"
+    fi
+
     echo ""
 }
 
@@ -298,12 +454,15 @@ cmd_start() {
     setup_port_forward
     run_migrations
     start_api
+    wait_for_api_health
+    start_frontend
 
     echo ""
     show_status
 
     log_success "CatSyphon is ready!"
     echo ""
+    echo "  Frontend: http://localhost:${FRONTEND_PORT}"
     echo "  API:      http://localhost:${API_PORT}"
     echo "  Swagger:  http://localhost:${API_PORT}/docs"
     echo "  Logs:     ~/.local/state/catsyphon/logs/"
@@ -314,6 +473,7 @@ cmd_stop() {
     log_info "Stopping CatSyphon..."
     echo ""
 
+    stop_frontend
     stop_api
     kill_port_forward
     stop_postgres
@@ -344,6 +504,47 @@ cmd_reset() {
 
 cmd_status() {
     show_status
+}
+
+cmd_backend() {
+    log_info "Starting CatSyphon backend only..."
+    echo ""
+
+    start_colima
+    start_postgres
+    setup_port_forward
+    run_migrations
+    start_api
+    wait_for_api_health
+
+    echo ""
+    show_status
+
+    log_success "Backend is ready!"
+    echo ""
+    echo "  API:      http://localhost:${API_PORT}"
+    echo "  Swagger:  http://localhost:${API_PORT}/docs"
+    echo "  Logs:     ~/.local/state/catsyphon/logs/"
+    echo ""
+}
+
+cmd_frontend() {
+    log_info "Starting CatSyphon frontend only..."
+    echo ""
+
+    # Check if API is running
+    if ! lsof -ti :${API_PORT} &>/dev/null; then
+        log_warn "API server is not running. Frontend may not work correctly."
+        log_info "Run './scripts/dev.sh backend' first, or './scripts/dev.sh start' for full stack."
+    fi
+
+    start_frontend
+
+    echo ""
+    log_success "Frontend is ready!"
+    echo ""
+    echo "  Frontend: http://localhost:${FRONTEND_PORT}"
+    echo ""
 }
 
 cmd_logs() {
@@ -381,18 +582,26 @@ cmd_help() {
     echo "Usage: $0 <command>"
     echo ""
     echo "Commands:"
-    echo "  start     Start all services (PostgreSQL, API server)"
+    echo "  start     Start all services (Colima, PostgreSQL, API server, Frontend)"
     echo "  stop      Stop all services"
     echo "  restart   Restart all services"
     echo "  reset     Delete all data and start fresh"
     echo "  status    Show status of all services"
+    echo "  backend   Start backend only (Colima, PostgreSQL, API)"
+    echo "  frontend  Start frontend only"
     echo "  logs      Stream logs (logs, logs error, logs app, logs watch)"
     echo "  help      Show this help message"
     echo ""
     echo "Environment variables:"
-    echo "  API_PORT      API server port (default: 8000)"
-    echo "  API_WORKERS   Number of uvicorn workers (default: 4)"
-    echo "  POSTGRES_PORT PostgreSQL port (default: 5432)"
+    echo "  API_PORT       API server port (default: 8000)"
+    echo "  API_WORKERS    Number of uvicorn workers (default: 4)"
+    echo "  POSTGRES_PORT  PostgreSQL port (default: 5432)"
+    echo "  FRONTEND_PORT  Frontend dev server port (default: 5173)"
+    echo ""
+    echo "Notes:"
+    echo "  - Colima minimum resources: 4 CPUs, 4GB RAM (auto-configured)"
+    echo "  - Script auto-recovers from Colima crashes (common after sleep/wake)"
+    echo "  - If issues persist, try: colima start --vm-type=qemu"
     echo ""
 }
 
@@ -412,6 +621,12 @@ case "${1:-}" in
         ;;
     status)
         cmd_status
+        ;;
+    backend)
+        cmd_backend
+        ;;
+    frontend)
+        cmd_frontend
         ;;
     logs)
         cmd_logs "${2:-all}"

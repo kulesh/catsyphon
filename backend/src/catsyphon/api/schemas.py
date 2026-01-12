@@ -458,6 +458,13 @@ class ConversationListResponse(BaseModel):
 # ===== Stats Schemas =====
 
 
+class MessageActivityPoint(BaseModel):
+    """Single data point for message activity time series."""
+
+    timestamp: datetime
+    count: int
+
+
 class OverviewStats(BaseModel):
     """Response schema for overview statistics."""
 
@@ -483,6 +490,9 @@ class OverviewStats(BaseModel):
         default_factory=dict
     )  # approved, active, abandoned
     conversations_with_plans: int = 0  # Conversations that have at least one plan
+
+    # Message activity sparkline (last 60 minutes, 5-min buckets)
+    message_activity_60m: list[MessageActivityPoint] = Field(default_factory=list)
 
 
 class AgentPerformanceStats(BaseModel):
