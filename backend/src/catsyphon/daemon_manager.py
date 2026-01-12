@@ -20,7 +20,7 @@ import psutil
 import requests
 
 from catsyphon.config import settings
-from catsyphon.db.connection import background_session
+from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
 from catsyphon.db.repositories.workspace import WorkspaceRepository
 from catsyphon.models.db import WatchConfiguration
@@ -240,7 +240,7 @@ class DaemonManager:
         """
         logger.info("Loading active watch configurations...")
 
-        with background_session() as session:
+        with db_session() as session:
             # Get default workspace
             workspace_repo = WorkspaceRepository(session)
             workspaces = workspace_repo.get_all(limit=1)
@@ -398,7 +398,7 @@ class DaemonManager:
 
         # Store PID in database
         try:
-            with background_session() as session:
+            with db_session() as session:
                 repo = WatchConfigurationRepository(session)
                 repo.set_daemon_pid(config_id, pid)
                 session.commit()
@@ -477,7 +477,7 @@ class DaemonManager:
 
         # Clear PID from database
         try:
-            with background_session() as session:
+            with db_session() as session:
                 repo = WatchConfigurationRepository(session)
                 repo.clear_daemon_pid(config_id)
                 session.commit()
@@ -554,7 +554,7 @@ class DaemonManager:
         # Get stats from database (latest synced values)
         stats = None
         try:
-            with background_session() as session:
+            with db_session() as session:
                 repo = WatchConfigurationRepository(session)
                 config = repo.get(config_id)
                 if config and config.stats:
@@ -722,7 +722,7 @@ class DaemonManager:
 
                     try:
                         # Clear PID and remove dead daemon
-                        with background_session() as session:
+                        with db_session() as session:
                             repo = WatchConfigurationRepository(session)
                             repo.clear_daemon_pid(config_id)
                             session.commit()
@@ -731,7 +731,7 @@ class DaemonManager:
                             del self._daemons[config_id]
 
                         # Load fresh config from DB
-                        with background_session() as session:
+                        with db_session() as session:
                             repo = WatchConfigurationRepository(session)
                             config = repo.get(config_id)
 
@@ -757,7 +757,7 @@ class DaemonManager:
 
                     # Mark as inactive and clear PID in DB
                     try:
-                        with background_session() as session:
+                        with db_session() as session:
                             repo = WatchConfigurationRepository(session)
                             repo.deactivate(config_id)
                             repo.clear_daemon_pid(config_id)
@@ -787,7 +787,7 @@ class DaemonManager:
             stats_snapshot: Stats dictionary from WatcherStats.to_dict()
         """
         try:
-            with background_session() as session:
+            with db_session() as session:
                 repo = WatchConfigurationRepository(session)
                 repo.update_stats(config_id, stats_snapshot)
                 session.commit()

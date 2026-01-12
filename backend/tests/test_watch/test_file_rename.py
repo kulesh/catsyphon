@@ -127,9 +127,9 @@ class TestHandleFileRename:
         src_path = Path("/test/old.jsonl")
         dest_path = Path("/test/new.jsonl")
 
-        with patch("catsyphon.watch.background_session") as mock_background_session:
+        with patch("catsyphon.watch.db_session") as mock_db_session:
             # Simulate database error
-            mock_background_session.side_effect = Exception(
+            mock_db_session.side_effect = Exception(
                 "Database connection failed"
             )
 

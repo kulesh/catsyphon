@@ -82,13 +82,6 @@ catsyphon/
    - **State Tracking**: Stores parsing state (offset, line number, hash) in `raw_logs` table
    - **Graceful Degradation**: Falls back to full reparse if incremental parsing fails
 
-7. **Dual Connection Pool Architecture**: Separate database connection pools prevent resource contention
-   - **API Pool** (`SessionLocal`): Standard pooled connections for API requests (pool_size=5, max_overflow=5)
-   - **Background Pool** (`BackgroundSessionLocal`): NullPool for background workers (creates fresh connections on demand)
-   - **Why**: Background workers (daemon manager, tagging worker, watch daemon) don't need pooling and shouldn't compete with API requests
-   - **Usage**: Use `db_session()` for API/CLI operations, `background_session()` for background workers
-   - **Key Files**: `backend/src/catsyphon/db/connection.py`
-
 ### Incremental Parsing Details
 
 Incremental parsing dramatically improves performance for log files that are actively being appended to (e.g., during live Claude Code sessions or watch daemon monitoring).

@@ -403,9 +403,9 @@ class TestDaemonManager:
         assert len(manager._daemons) == 0
         assert manager._shutdown_event.is_set()
 
-    @patch("catsyphon.daemon_manager.background_session")
+    @patch("catsyphon.daemon_manager.db_session")
     def test_load_active_configs(
-        self, mock_background_session, watch_config, sample_workspace
+        self, mock_db_session, watch_config, sample_workspace
     ):
         """Test loading active configs on startup."""
         # Mark config as active
@@ -419,7 +419,7 @@ class TestDaemonManager:
         mock_workspace_repo = Mock()
         mock_workspace_repo.get_all.return_value = [sample_workspace]
 
-        mock_background_session.return_value.__enter__.return_value = mock_session
+        mock_db_session.return_value.__enter__.return_value = mock_session
 
         manager = DaemonManager()
 
@@ -451,9 +451,9 @@ class TestDaemonManager:
             # Verify start_daemon was called
             mock_start.assert_called_once_with(watch_config)
 
-    @patch("catsyphon.daemon_manager.background_session")
+    @patch("catsyphon.daemon_manager.db_session")
     def test_load_active_configs_handles_errors(
-        self, mock_background_session, sample_workspace
+        self, mock_db_session, sample_workspace
     ):
         """Test load_active_configs handles daemon start errors gracefully."""
         # Create a config that will fail to start
@@ -475,7 +475,7 @@ class TestDaemonManager:
         mock_workspace_repo = Mock()
         mock_workspace_repo.get_all.return_value = [sample_workspace]
 
-        mock_background_session.return_value.__enter__.return_value = mock_session
+        mock_db_session.return_value.__enter__.return_value = mock_session
 
         manager = DaemonManager()
 
@@ -496,9 +496,9 @@ class TestDaemonManager:
             mock_watch_repo.deactivate.assert_called_once_with(bad_config.id)
 
     @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
-    @patch("catsyphon.daemon_manager.background_session")
+    @patch("catsyphon.daemon_manager.db_session")
     def test_stats_sync_loop(
-        self, mock_background_session, mock_fetch_creds, watch_config
+        self, mock_db_session, mock_fetch_creds, watch_config
     ):
         """Test stats sync background thread with Queue-based IPC."""
         mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
@@ -507,7 +507,7 @@ class TestDaemonManager:
         mock_session = Mock()
         mock_repo = Mock()
 
-        mock_background_session.return_value.__enter__.return_value = mock_session
+        mock_db_session.return_value.__enter__.return_value = mock_session
 
         manager = DaemonManager(stats_sync_interval=1)  # 1 second interval
         manager.start_daemon(watch_config)

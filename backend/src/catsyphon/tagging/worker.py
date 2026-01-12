@@ -12,7 +12,7 @@ import time
 from typing import Optional
 
 from catsyphon.config import settings
-from catsyphon.db.connection import background_session
+from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.conversation import ConversationRepository
 
 from .job_queue import TaggingJobQueue
@@ -128,7 +128,7 @@ class TaggingWorker:
         if not pipeline:
             return False
 
-        with background_session() as session:
+        with db_session() as session:
             queue = TaggingJobQueue(session)
             job = queue.claim_next()
 
@@ -194,7 +194,7 @@ class TaggingWorker:
     def _cleanup(self) -> None:
         """Perform periodic cleanup tasks."""
         try:
-            with background_session() as session:
+            with db_session() as session:
                 queue = TaggingJobQueue(session)
 
                 # Reset any stale processing jobs

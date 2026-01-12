@@ -59,7 +59,7 @@ class TestConcurrentProcessing:
         with patch.object(
             file_watcher, "_process_file_via_api", side_effect=mock_process
         ):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_file", return_value=False):
                         # Launch 5 concurrent threads trying to process the same file
@@ -96,7 +96,7 @@ class TestConcurrentProcessing:
         with patch.object(
             file_watcher, "_process_file_via_api", side_effect=mock_process
         ):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_file", return_value=False):
                         # Process file 3 times sequentially
@@ -128,7 +128,7 @@ class TestConcurrentProcessing:
         with patch.object(
             file_watcher, "_process_file_via_api", side_effect=mock_process
         ):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_file", return_value=False):
                         # Launch threads for different files concurrently
@@ -154,7 +154,7 @@ class TestConcurrentProcessing:
 
         # Mock _process_file_via_api (API-only mode)
         with patch.object(file_watcher, "_process_file_via_api"):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_file", return_value=False):
                         # Process file
@@ -172,7 +172,7 @@ class TestConcurrentProcessing:
         with patch.object(
             file_watcher, "_process_file_via_api", side_effect=Exception("Test error")
         ):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_file", return_value=False):
                         # Also mock failure tracking to avoid database issues
