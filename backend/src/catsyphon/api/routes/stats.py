@@ -4,11 +4,11 @@ Statistics API routes.
 Endpoints for querying analytics and statistics about conversations.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from catsyphon.api.auth import AuthContext, get_auth_context
@@ -233,6 +233,38 @@ async def get_overview_stats(
     else:
         success_rate = None
 
+    # Message activity over last 60 minutes (5-minute buckets for sparkline)
+    message_activity_60m = []
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=60)
+        bucket_seconds = 300  # 5 minutes
+
+        message_activity_query = (
+            session.query(
+                func.to_timestamp(
+                    func.floor(
+                        func.extract("epoch", Message.created_at) / bucket_seconds
+                    )
+                    * bucket_seconds
+                ).label("bucket"),
+                func.count(Message.id).label("count"),
+            )
+            .join(Conversation)
+            .filter(Conversation.workspace_id == workspace_id)
+            .filter(Message.created_at >= cutoff)
+            .group_by(text("bucket"))
+            .order_by(text("bucket"))
+            .all()
+        )
+
+        message_activity_60m = [
+            {"timestamp": row.bucket, "count": row.count}
+            for row in message_activity_query
+        ]
+    except Exception:
+        # SQLite doesn't support to_timestamp - skip sparkline data
+        pass
+
     return OverviewStats(
         total_conversations=total_conversations,
         total_messages=total_messages,
@@ -248,4 +280,5 @@ async def get_overview_stats(
         total_plans=total_plans,
         plans_by_status=plans_by_status,
         conversations_with_plans=conversations_with_plans,
+        message_activity_60m=message_activity_60m,
     )

@@ -59,7 +59,8 @@ def upgrade() -> None:
 
     # Backfill based on role and content analysis
     # Note: tool_calls and tool_results columns are JSONB arrays
-    op.execute("""
+    op.execute(
+        """
         UPDATE messages SET message_type = CASE
             WHEN role = 'user' THEN 'prompt'::message_type
             WHEN role = 'system' THEN 'context'::message_type
@@ -67,7 +68,8 @@ def upgrade() -> None:
             WHEN tool_results IS NOT NULL AND tool_results::text != '[]' THEN 'tool_result'::message_type
             ELSE 'response'::message_type
         END
-    """)
+    """
+    )
 
     # Make column NOT NULL after backfill
     op.alter_column("messages", "message_type", nullable=False)

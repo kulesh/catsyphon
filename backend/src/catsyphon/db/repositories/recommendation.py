@@ -172,9 +172,7 @@ class RecommendationRepository(BaseRepository[AutomationRecommendation]):
         self.session.flush()
         self.session.refresh(recommendation)
 
-        logger.info(
-            f"Updated recommendation {recommendation_id} status to {status}"
-        )
+        logger.info(f"Updated recommendation {recommendation_id} status to {status}")
 
         return recommendation
 
@@ -215,9 +213,7 @@ class RecommendationRepository(BaseRepository[AutomationRecommendation]):
         # Count by status
         status_counts = {}
         for status in ["pending", "accepted", "dismissed", "implemented"]:
-            stmt = select(func.count()).where(
-                AutomationRecommendation.status == status
-            )
+            stmt = select(func.count()).where(AutomationRecommendation.status == status)
             count = self.session.execute(stmt).scalar() or 0
             status_counts[status] = count
 

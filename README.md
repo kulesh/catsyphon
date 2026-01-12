@@ -108,15 +108,28 @@ See which files changed most, lines added/deleted across all sessions.
 ## Development
 
 ```bash
-# Backend
+# Quick start - runs full stack (Colima, PostgreSQL, API, Frontend)
+./scripts/dev.sh start
+
+# Or start components separately
+./scripts/dev.sh backend         # Backend only
+./scripts/dev.sh frontend        # Frontend only
+
+# Other commands
+./scripts/dev.sh status          # Check all services
+./scripts/dev.sh stop            # Stop everything
+./scripts/dev.sh logs            # Stream logs
+```
+
+```bash
+# Backend tests and quality
 cd backend
 uv run pytest                    # Tests
 uv run mypy src/                 # Type check
 uv run black src/ tests/         # Format
 
-# Frontend
+# Frontend tests and quality
 cd frontend
-pnpm dev                         # Dev server
 pnpm test                        # Tests
 pnpm tsc --noEmit               # Type check
 ```

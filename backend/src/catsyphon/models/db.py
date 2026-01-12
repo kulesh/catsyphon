@@ -861,7 +861,9 @@ class BackingModel(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("provider", "model_id", name="uq_backing_model_provider_model"),
+        UniqueConstraint(
+            "provider", "model_id", name="uq_backing_model_provider_model"
+        ),
     )
 
     def __repr__(self) -> str:
@@ -1288,13 +1290,9 @@ class ConversationRecap(Base):
 
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    key_files: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default="[]"
-    )
+    key_files: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     blockers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
-    next_steps: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default="[]"
-    )
+    next_steps: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     recap_metadata: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
@@ -1346,9 +1344,7 @@ class WeeklyDigest(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     wins: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     blockers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
-    highlights: Mapped[list] = mapped_column(
-        JSONB, nullable=False, server_default="[]"
-    )
+    highlights: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
@@ -1484,14 +1480,10 @@ class TaggingJob(Base):
     )
 
     # Priority for queue ordering (lower = higher priority)
-    priority: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     # Retry tracking
-    attempts: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     max_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="3"
     )

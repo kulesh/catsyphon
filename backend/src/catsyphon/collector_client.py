@@ -174,18 +174,22 @@ class CollectorClient:
         if parsed.summaries:
             session_start_data["summaries"] = _serialize_for_json(parsed.summaries)
         if parsed.compaction_events:
-            session_start_data["compaction_events"] = _serialize_for_json(parsed.compaction_events)
+            session_start_data["compaction_events"] = _serialize_for_json(
+                parsed.compaction_events
+            )
         # Spread any additional metadata from the parser
         if parsed.metadata:
             for key, value in parsed.metadata.items():
                 if key not in session_start_data:
                     session_start_data[key] = _serialize_for_json(value)
 
-        events.append(self._create_event(
-            event_type="session_start",
-            emitted_at=parsed.start_time or datetime.now(timezone.utc),
-            data=session_start_data,
-        ))
+        events.append(
+            self._create_event(
+                event_type="session_start",
+                emitted_at=parsed.start_time or datetime.now(timezone.utc),
+                data=session_start_data,
+            )
+        )
 
         # Convert messages to events (including tool_call events)
         for msg in parsed.messages:
@@ -205,11 +209,13 @@ class CollectorClient:
             if parsed.files_touched:
                 session_end_data["files_touched"] = parsed.files_touched
 
-            events.append(self._create_event(
-                event_type="session_end",
-                emitted_at=parsed.end_time,
-                data=session_end_data,
-            ))
+            events.append(
+                self._create_event(
+                    event_type="session_end",
+                    emitted_at=parsed.end_time,
+                    data=session_end_data,
+                )
+            )
 
         # Send events in batches
         result = self._send_events(session_id, events)
@@ -279,15 +285,17 @@ class CollectorClient:
                 tool_event_time = tool_call.timestamp or event_time
                 # Generate unique tool_use_id from timestamp and index
                 tool_use_id = f"tool_{tool_event_time.isoformat()}_{idx}"
-                events.append(self._create_event(
-                    event_type="tool_call",
-                    emitted_at=tool_event_time,
-                    data={
-                        "tool_name": tool_call.tool_name,
-                        "tool_use_id": tool_use_id,
-                        "parameters": tool_call.parameters or {},
-                    },
-                ))
+                events.append(
+                    self._create_event(
+                        event_type="tool_call",
+                        emitted_at=tool_event_time,
+                        data={
+                            "tool_name": tool_call.tool_name,
+                            "tool_use_id": tool_use_id,
+                            "parameters": tool_call.parameters or {},
+                        },
+                    )
+                )
 
                 # If tool has a result, also create a tool_result event
                 if tool_call.result is not None:
@@ -295,15 +303,17 @@ class CollectorClient:
                     result_value = tool_call.result
                     if not isinstance(result_value, str):
                         result_value = json.dumps(result_value)
-                    events.append(self._create_event(
-                        event_type="tool_result",
-                        emitted_at=tool_event_time,
-                        data={
-                            "tool_use_id": tool_use_id,  # Match the tool_call above
-                            "success": tool_call.success,
-                            "result": result_value,
-                        },
-                    ))
+                    events.append(
+                        self._create_event(
+                            event_type="tool_result",
+                            emitted_at=tool_event_time,
+                            data={
+                                "tool_use_id": tool_use_id,  # Match the tool_call above
+                                "success": tool_call.success,
+                                "result": result_value,
+                            },
+                        )
+                    )
 
         # Create the main message event
         data: dict[str, Any] = {
@@ -324,11 +334,13 @@ class CollectorClient:
         if msg.thinking_metadata:
             data["thinking_metadata"] = msg.thinking_metadata
 
-        events.append(self._create_event(
-            event_type="message",
-            emitted_at=event_time,
-            data=data,
-        ))
+        events.append(
+            self._create_event(
+                event_type="message",
+                emitted_at=event_time,
+                data=data,
+            )
+        )
 
         return events
 
@@ -343,7 +355,7 @@ class CollectorClient:
         batch_size = self.config.batch_size
 
         for i in range(0, len(events), batch_size):
-            batch = events[i:i + batch_size]
+            batch = events[i : i + batch_size]
             result = self._send_batch_with_retry(session_id, batch)
             total_accepted += result.get("accepted", 0)
             if result.get("conversation_id"):
@@ -382,7 +394,7 @@ class CollectorClient:
 
                 if response.status_code >= 500:
                     # Server error - retry with backoff
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         f"Server error {response.status_code}, retrying in {wait_time}s"
                     )
@@ -394,7 +406,7 @@ class CollectorClient:
 
             except httpx.RequestError as e:
                 last_error = e
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 logger.warning(f"Network error: {e}, retrying in {wait_time}s")
                 time.sleep(wait_time)
 
@@ -498,18 +510,21 @@ def compute_ingestion_fingerprint(
     hasher = hashlib.sha256()
 
     # Sort by sequence/index for deterministic ordering
-    sorted_msgs = sorted(messages, key=lambda m: getattr(m, 'sequence', 0) or getattr(m, 'message_index', 0) or 0)
+    sorted_msgs = sorted(
+        messages,
+        key=lambda m: getattr(m, "sequence", 0) or getattr(m, "message_index", 0) or 0,
+    )
 
     for msg in sorted_msgs:
         # Extract fields that should match between methods
-        role = getattr(msg, 'role', '') or ''
-        content = getattr(msg, 'content', '') or '' if include_content else ''
-        timestamp = getattr(msg, 'timestamp', None) or getattr(msg, 'emitted_at', None)
-        ts_str = timestamp.isoformat() if timestamp else ''
+        role = getattr(msg, "role", "") or ""
+        content = getattr(msg, "content", "") or "" if include_content else ""
+        timestamp = getattr(msg, "timestamp", None) or getattr(msg, "emitted_at", None)
+        ts_str = timestamp.isoformat() if timestamp else ""
 
         # Hash each message's canonical representation
         canonical = f"{role}|{ts_str}|{len(content)}|{content[:100]}"
-        hasher.update(canonical.encode('utf-8'))
+        hasher.update(canonical.encode("utf-8"))
 
     return hasher.hexdigest()
 

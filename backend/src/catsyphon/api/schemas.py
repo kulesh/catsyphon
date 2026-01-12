@@ -458,6 +458,13 @@ class ConversationListResponse(BaseModel):
 # ===== Stats Schemas =====
 
 
+class MessageActivityPoint(BaseModel):
+    """Single data point for message activity time series."""
+
+    timestamp: datetime
+    count: int
+
+
 class OverviewStats(BaseModel):
     """Response schema for overview statistics."""
 
@@ -483,6 +490,9 @@ class OverviewStats(BaseModel):
         default_factory=dict
     )  # approved, active, abandoned
     conversations_with_plans: int = 0  # Conversations that have at least one plan
+
+    # Message activity sparkline (last 60 minutes, 5-min buckets)
+    message_activity_60m: list[MessageActivityPoint] = Field(default_factory=list)
 
 
 class AgentPerformanceStats(BaseModel):
@@ -832,9 +842,7 @@ class TaggingQueueStatsResponse(BaseModel):
     jobs_succeeded: int = Field(
         default=0, description="Jobs that succeeded since startup"
     )
-    jobs_failed: int = Field(
-        default=0, description="Jobs that failed since startup"
-    )
+    jobs_failed: int = Field(default=0, description="Jobs that failed since startup")
 
 
 # ===== Setup / Onboarding Schemas =====
@@ -1248,18 +1256,28 @@ class EventData(BaseModel):
     # Common fields that may appear in various event types
     # Message events
     author_role: Optional[str] = Field(
-        None, description="Who produced the message (human, assistant, agent, tool, system)"
+        None,
+        description="Who produced the message (human, assistant, agent, tool, system)",
     )
     message_type: Optional[str] = Field(
-        None, description="Semantic type (prompt, response, tool_call, tool_result, context, error)"
+        None,
+        description="Semantic type (prompt, response, tool_call, tool_result, context, error)",
     )
     content: Optional[str] = Field(None, description="Message content")
     model: Optional[str] = Field(None, description="LLM model used")
-    token_usage: Optional[dict[str, int]] = Field(None, description="Token consumption stats")
-    thinking_content: Optional[str] = Field(None, description="Extended thinking blocks")
-    thinking_metadata: Optional[dict[str, Any]] = Field(None, description="Thinking level settings")
+    token_usage: Optional[dict[str, int]] = Field(
+        None, description="Token consumption stats"
+    )
+    thinking_content: Optional[str] = Field(
+        None, description="Extended thinking blocks"
+    )
+    thinking_metadata: Optional[dict[str, Any]] = Field(
+        None, description="Thinking level settings"
+    )
     stop_reason: Optional[str] = Field(None, description="Why generation stopped")
-    raw_data: Optional[dict[str, Any]] = Field(None, description="Original message data")
+    raw_data: Optional[dict[str, Any]] = Field(
+        None, description="Original message data"
+    )
 
     # Tool call events
     tool_name: Optional[str] = Field(None, description="Name of the tool")
@@ -1277,7 +1295,9 @@ class EventData(BaseModel):
     working_directory: Optional[str] = Field(None, description="Working directory")
     git_branch: Optional[str] = Field(None, description="Git branch")
     parent_session_id: Optional[str] = Field(None, description="Parent session ID")
-    context_semantics: Optional[dict[str, Any]] = Field(None, description="Context sharing settings")
+    context_semantics: Optional[dict[str, Any]] = Field(
+        None, description="Context sharing settings"
+    )
 
     # Session start events - metadata for semantic parity
     slug: Optional[str] = Field(None, description="Human-readable session name")
@@ -1370,7 +1390,9 @@ class CollectorEventsResponse(BaseModel):
     last_sequence: Optional[int] = Field(
         None, description="Last sequence number (deprecated, use event_count)"
     )
-    conversation_id: UUID = Field(..., description="CatSyphon's internal conversation ID")
+    conversation_id: UUID = Field(
+        ..., description="CatSyphon's internal conversation ID"
+    )
     warnings: list[str] = Field(default_factory=list, description="Non-fatal issues")
 
 
@@ -1541,9 +1563,7 @@ class DetectionResponse(BaseModel):
     recommendations_count: int = Field(
         ..., description="Number of recommendations detected"
     )
-    tokens_analyzed: int = Field(
-        ..., description="Tokens in the analyzed narrative"
-    )
+    tokens_analyzed: int = Field(..., description="Tokens in the analyzed narrative")
     detection_model: str = Field(..., description="Model used for detection")
     recommendations: list[RecommendationResponse] = Field(
         default_factory=list, description="Detected recommendations"

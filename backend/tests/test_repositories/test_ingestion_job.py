@@ -386,9 +386,7 @@ class TestIngestionJobSpecificMethods:
             status="success",
             started_at=base_time - timedelta(days=1),
         )
-        job_repo.create(
-            source_type="watch", status="success", started_at=base_time
-        )
+        job_repo.create(source_type="watch", status="success", started_at=base_time)
 
         # Get jobs from 4 days ago to 2 days ago
         start_date = base_time - timedelta(days=4)

@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Optional, Set
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from catsyphon.models.db import RawLog
     from catsyphon.models.parsed import ParsedConversation
     from catsyphon.parsers.incremental import IncrementalParseResult
     from catsyphon.tagging.pipeline import TaggingPipeline
@@ -47,10 +46,6 @@ from catsyphon.parsers.base import EmptyFileError
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import get_default_registry
 from catsyphon.pipeline.ingestion import link_orphaned_agents
-from catsyphon.pipeline.orchestrator import ingest_log_file
-
-# Backwards-compatible alias for tests/older imports
-ingest_conversation = ingest_log_file
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +53,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ApiIngestionConfig:
     """
-    Configuration for API-based ingestion (--use-api mode).
+    Configuration for API-based ingestion.
 
+    All watch daemons now use API mode for ingestion.
     batch_size defaults to CATSYPHON_COLLECTOR_BATCH_SIZE (default: 20).
     """
 
-    enabled: bool = False
     server_url: str = "http://localhost:8000"
     api_key: str = ""
     collector_id: str = ""
@@ -75,17 +70,20 @@ class ApiIngestionConfig:
             self.batch_size = settings.collector_batch_size
 
     @classmethod
-    def from_extra_config(cls, extra_config: Optional[dict[str, Any]]) -> "ApiIngestionConfig":
+    def from_extra_config(
+        cls, extra_config: Optional[dict[str, Any]]
+    ) -> "ApiIngestionConfig":
         """Create from watch configuration extra_config."""
         if not extra_config:
             return cls()
 
         return cls(
-            enabled=extra_config.get("use_api", False),
             server_url=extra_config.get("api_url", "http://localhost:8000"),
             api_key=extra_config.get("api_key", ""),
             collector_id=extra_config.get("collector_id", ""),
-            batch_size=extra_config.get("api_batch_size"),  # Uses settings default if None
+            batch_size=extra_config.get(
+                "api_batch_size"
+            ),  # Uses settings default if None
         )
 
 
@@ -274,10 +272,9 @@ class FileWatcher(FileSystemEventHandler):
         # Parser registry
         self.parser_registry = get_default_registry()
 
-        # Initialize collector client for API mode
+        # Initialize collector client (required for API-based ingestion)
         self._collector_client = None
-        if self.api_config.enabled:
-            self._init_collector_client()
+        self._init_collector_client()
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Handle file creation events."""
@@ -307,34 +304,28 @@ class FileWatcher(FileSystemEventHandler):
         self._handle_file_rename(src_path, dest_path)
 
     def _init_collector_client(self) -> None:
-        """Initialize the collector client for API-based ingestion."""
-        if not self.api_config.enabled:
-            return
+        """Initialize the collector client for API-based ingestion.
 
+        Raises ValueError if API credentials are not configured.
+        """
         if not self.api_config.api_key or not self.api_config.collector_id:
-            logger.error(
-                "API mode enabled but api_key or collector_id not configured. "
-                "Falling back to direct ingestion."
+            raise ValueError(
+                "API credentials not configured. "
+                "api_key and collector_id are required for watch daemon."
             )
-            self.api_config.enabled = False
-            return
 
-        try:
-            from catsyphon.collector_client import CollectorClient, CollectorConfig
+        from catsyphon.collector_client import CollectorClient, CollectorConfig
 
-            config = CollectorConfig(
-                server_url=self.api_config.server_url,
-                api_key=self.api_config.api_key,
-                collector_id=self.api_config.collector_id,
-                batch_size=self.api_config.batch_size,
-            )
-            self._collector_client = CollectorClient(config)
-            logger.info(
-                f"✓ Collector client initialized (server: {self.api_config.server_url})"
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize collector client: {e}")
-            self.api_config.enabled = False
+        config = CollectorConfig(
+            server_url=self.api_config.server_url,
+            api_key=self.api_config.api_key,
+            collector_id=self.api_config.collector_id,
+            batch_size=self.api_config.batch_size,
+        )
+        self._collector_client = CollectorClient(config)
+        logger.info(
+            f"✓ Collector client initialized (server: {self.api_config.server_url})"
+        )
 
     def _handle_file_event(self, file_path: Path) -> None:
         """
@@ -446,14 +437,14 @@ class FileWatcher(FileSystemEventHandler):
                         f"Pre-ingest change detection skipped for {file_path.name}: {e}"
                     )
 
-            # Use API or direct ingestion based on configuration
+            # API-based ingestion via Collector Events API (always used)
             try:
-                if self.api_config.enabled and self._collector_client:
-                    # API-based ingestion via Collector Events API
-                    self._process_file_via_api(file_path)
-                else:
-                    # Direct ingestion via database
-                    self._process_file_direct(file_path)
+                if not self._collector_client:
+                    raise RuntimeError(
+                        "Collector client not initialized. "
+                        "Ensure api_key and collector_id are configured."
+                    )
+                self._process_file_via_api(file_path)
 
             except DuplicateFileError:
                 logger.debug(f"Skipped {file_path.name} (duplicate detected)")
@@ -532,85 +523,11 @@ class FileWatcher(FileSystemEventHandler):
             # Fallback: process as new file
             self._handle_file_event(dest_path)
 
-    def _process_file_direct(self, file_path: Path) -> None:
-        """Process file using direct database ingestion."""
-        # Run tagging if pipeline is configured
-        tags = None
-        if self.tagging_pipeline:
-            try:
-                parsed_for_tags = self.parser_registry.parse(file_path)
-                tags, _llm_metrics = self.tagging_pipeline.tag_conversation(
-                    parsed_for_tags
-                )
-                logger.debug(
-                    f"Tagged {file_path.name}: intent={tags.get('intent')}, "
-                    f"sentiment={tags.get('sentiment')}"
-                )
-            except Exception as tag_error:
-                logger.warning(
-                    f"Tagging failed for {file_path.name}: {tag_error}"
-                )
-                tags = None  # Continue without tags
-
-        with db_session() as session:
-            outcome = ingest_conversation(
-                session=session,
-                file_path=file_path,
-                registry=self.parser_registry,
-                project_name=self.project_name,
-                developer_username=self.developer_username,
-                tags=tags,
-                skip_duplicates=True,
-                update_mode="skip",
-                source_type="watch",
-                source_config_id=self.config_id,
-                created_by=None,
-                enable_incremental=True,
-            )
-
-            # Compute fingerprint INSIDE session context (before messages become detached)
-            fingerprint = None
-            if outcome.conversation and hasattr(outcome.conversation, 'messages'):
-                from catsyphon.collector_client import compute_ingestion_fingerprint
-                try:
-                    fingerprint = compute_ingestion_fingerprint(outcome.conversation.messages)
-                    logger.debug(f"Ingestion fingerprint (direct): {fingerprint[:16]}...")
-                except Exception as fp_error:
-                    logger.debug(f"Could not compute fingerprint: {fp_error}")
-
-            # Extract IDs before session closes (to avoid DetachedInstanceError)
-            status = outcome.status or "success"
-            conversation_id = outcome.conversation_id or (
-                outcome.conversation.id if outcome.conversation else None
-            )
-
-            session.commit()
-
-        if conversation_id:
-            logger.info(
-                f"✓ {status} {file_path.name} → conversation {conversation_id}"
-                + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
-            )
-        else:
-            logger.info(f"✓ {status} {file_path.name}")
-
-        with self._stats_lock:
-            if status in {"duplicate", "skipped"}:
-                self.stats.files_skipped += 1
-            else:
-                self.stats.files_processed += 1
-            self.stats.last_activity = datetime.now()
-
-        # Remove from retry queue if present
-        if self.retry_queue:
-            self.retry_queue.remove(file_path)
-
     def _process_file_via_api(self, file_path: Path) -> None:
         """Process file using the Collector Events API with incremental parsing support."""
         import uuid
 
         from catsyphon.collector_client import compute_ingestion_fingerprint
-        from catsyphon.utils.hashing import calculate_file_hash, calculate_partial_hash
 
         # Check for existing raw_log to enable incremental parsing
         # Store state as plain values to avoid detached session issues
@@ -624,8 +541,10 @@ class FileWatcher(FileSystemEventHandler):
                 if existing_raw_log:
                     # Copy state to plain dict to avoid detached session issues
                     existing_raw_log_state = {
-                        "last_processed_offset": existing_raw_log.last_processed_offset or 0,
-                        "last_processed_line": existing_raw_log.last_processed_line or 0,
+                        "last_processed_offset": existing_raw_log.last_processed_offset
+                        or 0,
+                        "last_processed_line": existing_raw_log.last_processed_line
+                        or 0,
                         "file_size_bytes": existing_raw_log.file_size_bytes or 0,
                         "partial_hash": existing_raw_log.partial_hash,
                     }
@@ -645,7 +564,9 @@ class FileWatcher(FileSystemEventHandler):
                             self.stats.last_activity = datetime.now()
                         return
 
-                    logger.debug(f"File {file_path.name} change type: {change_type.value}")
+                    logger.debug(
+                        f"File {file_path.name} change type: {change_type.value}"
+                    )
         except Exception as e:
             logger.debug(f"Could not check incremental state for {file_path.name}: {e}")
             # Continue with full parse
@@ -654,7 +575,9 @@ class FileWatcher(FileSystemEventHandler):
         incremental_result = None
         if existing_raw_log_state and change_type == ChangeType.APPEND:
             try:
-                incremental_parser = self.parser_registry.find_incremental_parser(file_path)
+                incremental_parser = self.parser_registry.find_incremental_parser(
+                    file_path
+                )
                 if incremental_parser:
                     incremental_result = incremental_parser.parse_incremental(
                         file_path,
@@ -667,7 +590,9 @@ class FileWatcher(FileSystemEventHandler):
                             f"in {file_path.name}"
                         )
             except Exception as e:
-                logger.warning(f"Incremental parse failed for {file_path.name}: {e}, falling back to full parse")
+                logger.warning(
+                    f"Incremental parse failed for {file_path.name}: {e}, falling back to full parse"
+                )
                 incremental_result = None
 
         # Full parse if no incremental result
@@ -678,7 +603,7 @@ class FileWatcher(FileSystemEventHandler):
         # Use parsed session_id if available (from log file), otherwise generate from path
         # Using the real session_id is critical for parent-child linking to work
         if parsed:
-            session_id = getattr(parsed, 'session_id', None)
+            session_id = getattr(parsed, "session_id", None)
         else:
             # For incremental, we need the session_id from the existing raw_log's conversation
             session_id = file_path.stem  # UUID is typically the filename stem
@@ -699,11 +624,11 @@ class FileWatcher(FileSystemEventHandler):
             messages_for_fingerprint = incremental_result.new_messages
         else:
             # Full parse: send entire conversation
-            agent_type = getattr(parsed, 'agent_type', 'claude-code')
-            agent_version = getattr(parsed, 'agent_version', 'unknown')
-            working_directory = getattr(parsed, 'working_directory', None)
-            git_branch = getattr(parsed, 'git_branch', None)
-            parent_session_id = getattr(parsed, 'parent_session_id', None)
+            agent_type = getattr(parsed, "agent_type", "claude-code")
+            agent_version = getattr(parsed, "agent_version", "unknown")
+            working_directory = getattr(parsed, "working_directory", None)
+            git_branch = getattr(parsed, "git_branch", None)
+            parent_session_id = getattr(parsed, "parent_session_id", None)
 
             result = self._collector_client.ingest_conversation(
                 parsed=parsed,
@@ -739,8 +664,7 @@ class FileWatcher(FileSystemEventHandler):
         mode = "incr" if incremental_result else "full"
         logger.info(
             f"✓ API[{mode}] {file_path.name} → conversation {conversation_id} "
-            f"({accepted} events)"
-            + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
+            f"({accepted} events)" + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
         )
 
         with self._stats_lock:
@@ -899,9 +823,8 @@ class WatcherDaemon:
         self.workspace_id = workspace_id  # For multi-tenancy orphan linking
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
 
-        # Log API mode if enabled
-        if self.api_config.enabled:
-            logger.info(f"✓ API mode enabled (server: {self.api_config.server_url})")
+        # API mode is always used
+        logger.info(f"✓ Using API for ingestion (server: {self.api_config.server_url})")
 
         # Initialize tagging pipeline if enabled
         tagging_pipeline = None
@@ -1261,8 +1184,7 @@ def run_daemon_process(
     debounce_seconds: float,
     enable_tagging: bool,
     stats_queue: Optional["Queue[dict[str, Any]]"] = None,
-    # API mode options (from extra_config)
-    use_api: bool = False,
+    # API configuration (required for ingestion)
     api_url: str = "http://localhost:8000",
     api_key: str = "",
     collector_id: str = "",
@@ -1275,6 +1197,8 @@ def run_daemon_process(
     This function is called by multiprocessing.Process and runs the daemon
     in a completely isolated process with its own Python interpreter.
 
+    All watch daemons use API-based ingestion (collector events API).
+
     Args:
         config_id: Watch configuration UUID
         directory: Directory to watch
@@ -1285,10 +1209,9 @@ def run_daemon_process(
         max_retries: Maximum retry attempts for failed files
         debounce_seconds: Debounce time for file events
         enable_tagging: Whether to enable AI tagging
-        use_api: Whether to use Collector Events API for ingestion
-        api_url: CatSyphon server URL for API mode
-        api_key: Collector API key for authentication
-        collector_id: Registered collector ID
+        api_url: CatSyphon server URL for API ingestion
+        api_key: Collector API key for authentication (required)
+        collector_id: Registered collector ID (required)
         api_batch_size: Number of events per batch
         workspace_id: Workspace ID for orphan linking (required for multi-tenancy)
     """
@@ -1299,9 +1222,8 @@ def run_daemon_process(
         f"Watch daemon process starting (PID: {os.getpid()}, config: {config_id})"
     )
 
-    # Build API config if enabled
+    # Build API config (required for ingestion)
     api_config = ApiIngestionConfig(
-        enabled=use_api,
         server_url=api_url,
         api_key=api_key,
         collector_id=collector_id,

@@ -61,9 +61,7 @@ class WeeklyDigestGenerator:
 
         highlights = []
         if top_projects:
-            highlights.append(
-                "Top projects: " + ", ".join(top_projects)
-            )
+            highlights.append("Top projects: " + ", ".join(top_projects))
         if total_sessions:
             highlights.append(f"Total sessions: {total_sessions}")
 

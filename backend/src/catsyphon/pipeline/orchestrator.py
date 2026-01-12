@@ -56,9 +56,20 @@ def ingest_log_file(
     """
     Ingest a single log file with dedup + change detection + parser selection.
 
+    .. deprecated::
+        Use :class:`catsyphon.services.IngestionService.ingest_from_file` instead.
+        This function will be removed in a future version.
+
     Returns:
         IngestOutcome containing conversation and job metadata
     """
+    import warnings
+
+    warnings.warn(
+        "ingest_log_file is deprecated. Use IngestionService.ingest_from_file instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     metrics_metadata: dict[str, str] = {}
     metrics = StageMetrics()
     tracker = IngestionJobTracker(

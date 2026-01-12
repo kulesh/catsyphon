@@ -224,7 +224,7 @@ Comprehensive test coverage in `backend/tests/test_pipeline_metrics.py`:
 Use the development script for easy management:
 
 ```bash
-# Start everything (Colima, PostgreSQL, API server)
+# Start full stack (Colima, PostgreSQL, API server, Frontend)
 ./scripts/dev.sh start
 
 # Stop everything
@@ -233,19 +233,38 @@ Use the development script for easy management:
 # Restart everything
 ./scripts/dev.sh restart
 
+# Start backend only (Colima, PostgreSQL, API)
+./scripts/dev.sh backend
+
+# Start frontend only (assumes backend is running)
+./scripts/dev.sh frontend
+
 # Reset database (WARNING: deletes all data)
 ./scripts/dev.sh reset
 
-# Check status
+# Check status of all services
 ./scripts/dev.sh status
+
+# Stream logs
+./scripts/dev.sh logs          # All logs
+./scripts/dev.sh logs error    # Error logs only
+./scripts/dev.sh logs app      # Application logs only
+./scripts/dev.sh logs watch    # Watch daemon logs
 ```
 
 The script handles:
-- Colima/Docker startup
-- PostgreSQL port forwarding (required for Colima with vz driver)
+- Colima/Docker startup and health verification
+- PostgreSQL container and port forwarding (required for Colima with vz driver)
 - Database migrations
 - File descriptor limits (increases from macOS default of 256 to 4096)
-- API server with optimal worker count
+- API server with optimal worker count and health check
+- Frontend dev server (Vite with HMR)
+
+Environment variables:
+- `API_PORT` - API server port (default: 8000)
+- `API_WORKERS` - Number of uvicorn workers (default: 4)
+- `POSTGRES_PORT` - PostgreSQL port (default: 5432)
+- `FRONTEND_PORT` - Frontend dev server port (default: 5173)
 
 ### Manual Environment Setup
 
@@ -273,6 +292,15 @@ pnpm install                      # Install dependencies
 ```
 
 ### Known Issues
+
+**Colima Resource Requirements**: Colima requires adequate CPU and memory to run stably. The dev script automatically checks and upgrades resources if needed. Minimum recommended: **4 CPUs, 4GB RAM**.
+
+If Colima becomes unresponsive (common after macOS sleep/wake), the dev script will detect and auto-recover. To manually adjust resources:
+```bash
+colima stop --force
+colima delete --force
+colima start --cpu 4 --memory 4
+```
 
 **Colima Port Forwarding**: Colima with `vz` (macOS Virtualization Framework) doesn't automatically forward Docker container ports to the host. The dev script handles this automatically, or manually run:
 ```bash

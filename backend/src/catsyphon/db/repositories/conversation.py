@@ -670,7 +670,9 @@ class ConversationRepository(BaseRepository[Conversation]):
         # Build final result: parent followed by its children
         # Tuple: (conv, msg_count, epoch_count, files_count, children_count,
         #         last_activity, depth_level)
-        result: List[Tuple[Conversation, int, int, int, int, Optional[datetime], int]] = []
+        result: List[
+            Tuple[Conversation, int, int, int, int, Optional[datetime], int]
+        ] = []
         for parent_tuple in parents:
             parent_conv = parent_tuple[0]
             # parent_tuple is (conv, msg, epoch, files, children_count, last_activity)

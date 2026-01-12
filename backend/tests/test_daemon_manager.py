@@ -161,8 +161,10 @@ class TestDaemonManager:
         manager._stats_sync_thread.join(timeout=2)
         manager._health_check_thread.join(timeout=2)
 
-    def test_start_daemon(self, watch_config):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_start_daemon(self, mock_fetch_creds, watch_config):
         """Test starting a daemon."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         manager = DaemonManager()
 
         # Start daemon
@@ -180,8 +182,10 @@ class TestDaemonManager:
         # Cleanup
         manager.stop_daemon(watch_config.id, save_stats=False)
 
-    def test_start_daemon_already_running(self, watch_config):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_start_daemon_already_running(self, mock_fetch_creds, watch_config):
         """Test starting daemon that's already running raises error."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         manager = DaemonManager()
         manager.start_daemon(watch_config)
 
@@ -209,10 +213,12 @@ class TestDaemonManager:
         with pytest.raises(ValueError, match="does not exist"):
             manager.start_daemon(config)
 
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
     def test_start_daemon_with_extra_config(
-        self, db_session, sample_workspace, temp_watch_dir
+        self, mock_fetch_creds, db_session, sample_workspace, temp_watch_dir
     ):
         """Test starting daemon with custom config options."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         config = WatchConfiguration(
             workspace_id=sample_workspace.id,
             directory=str(temp_watch_dir),
@@ -242,8 +248,10 @@ class TestDaemonManager:
         # Cleanup
         manager.stop_daemon(config.id, save_stats=False)
 
-    def test_stop_daemon(self, watch_config):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_stop_daemon(self, mock_fetch_creds, watch_config):
         """Test stopping a daemon."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         manager = DaemonManager()
         manager.start_daemon(watch_config)
 
@@ -264,8 +272,12 @@ class TestDaemonManager:
         with pytest.raises(ValueError, match="No daemon running"):
             manager.stop_daemon(fake_id, save_stats=False)
 
-    def test_stop_all_daemons(self, db_session, sample_workspace, temp_watch_dir):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_stop_all_daemons(
+        self, mock_fetch_creds, db_session, sample_workspace, temp_watch_dir
+    ):
         """Test stopping all daemons."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         # Create multiple configs
         configs = []
         for i in range(3):
@@ -298,8 +310,10 @@ class TestDaemonManager:
 
         assert len(manager._daemons) == 0
 
-    def test_get_daemon_status(self, watch_config):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_get_daemon_status(self, mock_fetch_creds, watch_config):
         """Test getting daemon status."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         manager = DaemonManager()
         manager.start_daemon(watch_config)
 
@@ -328,8 +342,12 @@ class TestDaemonManager:
         status = manager.get_daemon_status(fake_id)
         assert status is None
 
-    def test_get_all_status(self, db_session, sample_workspace, temp_watch_dir):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_get_all_status(
+        self, mock_fetch_creds, db_session, sample_workspace, temp_watch_dir
+    ):
         """Test getting status for all daemons."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         # Create multiple configs
         configs = []
         for i in range(2):
@@ -367,8 +385,10 @@ class TestDaemonManager:
         # Cleanup
         manager.stop_all(timeout=5)
 
-    def test_shutdown(self, watch_config):
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
+    def test_shutdown(self, mock_fetch_creds, watch_config):
         """Test full daemon manager shutdown."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         manager = DaemonManager()
         manager.start()
         manager.start_daemon(watch_config)
@@ -384,7 +404,9 @@ class TestDaemonManager:
         assert manager._shutdown_event.is_set()
 
     @patch("catsyphon.daemon_manager.db_session")
-    def test_load_active_configs(self, mock_db_session, watch_config, sample_workspace):
+    def test_load_active_configs(
+        self, mock_db_session, watch_config, sample_workspace
+    ):
         """Test loading active configs on startup."""
         # Mark config as active
         watch_config.is_active = True
@@ -473,9 +495,13 @@ class TestDaemonManager:
             # Verify it tried to deactivate the failed config
             mock_watch_repo.deactivate.assert_called_once_with(bad_config.id)
 
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
     @patch("catsyphon.daemon_manager.db_session")
-    def test_stats_sync_loop(self, mock_db_session, watch_config):
+    def test_stats_sync_loop(
+        self, mock_db_session, mock_fetch_creds, watch_config
+    ):
         """Test stats sync background thread with Queue-based IPC."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
 
         # Mock database
         mock_session = Mock()
@@ -610,10 +636,12 @@ class TestDaemonManager:
 class TestDaemonManagerIntegration:
     """Integration tests for DaemonManager with real WatcherDaemon."""
 
+    @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
     def test_end_to_end_daemon_lifecycle(
-        self, db_session, sample_workspace, temp_watch_dir
+        self, mock_fetch_creds, db_session, sample_workspace, temp_watch_dir
     ):
         """Test complete daemon lifecycle: start, monitor, stop."""
+        mock_fetch_creds.return_value = ("test-collector-id", "test-api-key")
         # Create configuration
         config = WatchConfiguration(
             workspace_id=sample_workspace.id,

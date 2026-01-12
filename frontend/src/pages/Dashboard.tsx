@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles, Loader2 } from 'lucide-react';
 import { ApiError, generateWeeklyDigest, getBenchmarkAvailability, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest, hasBenchmarkToken } from '@/lib/api';
+import { Sparkline } from '@/components/Sparkline';
 import { useMemo, useState } from 'react';
 
 export default function Dashboard() {
@@ -265,6 +266,22 @@ export default function Dashboard() {
               {' '}per session
             </p>
           </div>
+          {stats.message_activity_60m?.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border/30">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  LAST 60 MIN
+                </span>
+              </div>
+              <Sparkline
+                data={stats.message_activity_60m.map(d => d.count)}
+                width={280}
+                height={24}
+                color="#34d399"
+                fillOpacity={0.15}
+              />
+            </div>
+          )}
         </div>
 
         {/* Projects Metric */}

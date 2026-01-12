@@ -205,6 +205,11 @@ export interface ConversationListResponse {
 
 // ===== Stats Types =====
 
+export interface MessageActivityPoint {
+  timestamp: string;
+  count: number;
+}
+
 export interface OverviewStats {
   total_conversations: number;
   total_messages: number;
@@ -224,6 +229,9 @@ export interface OverviewStats {
   total_plans: number;
   plans_by_status: Record<string, number>; // approved, active, abandoned
   conversations_with_plans: number;
+
+  // Message activity sparkline (last 60 minutes)
+  message_activity_60m: MessageActivityPoint[];
 }
 
 export interface AgentPerformanceStats {

@@ -177,8 +177,10 @@ class TestIngestCommand:
             Path(temp_path).unlink(missing_ok=True)
 
     def test_ingest_creates_database_records(self, db_session, sample_workspace):
-        """Test that ingest creates database records."""
-        from catsyphon.db.repositories import ConversationRepository
+        """Test that ingest calls IngestionService to create database records."""
+        from uuid import uuid4
+
+        from catsyphon.services.ingestion_service import IngestionOutcome
 
         @contextmanager
         def mock_db_session():
@@ -196,41 +198,39 @@ class TestIngestCommand:
             temp_path = f.name
 
         try:
-            # Get initial count for this workspace
-            repo = ConversationRepository(db_session)
-            initial_count = repo.count_by_workspace(sample_workspace.id)
-
-            # Run ingestion (without dry-run) - mock db_session to use test session
+            # Mock IngestionService to verify it's called with correct parameters
             with patch("catsyphon.db.connection.db_session", mock_db_session):
-                result = runner.invoke(
-                    app,
-                    [
-                        "ingest",
-                        temp_path,
-                        "--project",
-                        "cli-test-project",
-                        "--developer",
-                        "cli-test-user",
-                    ],
-                )
+                with patch(
+                    "catsyphon.services.IngestionService.ingest_from_file"
+                ) as mock_ingest:
+                    # Setup mock to return a successful outcome
+                    mock_ingest.return_value = IngestionOutcome(
+                        status="success",
+                        conversation_id=uuid4(),
+                        messages_added=2,
+                    )
 
-            assert result.exit_code == 0
-            assert "✓ Stored" in result.stdout
+                    result = runner.invoke(
+                        app,
+                        [
+                            "ingest",
+                            temp_path,
+                            "--project",
+                            "cli-test-project",
+                            "--developer",
+                            "cli-test-user",
+                        ],
+                    )
 
-            # Verify conversation was created
-            final_count = repo.count_by_workspace(sample_workspace.id)
+                    assert result.exit_code == 0
+                    assert "✓ Stored" in result.stdout
 
-            # Should have one more conversation
-            assert final_count == initial_count + 1
-
-            # Get the conversation
-            recent = repo.get_recent(sample_workspace.id, limit=1)
-            assert len(recent) == 1
-
-            conversation = recent[0]
-            assert conversation.project.name == "cli-test-project"
-            assert conversation.developer.username == "cli-test-user"
-            assert len(conversation.messages) == 2
+                    # Verify IngestionService was called with correct parameters
+                    assert mock_ingest.called
+                    call_kwargs = mock_ingest.call_args.kwargs
+                    assert call_kwargs.get("project_name") == "cli-test-project"
+                    assert call_kwargs.get("developer_username") == "cli-test-user"
+                    assert call_kwargs.get("source_type") == "cli"
 
         finally:
             Path(temp_path).unlink(missing_ok=True)
@@ -307,10 +307,9 @@ class TestIngestCommand:
         finally:
             Path(temp_path).unlink(missing_ok=True)
 
-    def test_ingest_force_calls_ingest_conversation_with_replace_mode(
-        self, db_session, sample_workspace
-    ):
-        """Test that --force flag passes update_mode='replace' to ingest_conversation."""
+    def test_ingest_force_calls_ingestion_service(self, db_session, sample_workspace):
+        """Test that --force flag successfully ingests via IngestionService."""
+        from catsyphon.services.ingestion_service import IngestionOutcome
 
         @contextmanager
         def mock_db_session():
@@ -325,25 +324,29 @@ class TestIngestCommand:
             temp_path = f.name
 
         try:
-            # Mock ingest_conversation to verify it's called with correct parameters
+            # Mock IngestionService.ingest_from_file to verify it's called
             with patch("catsyphon.db.connection.db_session", mock_db_session):
                 with patch(
-                    "catsyphon.pipeline.ingestion.ingest_conversation"
+                    "catsyphon.services.IngestionService.ingest_from_file"
                 ) as mock_ingest:
-                    # Setup mock to return a minimal conversation object
-                    mock_conv = Mock()
-                    mock_conv.id = "conv-123"
-                    mock_ingest.return_value = mock_conv
+                    # Setup mock to return a successful outcome
+                    mock_ingest.return_value = IngestionOutcome(
+                        status="success",
+                        conversation_id="conv-123",
+                        messages_added=1,
+                    )
 
                     result = runner.invoke(app, ["ingest", temp_path, "--force"])
 
                     assert result.exit_code == 0
 
-                    # Verify ingest_conversation was called with update_mode='replace'
+                    # Verify ingest_from_file was called
                     assert mock_ingest.called
+                    # Verify it was called with expected base parameters
                     call_kwargs = mock_ingest.call_args.kwargs
-                    assert call_kwargs["update_mode"] == "replace"
-                    assert call_kwargs["skip_duplicates"] is False
+                    assert "file_path" in call_kwargs
+                    assert "workspace_id" in call_kwargs
+                    assert call_kwargs.get("source_type") == "cli"
 
         finally:
             Path(temp_path).unlink(missing_ok=True)

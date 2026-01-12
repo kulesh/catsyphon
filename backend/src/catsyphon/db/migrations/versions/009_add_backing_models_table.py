@@ -48,7 +48,9 @@ def upgrade() -> None:
             server_default="{}",
         ),
         # Unique constraint on provider + model_id
-        sa.UniqueConstraint("provider", "model_id", name="uq_backing_model_provider_model"),
+        sa.UniqueConstraint(
+            "provider", "model_id", name="uq_backing_model_provider_model"
+        ),
     )
 
     # Add backing_model_id FK to conversations table

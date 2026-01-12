@@ -12,10 +12,9 @@ from sqlalchemy.orm import Session
 
 from catsyphon.api.auth import AuthContext, get_auth_context
 from catsyphon.api.schemas import UploadResponse, UploadResult
-from catsyphon.db.connection import db_session, get_db
-from catsyphon.exceptions import DuplicateFileError
-from catsyphon.parsers import get_default_registry
-from catsyphon.pipeline.ingestion import link_orphaned_agents
+from catsyphon.db.connection import get_db
+from catsyphon.db.repositories import ConversationRepository
+from catsyphon.services import IngestionService
 
 router = APIRouter()
 
@@ -49,11 +48,14 @@ async def upload_conversation_logs(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
-    registry = get_default_registry()
     results: list[UploadResult] = []
     success_count = 0
     failed_count = 0
     skipped_count = 0
+
+    # Create service and repository
+    service = IngestionService(session)
+    conv_repo = ConversationRepository(session)
 
     for uploaded_file in files:
         # Validate file extension
@@ -80,129 +82,92 @@ async def upload_conversation_logs(
                 temp_path = Path(temp_file.name)
 
             try:
+                # Use unified ingestion service
+                outcome = service.ingest_from_file(
+                    file_path=temp_path,
+                    workspace_id=auth.workspace_id,
+                    source_type="upload",
+                    enable_tagging=True,  # Enable tagging for uploads
+                )
 
-                # Store to database with specified update_mode
-                try:
-                    from catsyphon.pipeline.orchestrator import ingest_log_file
-
-                    outcome = ingest_log_file(
-                        session=session,
-                        file_path=temp_path,
-                        registry=registry,
-                        project_name=None,  # Auto-extract from log
-                        developer_username=None,  # Auto-extract from log
-                        tags=None,
-                        skip_duplicates=True,  # Always skip file hash duplicates in API
-                        update_mode=update_mode,  # Use provided update mode
-                        source_type="upload",
-                        source_config_id=None,
-                        created_by=None,
-                        enable_incremental=True,
-                    )
-                    session.commit()
-
-                    db_conversation = outcome.conversation
-                    status_label = outcome.status or "success"
-
-                    if status_label == "duplicate":
-                        results.append(
-                            UploadResult(
-                                filename=uploaded_file.filename,
-                                status="duplicate",
-                                conversation_id=(
-                                    db_conversation.id if db_conversation else None
-                                ),
-                                message_count=(
-                                    db_conversation.message_count
-                                    if db_conversation
-                                    else None
-                                ),
-                                epoch_count=(
-                                    len(db_conversation.epochs)
-                                    if db_conversation
-                                    else None
-                                ),
-                                files_count=(
-                                    len(db_conversation.files_touched)
-                                    if db_conversation
-                                    else None
-                                ),
-                            )
-                        )
-                        success_count += 1  # Duplicates are not treated as errors
-                        continue
-
-                    if status_label == "skipped":
-                        results.append(
-                            UploadResult(
-                                filename=uploaded_file.filename,
-                                status="skipped",
-                                error="File unchanged or skipped",
-                            )
-                        )
-                        skipped_count += 1
-                        continue
-
-                    if not db_conversation:
-                        raise ValueError("Ingestion returned no conversation")
-
-                    # Refresh to load relationships from database
-                    session.refresh(db_conversation)
-
-                    # Count related records from database object
-                    message_count = db_conversation.message_count
-                    epoch_count = len(db_conversation.epochs)
-                    files_count = len(db_conversation.files_touched)
-
-                    results.append(
-                        UploadResult(
-                            filename=uploaded_file.filename,
-                            status="success",
-                            conversation_id=db_conversation.id,
-                            message_count=message_count,
-                            epoch_count=epoch_count,
-                            files_count=files_count,
-                        )
-                    )
-                    success_count += 1
-
-                except DuplicateFileError:
-                    # File is a duplicate, return status="duplicate"
-                    results.append(
-                        UploadResult(
-                            filename=uploaded_file.filename,
-                            status="duplicate",
-                            error="File has already been processed",
-                        )
-                    )
-                    success_count += 1  # Count duplicates as successful (not an error)
-                except Exception as parse_or_ingest_error:
-                    # Treat parse errors as skipped to align with API contract
+                if outcome.status == "error":
                     results.append(
                         UploadResult(
                             filename=uploaded_file.filename,
                             status="skipped",
-                            error=str(parse_or_ingest_error),
+                            error=outcome.error_message or "Ingestion failed",
                         )
                     )
                     skipped_count += 1
-                    # Rollback any partial transaction
                     session.rollback()
+                    continue
+
+                if outcome.status == "duplicate":
+                    # Get conversation details if we have an ID
+                    if outcome.conversation_id:
+                        conv = conv_repo.get(outcome.conversation_id)
+                        results.append(
+                            UploadResult(
+                                filename=uploaded_file.filename,
+                                status="duplicate",
+                                conversation_id=outcome.conversation_id,
+                                message_count=conv.message_count if conv else 0,
+                                epoch_count=len(conv.epochs) if conv else 0,
+                                files_count=len(conv.files_touched) if conv else 0,
+                            )
+                        )
+                    else:
+                        results.append(
+                            UploadResult(
+                                filename=uploaded_file.filename,
+                                status="duplicate",
+                                error="File has already been processed",
+                            )
+                        )
+                    success_count += 1  # Duplicates are not treated as errors
+                    continue
+
+                if outcome.status == "skipped":
+                    results.append(
+                        UploadResult(
+                            filename=uploaded_file.filename,
+                            status="skipped",
+                            error="File unchanged or skipped",
+                        )
+                    )
+                    skipped_count += 1
+                    continue
+
+                # Success case
+                session.commit()
+
+                # Get conversation details
+                message_count = outcome.messages_added
+                epoch_count = 0
+                files_count = 0
+                if outcome.conversation_id:
+                    conv = conv_repo.get(outcome.conversation_id)
+                    if conv:
+                        epoch_count = len(conv.epochs)
+                        files_count = len(conv.files_touched)
+
+                results.append(
+                    UploadResult(
+                        filename=uploaded_file.filename,
+                        status="success",
+                        conversation_id=outcome.conversation_id,
+                        message_count=message_count,
+                        epoch_count=epoch_count,
+                        files_count=files_count,
+                    )
+                )
+                success_count += 1
 
             finally:
                 # Clean up temporary file
                 temp_path.unlink(missing_ok=True)
 
         except Exception as e:
-            # Track parser/upload failures in ingestion_jobs table
-            from catsyphon.pipeline.failure_tracking import track_failure
-
-            track_failure(
-                error=e,
-                file_path=temp_path if "temp_path" in locals() else None,
-                source_type="upload",
-            )
-
             results.append(
                 UploadResult(
                     filename=uploaded_file.filename,
@@ -212,18 +177,7 @@ async def upload_conversation_logs(
             )
             failed_count += 1
 
-    # Post-upload linking: Link orphaned agents to parents after all files processed
-    # This handles cases where agents were uploaded before their parent conversations
-    if success_count > 0:
-        try:
-            with db_session() as link_session:
-                linked_count = link_orphaned_agents(link_session, auth.workspace_id)
-                link_session.commit()
-                # Note: We don't report linking failures to the user since the
-                # conversations were successfully ingested. Linking is a post-processing step.
-        except Exception:
-            # Silently ignore linking errors - don't fail the upload
-            pass
+    # Orphan linking is handled by the service automatically
 
     return UploadResponse(
         success_count=success_count,

@@ -211,7 +211,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         self,
         collector_session_id: str,
         workspace_id: uuid.UUID,
-        collector_id: uuid.UUID,
+        collector_id: Optional[uuid.UUID] = None,
         agent_type: str = "unknown",
         agent_version: Optional[str] = None,
         working_directory: Optional[str] = None,
@@ -234,7 +234,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         Args:
             collector_session_id: Original session_id from collector
             workspace_id: Workspace UUID
-            collector_id: Collector config UUID
+            collector_id: Optional collector config UUID (None for CLI/Upload)
             agent_type: Type of agent (e.g., 'claude-code')
             agent_version: Agent version string
             working_directory: Working directory path
@@ -265,7 +265,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
         # Determine conversation_type based on parent (mirrors ingestion.py logic)
         # If has parent_session_id, this is an agent/sub-agent conversation
-        conversation_type = ConversationType.AGENT if parent_session_id else ConversationType.MAIN
+        conversation_type = (
+            ConversationType.AGENT if parent_session_id else ConversationType.MAIN
+        )
 
         # Get or create project from working directory
         project = self._get_or_create_project(workspace_id, working_directory)
@@ -280,10 +282,14 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         if parent_conversation:
             if project_id is None and parent_conversation.project_id:
                 project_id = parent_conversation.project_id
-                logger.debug(f"Inherited project_id={project_id} from parent conversation")
+                logger.debug(
+                    f"Inherited project_id={project_id} from parent conversation"
+                )
             if developer_id is None and parent_conversation.developer_id:
                 developer_id = parent_conversation.developer_id
-                logger.debug(f"Inherited developer_id={developer_id} from parent conversation")
+                logger.debug(
+                    f"Inherited developer_id={developer_id} from parent conversation"
+                )
 
         # Use first event timestamp for start_time if provided, else now
         now = _utc_now()
@@ -619,7 +625,9 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
         # Map author_role string to enum
         author_role_str = data.get("author_role", "assistant")
-        author_role = AuthorRole(author_role_str) if author_role_str else AuthorRole.ASSISTANT
+        author_role = (
+            AuthorRole(author_role_str) if author_role_str else AuthorRole.ASSISTANT
+        )
 
         # Map message_type string to enum
         message_type_str = data.get("message_type") or event_type
@@ -807,7 +815,11 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             error = data.get("error_message", "")
             if error:
                 return f"[Tool Error] {error}"
-            return f"[Tool Result] {result[:500]}" if len(result) > 500 else f"[Tool Result] {result}"
+            return (
+                f"[Tool Result] {result[:500]}"
+                if len(result) > 500
+                else f"[Tool Result] {result}"
+            )
         elif event_type == "thinking":
             return data.get("content", "")
         elif event_type == "error":

@@ -357,15 +357,21 @@ class TestHierarchicalConversationRepository:
 
         # Create organization first (use unique name to avoid conflicts with autouse fixture)
         unique_id = uuid_mod.uuid4().hex[:8]
-        org = org_repo.create(name=f"isolation-org-{unique_id}", slug=f"isolation-org-{unique_id}")
+        org = org_repo.create(
+            name=f"isolation-org-{unique_id}", slug=f"isolation-org-{unique_id}"
+        )
         db_session.flush()
 
         # Create two workspaces
         workspace1 = workspace_repo.create(
-            name=f"isolation-ws-1-{unique_id}", slug=f"isolation-ws-1-{unique_id}", organization_id=org.id
+            name=f"isolation-ws-1-{unique_id}",
+            slug=f"isolation-ws-1-{unique_id}",
+            organization_id=org.id,
         )
         workspace2 = workspace_repo.create(
-            name=f"isolation-ws-2-{unique_id}", slug=f"isolation-ws-2-{unique_id}", organization_id=org.id
+            name=f"isolation-ws-2-{unique_id}",
+            slug=f"isolation-ws-2-{unique_id}",
+            organization_id=org.id,
         )
         db_session.flush()
 

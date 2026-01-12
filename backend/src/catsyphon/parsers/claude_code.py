@@ -476,9 +476,7 @@ class ClaudeCodeParser:
         ]
 
         non_conversational_messages = [
-            msg
-            for msg in raw_messages
-            if msg.get("type") not in conversational_types
+            msg for msg in raw_messages if msg.get("type") not in conversational_types
         ]
 
         # Match tool calls with results (only for conversational messages)
@@ -501,7 +499,9 @@ class ClaudeCodeParser:
         # Convert non-conversational messages
         for msg_data in non_conversational_messages:
             try:
-                parsed_msg = self._convert_non_conversational_to_parsed_message(msg_data)
+                parsed_msg = self._convert_non_conversational_to_parsed_message(
+                    msg_data
+                )
                 if parsed_msg:
                     parsed_messages.append(parsed_msg)
             except Exception as e:
@@ -657,9 +657,7 @@ class ClaudeCodeParser:
         ]
 
         non_conversational_messages = [
-            msg
-            for msg in raw_messages
-            if msg.get("type") not in conversational_types
+            msg for msg in raw_messages if msg.get("type") not in conversational_types
         ]
 
         # Match tool calls with results (only for conversational messages)
@@ -683,7 +681,9 @@ class ClaudeCodeParser:
         # Convert non-conversational messages
         for msg_data in non_conversational_messages:
             try:
-                parsed_msg = self._convert_non_conversational_to_parsed_message(msg_data)
+                parsed_msg = self._convert_non_conversational_to_parsed_message(
+                    msg_data
+                )
                 if parsed_msg:
                     parsed_messages.append(parsed_msg)
             except Exception as e:

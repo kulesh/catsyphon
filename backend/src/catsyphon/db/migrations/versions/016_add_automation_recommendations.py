@@ -41,9 +41,7 @@ def upgrade() -> None:
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=True,
         ),
-        sa.Column(
-            "status", sa.String(50), server_default="pending", nullable=False
-        ),
+        sa.Column("status", sa.String(50), server_default="pending", nullable=False),
         sa.Column("user_feedback", sa.Text(), nullable=True),
         sa.Column(
             "created_at",

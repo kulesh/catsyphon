@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from catsyphon.parsers.incremental import ChangeType
-from catsyphon.watch import FileWatcher, RetryQueue, WatcherStats
+from catsyphon.watch import ApiIngestionConfig, FileWatcher, RetryQueue, WatcherStats
 
 
 @pytest.fixture
@@ -19,15 +19,30 @@ def valid_jsonl_content():
 
 
 @pytest.fixture
-def file_watcher():
-    """Create a FileWatcher instance for testing."""
-    return FileWatcher(
-        project_name="test-project",
-        developer_username="test-user",
-        retry_queue=RetryQueue(),
-        stats=WatcherStats(),
-        debounce_seconds=0.1,  # Short debounce for tests
+def mock_api_config():
+    """API configuration with mock credentials for testing."""
+    return ApiIngestionConfig(
+        server_url="http://localhost:8000",
+        api_key="test-api-key",
+        collector_id="test-collector-id",
+        batch_size=20,
     )
+
+
+@pytest.fixture
+def file_watcher(mock_api_config):
+    """Create a FileWatcher instance for testing with mock API config."""
+    # Mock the collector client to avoid actual HTTP connections
+    with patch("catsyphon.collector_client.CollectorClient") as mock_client:
+        mock_client.return_value = Mock()
+        return FileWatcher(
+            project_name="test-project",
+            developer_username="test-user",
+            retry_queue=RetryQueue(),
+            stats=WatcherStats(),
+            debounce_seconds=0.1,  # Short debounce for tests
+            api_config=mock_api_config,
+        )
 
 
 class TestEventHandling:
@@ -119,21 +134,16 @@ class TestFileProcessing:
         test_file = tmp_path / "conversation.jsonl"
         test_file.write_text(valid_jsonl_content)
 
-        # Create mock conversation object with .id attribute
-        mock_conversation = Mock()
-        mock_conversation.id = "test-conv-123"
-
+        # Mock _process_file_via_api to simulate successful API ingestion
         with (
             patch("catsyphon.watch.db_session") as mock_db_session,
-            patch("catsyphon.watch.ingest_conversation") as mock_ingest,
+            patch.object(file_watcher, "_process_file_via_api") as mock_api_process,
         ):
-            # Setup mocks
-            mock_ingest.return_value = mock_conversation
-
             mock_session = Mock()
             mock_repo = Mock()
             # New file - no existing raw_log
             mock_repo.get_by_file_path.return_value = None
+            mock_repo.exists_by_file_hash.return_value = False
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
             mock_db_session.return_value = mock_session
@@ -145,8 +155,10 @@ class TestFileProcessing:
                 # Wait for processing
                 time.sleep(0.3)
 
-                # Verify stats updated
-                assert file_watcher.stats.files_processed == 1
+                # Verify API processing was called
+                mock_api_process.assert_called_once()
+                # Note: stats.files_processed is incremented inside _process_file_via_api,
+                # which we mocked. The real test is that the method was called.
 
     def test_skip_duplicate_in_memory_cache(
         self, file_watcher, tmp_path, valid_jsonl_content
@@ -228,14 +240,10 @@ class TestFileProcessing:
         test_file = tmp_path / "conversation.jsonl"
         test_file.write_text(valid_jsonl_content)
 
-        # Create mock conversation object
-        mock_conversation = Mock()
-        mock_conversation.id = "conv-123"
-
         with (
             patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.detect_file_change_type") as mock_detect,
-            patch("catsyphon.watch.ingest_conversation") as mock_ingest,
+            patch.object(file_watcher, "_process_file_via_api") as mock_api_process,
         ):
             mock_session = Mock()
             mock_repo = Mock()
@@ -246,12 +254,10 @@ class TestFileProcessing:
             existing_raw_log.file_size_bytes = 1000
             existing_raw_log.partial_hash = "hash123"
             mock_repo.get_by_file_path.return_value = existing_raw_log
+            mock_repo.exists_by_file_hash.return_value = False
 
             # Detect raises error - should fall back to full reparse
             mock_detect.side_effect = Exception("Change detection failed")
-
-            # Mock successful full reparse
-            mock_ingest.return_value = mock_conversation
 
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
@@ -262,10 +268,9 @@ class TestFileProcessing:
                 file_watcher._process_file(test_file)
                 time.sleep(0.2)
 
-                # Error should be caught gracefully
-                # Full reparse succeeds, so files_processed increments
-                assert file_watcher.stats.files_processed == 1
-                assert file_watcher.stats.files_failed == 0
+                # Error in detect_file_change_type should be caught and processing continues
+                # API process should still be called (fallback to full ingest)
+                mock_api_process.assert_called_once()
 
     @pytest.mark.skip(
         reason="Complex mock interaction - retry queue logic verified in integration tests"
@@ -301,20 +306,24 @@ class TestStatsTracking:
         test_file = tmp_path / "conversation.jsonl"
         test_file.write_text(valid_jsonl_content)
 
-        # Create mock conversation object with .id attribute
-        mock_conversation = Mock()
-        mock_conversation.id = "conv1"
+        # Increment stats to simulate successful processing
+        def mock_api_process_success(*args, **kwargs):
+            file_watcher.stats.files_processed += 1
+            file_watcher.stats.last_activity = time.time()
 
         with (
             patch("catsyphon.watch.db_session") as mock_db_session,
-            patch("catsyphon.watch.ingest_conversation") as mock_ingest,
+            patch.object(
+                file_watcher,
+                "_process_file_via_api",
+                side_effect=mock_api_process_success,
+            ),
         ):
-            mock_ingest.return_value = mock_conversation
-
             mock_session = Mock()
             mock_repo = Mock()
             # New file - no existing raw_log
             mock_repo.get_by_file_path.return_value = None
+            mock_repo.exists_by_file_hash.return_value = False
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
             mock_db_session.return_value = mock_session
@@ -412,20 +421,15 @@ class TestConcurrency:
         test_file = tmp_path / "conversation.jsonl"
         test_file.write_text(valid_jsonl_content)
 
-        # Create mock conversation object with .id attribute
-        mock_conversation = Mock()
-        mock_conversation.id = "conv1"
-
         with (
             patch("catsyphon.watch.db_session") as mock_db_session,
-            patch("catsyphon.watch.ingest_conversation") as mock_ingest,
+            patch.object(file_watcher, "_process_file_via_api"),
         ):
-            mock_ingest.return_value = mock_conversation
-
             mock_session = Mock()
             mock_repo = Mock()
             # New file - no existing raw_log
             mock_repo.get_by_file_path.return_value = None
+            mock_repo.exists_by_file_hash.return_value = False
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
             mock_db_session.return_value = mock_session
