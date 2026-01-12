@@ -309,11 +309,6 @@ colima delete --force
 colima start --cpu 4 --memory 4
 ```
 
-If instability persists, try the QEMU backend (slower but more stable):
-```bash
-colima start --cpu 4 --memory 4 --vm-type=qemu
-```
-
 **Colima Port Forwarding**: Colima with `vz` (macOS Virtualization Framework) doesn't automatically forward Docker container ports to the host. The dev script handles this automatically, or manually run:
 ```bash
 ssh -F ~/.config/colima/_lima/colima/ssh.config -L 5432:localhost:5432 -N -f lima-colima

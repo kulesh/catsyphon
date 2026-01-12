@@ -117,7 +117,7 @@ start_colima() {
         log_info "Checking Docker daemon health..."
         if docker_is_responsive; then
             log_success "Colima is already running and healthy"
-            # Check if resources are sufficient
+            # Check if resources are sufficient (will recreate if not)
             check_colima_resources
             return $?
         else
@@ -129,31 +129,20 @@ start_colima() {
         fi
     fi
 
-    # Check if Colima exists but is stopped - verify resources before starting
+    # At this point Colima is either stopped or doesn't exist
+    # Check if instance exists and has sufficient resources
     if colima list -j 2>/dev/null | jq -e '.[0]' &>/dev/null; then
-        check_colima_resources || true
-    else
-        # First time setup - create with recommended resources
-        log_info "Creating Colima with ${MIN_COLIMA_CPUS} CPUs and ${MIN_COLIMA_MEMORY_GB}GB RAM..."
-        colima start --cpu ${MIN_COLIMA_CPUS} --memory ${MIN_COLIMA_MEMORY_GB}
-
-        # Wait for Docker to be ready
-        local retries=15
-        while [[ $retries -gt 0 ]]; do
-            if docker_is_responsive; then
-                log_success "Colima started and Docker is responsive"
-                return 0
-            fi
-            sleep 1
-            ((retries--))
-        done
-
-        log_error "Colima started but Docker is not responding"
-        return 1
+        # Instance exists - check resources (will delete and recreate if insufficient)
+        check_colima_resources
+        # If check_colima_resources recreated, it already started - check if running
+        if docker_is_responsive; then
+            return 0
+        fi
     fi
 
-    log_info "Starting Colima..."
-    colima start
+    # Start Colima with recommended resources (handles both new and existing instances)
+    log_info "Starting Colima with ${MIN_COLIMA_CPUS} CPUs and ${MIN_COLIMA_MEMORY_GB}GB RAM..."
+    colima start --cpu ${MIN_COLIMA_CPUS} --memory ${MIN_COLIMA_MEMORY_GB}
 
     # Wait for Docker to be ready
     local retries=15
@@ -601,7 +590,6 @@ cmd_help() {
     echo "Notes:"
     echo "  - Colima minimum resources: 4 CPUs, 4GB RAM (auto-configured)"
     echo "  - Script auto-recovers from Colima crashes (common after sleep/wake)"
-    echo "  - If issues persist, try: colima start --vm-type=qemu"
     echo ""
 }
 
