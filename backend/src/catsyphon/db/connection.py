@@ -9,7 +9,6 @@ from typing import Generator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import NullPool
 
 from catsyphon.config import settings
 
@@ -52,34 +51,11 @@ else:
         pool_recycle=settings.db_pool_recycle,  # Recycle connections to prevent stale
     )
 
-# Background worker engine with NullPool
-# Uses no connection pooling - creates fresh connection each time.
-# This prevents background workers (daemon manager, tagging worker)
-# from competing with API requests for pooled connections.
-# Background workers are infrequent and latency-tolerant, so the
-# overhead of creating new connections is acceptable.
-if settings.database_url.startswith("sqlite"):
-    # SQLite doesn't need separate engine - use same one
-    background_engine = engine
-else:
-    background_engine = create_engine(
-        settings.database_url,
-        echo=False,
-        poolclass=NullPool,  # No pooling - new connection each time
-    )
-
-# Create session factory for API requests (uses pooled connections)
+# Create session factory
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine,
-)
-
-# Create session factory for background workers (uses NullPool)
-BackgroundSessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=background_engine,
 )
 
 # Ensure tables exist for SQLite test runs (in-memory databases don't persist schema)
@@ -135,8 +111,6 @@ def db_session() -> Generator[Session, None, None]:
     """
     Context manager for database sessions with automatic cleanup.
 
-    Uses the pooled connection engine - suitable for API requests.
-
     Yields:
         Session: A SQLAlchemy session
 
@@ -146,39 +120,6 @@ def db_session() -> Generator[Session, None, None]:
         >>>     print(user.username)
     """
     session = SessionLocal()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-@contextmanager
-def background_session() -> Generator[Session, None, None]:
-    """
-    Context manager for background worker database sessions.
-
-    Uses NullPool engine - creates fresh connection each time.
-    This prevents background workers (daemon manager, tagging worker)
-    from competing with API requests for pooled connections.
-
-    Use this for:
-    - Daemon manager stats sync
-    - Tagging worker jobs
-    - Any background/scheduled tasks
-
-    Yields:
-        Session: A SQLAlchemy session
-
-    Example:
-        >>> with background_session() as db:
-        >>>     repo = WatchConfigurationRepository(db)
-        >>>     repo.update_stats(config_id, stats)
-    """
-    session = BackgroundSessionLocal()
     try:
         yield session
         session.commit()

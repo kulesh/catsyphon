@@ -124,7 +124,7 @@ class TestFileProcessing:
         mock_conversation.id = "test-conv-123"
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.ingest_conversation") as mock_ingest,
         ):
             # Setup mocks
@@ -136,7 +136,7 @@ class TestFileProcessing:
             mock_repo.get_by_file_path.return_value = None
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 # Process file
@@ -156,7 +156,7 @@ class TestFileProcessing:
         test_file.write_text(valid_jsonl_content)
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.detect_file_change_type") as mock_detect,
         ):
             mock_session = Mock()
@@ -174,7 +174,7 @@ class TestFileProcessing:
 
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 # Process file
@@ -193,7 +193,7 @@ class TestFileProcessing:
         test_file.write_text(valid_jsonl_content)
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.detect_file_change_type") as mock_detect,
         ):
             mock_session = Mock()
@@ -211,7 +211,7 @@ class TestFileProcessing:
 
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 # Process file
@@ -233,7 +233,7 @@ class TestFileProcessing:
         mock_conversation.id = "conv-123"
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.detect_file_change_type") as mock_detect,
             patch("catsyphon.watch.ingest_conversation") as mock_ingest,
         ):
@@ -255,7 +255,7 @@ class TestFileProcessing:
 
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 # Process file
@@ -306,7 +306,7 @@ class TestStatsTracking:
         mock_conversation.id = "conv1"
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.ingest_conversation") as mock_ingest,
         ):
             mock_ingest.return_value = mock_conversation
@@ -317,7 +317,7 @@ class TestStatsTracking:
             mock_repo.get_by_file_path.return_value = None
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 file_watcher._process_file(test_file)
@@ -334,7 +334,7 @@ class TestStatsTracking:
         test_file.write_text(valid_jsonl_content)
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.detect_file_change_type") as mock_detect,
         ):
             mock_session = Mock()
@@ -352,7 +352,7 @@ class TestStatsTracking:
 
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 file_watcher._process_file(test_file)
@@ -366,14 +366,14 @@ class TestStatsTracking:
         test_file = tmp_path / "bad.jsonl"
         test_file.write_text("malformed content")
 
-        with patch("catsyphon.watch.background_session") as mock_background_session:
+        with patch("catsyphon.watch.db_session") as mock_db_session:
             mock_session = Mock()
             mock_repo = Mock()
             # New file - no existing raw_log
             mock_repo.get_by_file_path.return_value = None
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 # Malformed content will be treated as metadata-only and skipped
@@ -394,7 +394,7 @@ class TestConcurrency:
         test_file = tmp_path / "conversation.jsonl"
         test_file.write_text(valid_jsonl_content)
 
-        with patch("catsyphon.watch.background_session") as mock_background_session:
+        with patch("catsyphon.watch.db_session") as mock_db_session:
             # Add file to processing set
             file_watcher.processing.add(str(test_file))
 
@@ -403,7 +403,7 @@ class TestConcurrency:
             time.sleep(0.1)
 
             # Database session should not have been called
-            mock_background_session.assert_not_called()
+            mock_db_session.assert_not_called()
 
     def test_removes_from_processing_after_completion(
         self, file_watcher, tmp_path, valid_jsonl_content
@@ -417,7 +417,7 @@ class TestConcurrency:
         mock_conversation.id = "conv1"
 
         with (
-            patch("catsyphon.watch.background_session") as mock_background_session,
+            patch("catsyphon.watch.db_session") as mock_db_session,
             patch("catsyphon.watch.ingest_conversation") as mock_ingest,
         ):
             mock_ingest.return_value = mock_conversation
@@ -428,7 +428,7 @@ class TestConcurrency:
             mock_repo.get_by_file_path.return_value = None
             mock_session.__enter__ = Mock(return_value=mock_session)
             mock_session.__exit__ = Mock(return_value=False)
-            mock_background_session.return_value = mock_session
+            mock_db_session.return_value = mock_session
 
             with patch("catsyphon.watch.RawLogRepository", return_value=mock_repo):
                 file_watcher._process_file(test_file)

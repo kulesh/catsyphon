@@ -42,7 +42,7 @@ class TestConcurrentProcessing:
 
         # Mock ingest_conversation to track calls
         with patch("catsyphon.watch.ingest_conversation", side_effect=mock_process):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch(
                         "catsyphon.parsers.utils.is_conversational_log",
@@ -96,7 +96,7 @@ class TestConcurrentProcessing:
                 process_count += 1
 
         with patch("catsyphon.watch.ingest_conversation", side_effect=mock_process):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch(
                         "catsyphon.parsers.utils.is_conversational_log",
@@ -144,7 +144,7 @@ class TestConcurrentProcessing:
                 process_count += 1
 
         with patch("catsyphon.watch.ingest_conversation", side_effect=mock_process):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     with patch(
                         "catsyphon.parsers.utils.is_conversational_log",
@@ -188,7 +188,7 @@ class TestConcurrentProcessing:
         path_str = str(test_file)
 
         with patch("catsyphon.watch.ingest_conversation"):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     mock_parsed = Mock()
                     mock_parsed.session_id = "test-session-123"
@@ -218,7 +218,7 @@ class TestConcurrentProcessing:
         with patch(
             "catsyphon.watch.ingest_conversation", side_effect=Exception("Test error")
         ):
-            with patch("catsyphon.watch.background_session"):
+            with patch("catsyphon.watch.db_session"):
                 with patch.object(Path, "exists", return_value=True):
                     mock_parsed = Mock()
                     mock_parsed.session_id = "test-session-123"
