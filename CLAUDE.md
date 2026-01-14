@@ -23,7 +23,7 @@ catsyphon/
 │   │   ├── pipeline/     # ETL ingestion workflow
 │   │   ├── db/           # SQLAlchemy ORM + repositories
 │   │   ├── models/       # Data models (DB + Pydantic)
-│   │   ├── tagging/      # AI metadata enrichment (OpenAI)
+│   │   ├── tagging/      # AI metadata enrichment (OpenAI/Anthropic)
 │   │   ├── cli.py        # Typer CLI commands
 │   │   └── watch.py      # Live directory monitoring daemon
 │   └── tests/            # Pytest test suite
@@ -43,7 +43,7 @@ catsyphon/
 - Python 3.11+ with FastAPI (async REST API)
 - PostgreSQL 15+ with SQLAlchemy 2.0 ORM
 - Alembic for database migrations
-- OpenAI gpt-4o-mini for AI-powered metadata tagging
+- OpenAI or Anthropic for AI-powered metadata tagging (pluggable provider system)
 - Typer CLI with Rich formatting
 - Watchdog + python-daemon for live file monitoring
 - uv for dependency management
@@ -417,10 +417,15 @@ Environment variables in `.env` (copy from `.env.example`):
 
 ```bash
 # Required
-OPENAI_API_KEY=sk-xxx        # For AI tagging
 POSTGRES_DB=catsyphon
 POSTGRES_USER=catsyphon
 POSTGRES_PASSWORD=catsyphon_dev_password
+
+# LLM Provider Configuration (for AI tagging)
+LLM_PROVIDER=openai                          # "openai" or "anthropic"
+OPENAI_API_KEY=sk-xxx                        # Required if LLM_PROVIDER=openai
+# ANTHROPIC_API_KEY=sk-ant-xxx               # Required if LLM_PROVIDER=anthropic
+# ANTHROPIC_MODEL=claude-sonnet-4-5-20250514 # or claude-3-5-haiku-20241022
 
 # Optional
 ENVIRONMENT=development
@@ -439,7 +444,7 @@ LOG_LEVEL=INFO                              # DEBUG, INFO, WARNING, ERROR, CRITI
 # LOG_TO_STDERR=true                        # Log WARNING/ERROR/CRITICAL to stderr
 
 # LLM Interaction Logging (for debugging and cost tracking)
-# LLM_LOGGING_ENABLED=false                 # Enable detailed OpenAI API logging
+# LLM_LOGGING_ENABLED=false                 # Enable detailed LLM API logging
 # LLM_LOG_REQUESTS=true                     # Log API requests
 # LLM_LOG_RESPONSES=true                    # Log API responses
 # LLM_LOG_TOKENS=true                       # Log token usage
@@ -470,7 +475,7 @@ logs/
 ├── watch-{id}-application.log  # Per-daemon logs
 ├── watch-{id}-error.log
 └── llm/
-    └── requests.log          # OpenAI API interactions (when enabled)
+    └── requests.log          # LLM API interactions (when enabled)
 ```
 
 **Features**:
@@ -481,7 +486,7 @@ logs/
 - XDG Base Directory compliant
 
 **LLM Logging**:
-When `LLM_LOGGING_ENABLED=true`, all OpenAI API interactions are logged to `llm/requests.log` with:
+When `LLM_LOGGING_ENABLED=true`, all LLM API interactions (OpenAI or Anthropic) are logged to `llm/requests.log` with:
 - Request details (model, prompt preview, parameters)
 - Response details (content preview, token usage, timing)
 - Error information for failed requests
@@ -534,13 +539,15 @@ uv run pytest -k "deduplication"            # Tests matching pattern
 
 2. **Real-Time Frontend Polling**: Dashboard and conversation list auto-refresh every 15 seconds with freshness indicators and new item highlighting
 
-3. **AI-Powered Tagging**: OpenAI gpt-4o-mini enriches conversations with metadata (opt-in via `--enable-tagging` flag):
+3. **AI-Powered Tagging**: Pluggable LLM providers (OpenAI or Anthropic) enrich conversations with metadata (opt-in via `--enable-tagging` flag):
+   - **Provider Support**: OpenAI (gpt-4o-mini) or Anthropic (Claude Sonnet 4.5, Claude 3.5 Haiku)
+   - **Structured Outputs**: Both providers support JSON schema-based structured outputs
    - **Sentiment**: positive, neutral, negative, frustrated (with numeric score -1.0 to 1.0)
    - **Intent**: feature_add, bug_fix, refactor, learning, debugging, other
    - **Outcome**: success, partial, failed, abandoned, unknown
    - **Features/Problems**: Lists of capabilities discussed and blockers encountered
    - **Rule-Based Tags**: Automatic extraction of errors, tool usage, and patterns
-   - **File-Based Cache**: 30-day TTL cache reduces costs by 80-90% on re-ingestion (~$10 per 1,000 conversations uncached)
+   - **File-Based Cache**: 30-day TTL cache reduces costs by 80-90% on re-ingestion
 
 4. **Deduplication System**: Hash-based duplicate detection prevents re-processing identical files
 
@@ -612,9 +619,16 @@ uv run ruff check src/ tests/      # Lint
 
 ## Cost Estimates
 
-Using OpenAI gpt-4o-mini for tagging:
-- ~$10 per 1,000 conversations
-- ~$10-15/month for a team of 10 developers
+**LLM Tagging Costs** (per 1,000 conversations, without cache):
+
+| Provider | Model | Est. Cost |
+|----------|-------|-----------|
+| OpenAI | gpt-4o-mini | ~$10 |
+| Anthropic | claude-3-5-haiku | ~$35 |
+| Anthropic | claude-sonnet-4-5 | ~$120 |
+
+- With caching enabled (default), costs reduce by 80-90% on re-ingestion
+- Estimated monthly cost for team of 10 developers: $10-15 (OpenAI) or $35-50 (Anthropic Haiku)
 
 ## Documentation
 

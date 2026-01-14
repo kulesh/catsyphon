@@ -136,15 +136,38 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # OpenAI
+    # LLM Provider Selection
+    llm_provider: str = Field(
+        default="openai", alias="LLM_PROVIDER"
+    )  # Provider: "openai" or "anthropic"
+
+    # OpenAI Configuration
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_max_tokens: int = 2000
+
+    # Anthropic Configuration
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-5-20250514"
 
     # LLM Tagging Parameters
     llm_temperature: float = Field(
         default=0.3, alias="CATSYPHON_LLM_TEMPERATURE"
     )  # Temperature for LLM tagging (0.0 = deterministic, 1.0 = creative)
+
+    @property
+    def active_llm_api_key(self) -> str:
+        """Get the API key for the active LLM provider."""
+        if self.llm_provider == "anthropic":
+            return self.anthropic_api_key
+        return self.openai_api_key
+
+    @property
+    def active_llm_model(self) -> str:
+        """Get the model for the active LLM provider."""
+        if self.llm_provider == "anthropic":
+            return self.anthropic_model
+        return self.openai_model
 
     # Tagging
     tagging_enabled: bool = False  # Enable LLM tagging by default (opt-in via flag)

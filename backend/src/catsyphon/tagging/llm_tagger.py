@@ -1,14 +1,12 @@
-"""LLM-based conversation tagger using OpenAI."""
+"""LLM-based conversation tagger using pluggable providers."""
 
 import json
 import logging
-import time
 from typing import Any, Optional
-
-from openai import OpenAI
 
 from catsyphon.models.parsed import ConversationTags, ParsedConversation
 from catsyphon.tagging.llm_logger import llm_logger
+from catsyphon.tagging.providers import LLMProvider, create_provider
 
 logger = logging.getLogger(__name__)
 
@@ -101,30 +99,97 @@ Return ONLY valid JSON in this exact format:
 }}"""
 
 
+# JSON Schema for structured output (used by providers that support it)
+TAGGING_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intent": {
+            "type": "string",
+            "enum": INTENT_VALUES,
+            "description": "What the user was trying to accomplish",
+        },
+        "outcome": {
+            "type": "string",
+            "enum": OUTCOME_VALUES,
+            "description": "The result of the conversation",
+        },
+        "sentiment": {
+            "type": "string",
+            "enum": SENTIMENT_VALUES,
+            "description": "Overall emotional tone",
+        },
+        "sentiment_score": {
+            "type": "number",
+            "minimum": -1.0,
+            "maximum": 1.0,
+            "description": "Numeric sentiment score",
+        },
+        "features": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 5,
+            "description": "Features or capabilities discussed",
+        },
+        "problems": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 5,
+            "description": "Problems or blockers encountered",
+        },
+        "reasoning": {
+            "type": "string",
+            "description": "Brief explanation of tag assignments",
+        },
+    },
+    "required": ["intent", "outcome", "sentiment", "sentiment_score"],
+    "additionalProperties": False,
+}
+
+
 class LLMTagger:
-    """Tagger that uses OpenAI LLM to extract conversation metadata."""
+    """Tagger that uses LLM providers to extract conversation metadata.
+
+    Supports multiple LLM providers (OpenAI, Anthropic) through the
+    pluggable provider system.
+    """
 
     def __init__(
         self,
-        api_key: str,
+        provider: LLMProvider | None = None,
+        *,
+        # Legacy parameters for backward compatibility
+        api_key: str | None = None,
         model: str = "gpt-4o-mini",
+        provider_type: str = "openai",
         max_tokens: int = 500,
     ):
         """Initialize the LLM tagger.
 
         Args:
-            api_key: OpenAI API key
-            model: OpenAI model to use (default: gpt-4o-mini)
-            max_tokens: Maximum tokens for response (default: 500)
+            provider: Pre-configured LLMProvider instance (preferred)
+            api_key: API key (legacy, creates OpenAI provider if no provider given)
+            model: Model name (legacy, used when creating provider from api_key)
+            provider_type: Provider type (legacy, "openai" or "anthropic")
+            max_tokens: Maximum tokens for response
         """
-        self.client = OpenAI(api_key=api_key)
-        self.model = model
+        if provider is not None:
+            self.provider = provider
+        elif api_key:
+            # Legacy initialization - create provider from api_key
+            self.provider = create_provider(
+                provider_type=provider_type,  # type: ignore
+                api_key=api_key,
+                model=model,
+            )
+        else:
+            raise ValueError("Either provider or api_key must be provided")
+
         self.max_tokens = max_tokens
 
     def tag_conversation(
         self, parsed: ParsedConversation
     ) -> tuple[ConversationTags, dict[str, Any]]:
-        """Tag a conversation using OpenAI LLM.
+        """Tag a conversation using the LLM provider.
 
         Args:
             parsed: The parsed conversation to analyze
@@ -142,64 +207,54 @@ class LLMTagger:
             # Log request (if LLM logging enabled)
             request_id = llm_logger.log_request(
                 conversation=parsed,
-                model=self.model,
+                model=self.provider.model_name,
                 prompt=prompt,
                 max_tokens=self.max_tokens,
                 temperature=0.3,
             )
 
-            # Call OpenAI API with timing
-            start_time = time.time()
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing coding agent conversations. Return only valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+            # Call provider with JSON schema
+            response = self.provider.complete(
+                system_prompt=(
+                    "You are an expert at analyzing coding agent conversations. "
+                    "Return only valid JSON."
+                ),
+                user_prompt=prompt,
                 max_tokens=self.max_tokens,
-                temperature=0.3,  # Lower temperature for more consistent output
-                response_format={"type": "json_object"},
+                temperature=0.3,
+                json_schema=TAGGING_JSON_SCHEMA,
             )
-            duration_ms = (time.time() - start_time) * 1000
 
             # Log response (if LLM logging enabled)
             llm_logger.log_response(
                 request_id=request_id,
-                response=response,
-                duration_ms=duration_ms,
+                response=response.raw_response,
+                duration_ms=response.duration_ms,
             )
 
-            # Extract LLM metrics from response
-            usage = response.usage
-            prompt_tokens = usage.prompt_tokens if usage else 0
-            completion_tokens = usage.completion_tokens if usage else 0
-            total_tokens = usage.total_tokens if usage else 0
-
-            # Calculate cost (gpt-4o-mini pricing as of late 2024)
-            # Input: $0.15 per 1M tokens, Output: $0.60 per 1M tokens
-            cost_usd = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
+            # Calculate cost
+            cost_usd = self.provider.calculate_cost(
+                response.prompt_tokens, response.completion_tokens
+            )
 
             llm_metrics = {
-                "llm_tagging_ms": duration_ms,
-                "llm_prompt_tokens": prompt_tokens,
-                "llm_completion_tokens": completion_tokens,
-                "llm_total_tokens": total_tokens,
+                "llm_tagging_ms": response.duration_ms,
+                "llm_prompt_tokens": response.prompt_tokens,
+                "llm_completion_tokens": response.completion_tokens,
+                "llm_total_tokens": response.total_tokens,
                 "llm_cost_usd": cost_usd,
                 "llm_model": response.model,
-                "llm_finish_reason": response.choices[0].finish_reason,
-                "llm_cache_hit": False,  # Not a cache hit (API call made)
+                "llm_provider": self.provider.provider_name,
+                "llm_finish_reason": response.finish_reason,
+                "llm_cache_hit": False,
             }
 
             # Parse response
-            content = response.choices[0].message.content
-            if not content:
-                logger.warning("Empty response from OpenAI")
+            if not response.content:
+                logger.warning(f"Empty response from {self.provider.provider_name}")
                 return self._fallback_tags(), llm_metrics
 
-            tags_dict = json.loads(content)
+            tags_dict = json.loads(response.content)
             return self._parse_tags(tags_dict), llm_metrics
 
         except Exception as e:
@@ -217,7 +272,8 @@ class LLMTagger:
                 "llm_completion_tokens": 0,
                 "llm_total_tokens": 0,
                 "llm_cost_usd": 0.0,
-                "llm_model": self.model,
+                "llm_model": self.provider.model_name,
+                "llm_provider": self.provider.provider_name,
                 "llm_finish_reason": "error",
                 "llm_cache_hit": False,
                 "llm_error": str(e),
@@ -247,52 +303,46 @@ class LLMTagger:
             # Build prompt with canonical narrative
             prompt = self._build_canonical_prompt(narrative, metadata)
 
-            # Call OpenAI API with timing
-            start_time = time.time()
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing coding agent conversations. Return only valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+            # Call provider with JSON schema
+            response = self.provider.complete(
+                system_prompt=(
+                    "You are an expert at analyzing coding agent conversations. "
+                    "Return only valid JSON."
+                ),
+                user_prompt=prompt,
                 max_tokens=self.max_tokens,
                 temperature=0.3,
-                response_format={"type": "json_object"},
+                json_schema=TAGGING_JSON_SCHEMA,
             )
-            duration_ms = (time.time() - start_time) * 1000
 
-            logger.info(f"LLM tagging from canonical completed in {duration_ms:.0f}ms")
+            logger.info(
+                f"LLM tagging from canonical completed in {response.duration_ms:.0f}ms "
+                f"(provider: {self.provider.provider_name})"
+            )
 
-            # Extract LLM metrics from response
-            usage = response.usage
-            prompt_tokens = usage.prompt_tokens if usage else 0
-            completion_tokens = usage.completion_tokens if usage else 0
-            total_tokens = usage.total_tokens if usage else 0
-
-            # Calculate cost (gpt-4o-mini pricing)
-            cost_usd = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
+            # Calculate cost
+            cost_usd = self.provider.calculate_cost(
+                response.prompt_tokens, response.completion_tokens
+            )
 
             llm_metrics = {
-                "llm_tagging_ms": duration_ms,
-                "llm_prompt_tokens": prompt_tokens,
-                "llm_completion_tokens": completion_tokens,
-                "llm_total_tokens": total_tokens,
+                "llm_tagging_ms": response.duration_ms,
+                "llm_prompt_tokens": response.prompt_tokens,
+                "llm_completion_tokens": response.completion_tokens,
+                "llm_total_tokens": response.total_tokens,
                 "llm_cost_usd": cost_usd,
                 "llm_model": response.model,
-                "llm_finish_reason": response.choices[0].finish_reason,
+                "llm_provider": self.provider.provider_name,
+                "llm_finish_reason": response.finish_reason,
                 "llm_cache_hit": False,
             }
 
             # Parse response
-            content = response.choices[0].message.content
-            if not content:
-                logger.warning("Empty response from OpenAI")
+            if not response.content:
+                logger.warning(f"Empty response from {self.provider.provider_name}")
                 return self._fallback_tags(), llm_metrics
 
-            tags_dict = json.loads(content)
+            tags_dict = json.loads(response.content)
             return self._parse_tags(tags_dict), llm_metrics
 
         except Exception as e:
@@ -303,7 +353,8 @@ class LLMTagger:
                 "llm_completion_tokens": 0,
                 "llm_total_tokens": 0,
                 "llm_cost_usd": 0.0,
-                "llm_model": self.model,
+                "llm_model": self.provider.model_name,
+                "llm_provider": self.provider.provider_name,
                 "llm_finish_reason": "error",
                 "llm_cache_hit": False,
                 "llm_error": str(e),

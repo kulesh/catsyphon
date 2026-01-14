@@ -58,19 +58,35 @@ class TaggingWorker:
         self._last_job_time: Optional[float] = None
 
     def _get_pipeline(self) -> Optional[TaggingPipeline]:
-        """Get or create the tagging pipeline (lazy initialization)."""
+        """Get or create the tagging pipeline (lazy initialization).
+
+        Uses the configured LLM provider (OpenAI or Anthropic) based on settings.
+        """
         if self._pipeline is None:
-            if not settings.openai_api_key:
+            # Check for API key based on configured provider
+            api_key = settings.active_llm_api_key
+            provider_type = settings.llm_provider
+
+            if not api_key:
                 logger.warning(
-                    "OpenAI API key not configured - tagging worker disabled"
+                    f"{provider_type.capitalize()} API key not configured - "
+                    "tagging worker disabled. "
+                    f"Set {'ANTHROPIC_API_KEY' if provider_type == 'anthropic' else 'OPENAI_API_KEY'} "
+                    "environment variable."
                 )
                 return None
 
             self._pipeline = TaggingPipeline(
-                openai_api_key=settings.openai_api_key,
-                openai_model=settings.openai_model,
+                provider_type=provider_type,  # type: ignore
+                api_key=api_key,
+                model=settings.active_llm_model,
                 cache_ttl_days=settings.tagging_cache_ttl_days,
                 enable_cache=settings.tagging_enable_cache,
+            )
+
+            logger.info(
+                f"Tagging pipeline initialized with {provider_type} provider "
+                f"(model: {settings.active_llm_model})"
             )
 
         return self._pipeline

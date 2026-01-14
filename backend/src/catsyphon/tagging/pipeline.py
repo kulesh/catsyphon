@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from catsyphon.models.parsed import ConversationTags, ParsedConversation
 
 from .cache import TagCache
 from .llm_tagger import LLMTagger
+from .providers import LLMProvider, create_provider
 from .rule_tagger import RuleTagger
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,22 @@ class TaggingPipeline:
        c. Merge results (rule-based takes precedence)
        d. Store in cache
     3. Return merged tags
+
+    Supports multiple LLM providers (OpenAI, Anthropic) through the provider factory.
     """
 
     def __init__(
         self,
-        openai_api_key: str,
+        provider: LLMProvider | None = None,
+        *,
+        # Legacy parameters for backward compatibility
+        openai_api_key: str | None = None,
         openai_model: str = "gpt-4o-mini",
+        # New provider parameters
+        provider_type: Literal["openai", "anthropic"] = "openai",
+        api_key: str | None = None,
+        model: str | None = None,
+        # Cache settings
         cache_dir: Optional[Path] = None,
         cache_ttl_days: int = 30,
         enable_cache: bool = True,
@@ -41,14 +52,40 @@ class TaggingPipeline:
         """Initialize the tagging pipeline.
 
         Args:
-            openai_api_key: OpenAI API key for LLM tagger
-            openai_model: OpenAI model to use (default: gpt-4o-mini)
+            provider: Pre-configured LLMProvider instance (preferred)
+            openai_api_key: OpenAI API key (legacy, use api_key instead)
+            openai_model: OpenAI model (legacy, use model instead)
+            provider_type: Provider to use ("openai" or "anthropic")
+            api_key: API key for the selected provider
+            model: Model to use (provider-specific default if not specified)
             cache_dir: Directory for cache (default: .catsyphon_cache/tags)
             cache_ttl_days: Cache time-to-live in days (default: 30)
             enable_cache: Whether to use caching (default: True)
         """
         self.rule_tagger = RuleTagger()
-        self.llm_tagger = LLMTagger(api_key=openai_api_key, model=openai_model)
+
+        # Initialize LLM provider
+        if provider is not None:
+            llm_provider = provider
+        elif api_key:
+            llm_provider = create_provider(
+                provider_type=provider_type,
+                api_key=api_key,
+                model=model,
+            )
+        elif openai_api_key:
+            # Legacy: use openai_api_key parameter
+            llm_provider = create_provider(
+                provider_type="openai",
+                api_key=openai_api_key,
+                model=openai_model,
+            )
+        else:
+            raise ValueError(
+                "Either provider, api_key, or openai_api_key must be provided"
+            )
+
+        self.llm_tagger = LLMTagger(provider=llm_provider)
 
         # Setup cache
         if cache_dir is None:
@@ -56,7 +93,11 @@ class TaggingPipeline:
         self.cache = TagCache(cache_dir=cache_dir, ttl_days=cache_ttl_days)
         self.enable_cache = enable_cache
 
-        logger.info(f"TaggingPipeline initialized (cache: {enable_cache})")
+        logger.info(
+            f"TaggingPipeline initialized "
+            f"(provider: {llm_provider.provider_name}, "
+            f"model: {llm_provider.model_name}, cache: {enable_cache})"
+        )
 
     def tag_conversation(
         self, parsed: ParsedConversation
