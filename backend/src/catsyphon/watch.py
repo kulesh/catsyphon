@@ -599,6 +599,13 @@ class FileWatcher(FileSystemEventHandler):
         parsed = None
         if not incremental_result:
             parsed = self.parser_registry.parse(file_path)
+        elif not incremental_result.new_messages:
+            # Incremental parse succeeded but found no new messages - skip processing
+            logger.debug(f"Skipping {file_path.name} (incremental parse found no new content)")
+            with self._stats_lock:
+                self.stats.files_skipped += 1
+                self.stats.last_activity = datetime.now()
+            return
 
         # Use parsed session_id if available (from log file), otherwise generate from path
         # Using the real session_id is critical for parent-child linking to work

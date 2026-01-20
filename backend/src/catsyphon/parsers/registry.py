@@ -258,7 +258,7 @@ class ParserRegistry:
         if not file_path.exists():
             return None
 
-        for parser in self._parsers:
+        for parser in self._sorted_parsers(file_path):
             try:
                 # Check if parser can handle this file format
                 probe_fn = getattr(parser, "probe", None)
