@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from multiprocessing import Queue
 from pathlib import Path
 from threading import Event, Thread
@@ -48,6 +48,47 @@ from catsyphon.parsers.registry import get_default_registry
 from catsyphon.pipeline.ingestion import link_orphaned_agents
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_agent_type_from_path(path: Path) -> str:
+    """Infer agent type from a log file path."""
+    path_lower = path.as_posix().lower()
+    if "codex" in path_lower:
+        return "codex"
+    if "claude" in path_lower:
+        return "claude-code"
+    return "unknown"
+
+
+def _resolve_agent_type(
+    *,
+    parsed: Optional["ParsedConversation"],
+    raw_log_agent_type: Optional[str],
+    incremental_parser: Optional[Any],
+    file_path: Path,
+    watch_directory: Path,
+) -> str:
+    if parsed and parsed.agent_type:
+        return parsed.agent_type
+    if raw_log_agent_type:
+        return raw_log_agent_type
+    parser_meta = getattr(incremental_parser, "metadata", None)
+    if parser_meta and getattr(parser_meta, "name", None):
+        return parser_meta.name
+    inferred = _infer_agent_type_from_path(file_path)
+    if inferred != "unknown":
+        return inferred
+    return _infer_agent_type_from_path(watch_directory)
+
+
+def _first_message_time(messages: list["ParsedMessage"]) -> datetime:
+    """Return earliest timestamp for a list of messages."""
+    earliest = datetime.now(UTC)
+    for msg in messages:
+        candidate = msg.emitted_at or msg.timestamp
+        if candidate and candidate < earliest:
+            earliest = candidate
+    return earliest
 
 
 @dataclass
@@ -238,6 +279,7 @@ class FileWatcher(FileSystemEventHandler):
 
     def __init__(
         self,
+        directory: Path,
         project_name: Optional[str] = None,
         developer_username: Optional[str] = None,
         retry_queue: Optional[RetryQueue] = None,
@@ -251,6 +293,7 @@ class FileWatcher(FileSystemEventHandler):
         super().__init__()
         self.project_name = project_name
         self.developer_username = developer_username
+        self.directory = directory
         self.retry_queue = retry_queue or RetryQueue()
         self.stats = stats or WatcherStats()
         self.debounce_seconds = debounce_seconds
@@ -547,6 +590,7 @@ class FileWatcher(FileSystemEventHandler):
                         or 0,
                         "file_size_bytes": existing_raw_log.file_size_bytes or 0,
                         "partial_hash": existing_raw_log.partial_hash,
+                        "agent_type": existing_raw_log.agent_type,
                     }
 
                     # Detect type of change
@@ -573,6 +617,7 @@ class FileWatcher(FileSystemEventHandler):
 
         # Try incremental parsing if we have existing state and file was appended
         incremental_result = None
+        incremental_parser = None
         if existing_raw_log_state and change_type == ChangeType.APPEND:
             try:
                 incremental_parser = self.parser_registry.find_incremental_parser(
@@ -619,9 +664,49 @@ class FileWatcher(FileSystemEventHandler):
             session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(file_path)))
             logger.debug(f"No session_id in parsed data, using generated: {session_id}")
 
+        raw_log_agent_type = None
+        if existing_raw_log_state:
+            raw_log_agent_type = existing_raw_log_state.get("agent_type")
+
+        agent_type = _resolve_agent_type(
+            parsed=parsed,
+            raw_log_agent_type=raw_log_agent_type,
+            incremental_parser=incremental_parser,
+            file_path=file_path,
+            watch_directory=self.directory,
+        )
+        if parsed:
+            agent_version = parsed.agent_version
+            working_directory = parsed.working_directory
+            git_branch = parsed.git_branch
+            parent_session_id = parsed.parent_session_id
+        else:
+            agent_version = None
+            working_directory = None
+            git_branch = None
+            parent_session_id = None
+
         # Send to API
         if incremental_result and incremental_result.new_messages:
             # Incremental: send only new messages
+            try:
+                self._collector_client.ensure_session_started(
+                    session_id=session_id,
+                    agent_type=agent_type,
+                    agent_version=agent_version,
+                    working_directory=working_directory,
+                    git_branch=git_branch,
+                    parent_session_id=parent_session_id,
+                    emitted_at=_first_message_time(
+                        incremental_result.new_messages
+                    ),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to ensure session_start for %s: %s",
+                    file_path.name,
+                    e,
+                )
             result = self._collector_client.ingest_incremental_messages(
                 messages=incremental_result.new_messages,
                 session_id=session_id,
@@ -631,17 +716,11 @@ class FileWatcher(FileSystemEventHandler):
             messages_for_fingerprint = incremental_result.new_messages
         else:
             # Full parse: send entire conversation
-            agent_type = getattr(parsed, "agent_type", "claude-code")
-            agent_version = getattr(parsed, "agent_version", "unknown")
-            working_directory = getattr(parsed, "working_directory", None)
-            git_branch = getattr(parsed, "git_branch", None)
-            parent_session_id = getattr(parsed, "parent_session_id", None)
-
             result = self._collector_client.ingest_conversation(
                 parsed=parsed,
                 session_id=session_id,
                 agent_type=agent_type,
-                agent_version=agent_version,
+                agent_version=agent_version or "unknown",
                 working_directory=working_directory,
                 git_branch=git_branch,
                 parent_session_id=parent_session_id,
@@ -855,6 +934,7 @@ class WatcherDaemon:
             max_retries=max_retries, base_interval=retry_interval
         )
         self.event_handler = FileWatcher(
+            directory=directory,
             project_name=project_name,
             developer_username=developer_username,
             retry_queue=self.retry_queue,

@@ -1,6 +1,6 @@
 """Tests for CollectorRepository."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -221,8 +221,8 @@ class TestCollectorRepository:
         """Test updating collector heartbeat."""
         repo = CollectorRepository(db_session)
 
-        # Update with explicit time (use utcnow to match SQLite behavior)
-        heartbeat_time = datetime.utcnow()
+        # Update with explicit time (timezone-aware for SQLite consistency)
+        heartbeat_time = datetime.now(timezone.utc).replace(tzinfo=None)
         updated = repo.update_heartbeat(sample_collector.id, heartbeat_time)
 
         assert updated is not None
@@ -236,10 +236,10 @@ class TestCollectorRepository:
         """Test updating collector heartbeat with default time (now)."""
         repo = CollectorRepository(db_session)
 
-        # Use utcnow to match SQLite behavior
-        before = datetime.utcnow()
+        # Use timezone-aware now to match SQLite behavior
+        before = datetime.now(timezone.utc).replace(tzinfo=None)
         updated = repo.update_heartbeat(sample_collector.id)
-        after = datetime.utcnow()
+        after = datetime.now(timezone.utc).replace(tzinfo=None)
 
         assert updated is not None
         assert updated.last_heartbeat is not None
@@ -284,7 +284,10 @@ class TestCollectorRepository:
         """Test getting collectors with stale heartbeats."""
         repo = CollectorRepository(db_session)
 
-        # Create collector with old heartbeat (use utcnow for SQLite)
+        # Create collector with old heartbeat (timezone-aware for SQLite)
+        stale_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            minutes=10
+        )
         stale_collector = repo.create(
             workspace_id=sample_workspace.id,
             name="Stale Collector",
@@ -292,10 +295,13 @@ class TestCollectorRepository:
             api_key_hash="$2b$12$hash",
             api_key_prefix="cs_stale",
             is_active=True,
-            last_heartbeat=datetime.utcnow() - timedelta(minutes=10),
+            last_heartbeat=stale_time,
         )
 
         # Create collector with recent heartbeat
+        fresh_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            minutes=1
+        )
         fresh_collector = repo.create(
             workspace_id=sample_workspace.id,
             name="Fresh Collector",
@@ -303,7 +309,7 @@ class TestCollectorRepository:
             api_key_hash="$2b$12$hash2",
             api_key_prefix="cs_fresh",
             is_active=True,
-            last_heartbeat=datetime.utcnow() - timedelta(minutes=1),
+            last_heartbeat=fresh_time,
         )
 
         # Get stale collectors (threshold: 5 minutes)

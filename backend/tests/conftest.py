@@ -6,7 +6,10 @@ and other components.
 """
 
 import os
+import sqlite3
+import sys
 import tempfile
+import warnings
 from pathlib import Path
 
 # Force SQLite for tests so helpers that rely on the default db_session don't try to
@@ -16,6 +19,28 @@ os.environ.setdefault(
     "TAGGING_CACHE_DIR",
     str(Path(tempfile.gettempdir()) / "catsyphon-tags"),
 )
+
+# Silence coverage.py sqlite ResourceWarning on Python 3.14
+warnings.filterwarnings(
+    "ignore",
+    message="unclosed database.*",
+    category=ResourceWarning,
+)
+
+
+
+def pytest_configure():
+    """Suppress coverage sqlite ResourceWarning emitted during GC."""
+    default_hook = sys.unraisablehook
+
+    def _hook(unraisable):
+        if isinstance(unraisable.exc_value, ResourceWarning) and "unclosed database" in str(
+            unraisable.exc_value
+        ):
+            return
+        default_hook(unraisable)
+
+    sys.unraisablehook = _hook
 
 # Reload database connection module to pick up the override early
 import importlib
@@ -32,6 +57,10 @@ from typing import Generator
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+# Avoid SQLite datetime adapter deprecation warnings in Python 3.12+
+sqlite3.register_adapter(datetime, lambda value: value.isoformat(" "))
+
 
 from catsyphon.models.db import (
     Base,
@@ -78,6 +107,13 @@ def test_engine():
     engine.dispose()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _dispose_default_engine():
+    """Ensure the global db_connection engine is disposed after tests."""
+    yield
+    db_connection.engine.dispose()
+
+
 @pytest.fixture(scope="function")
 def db_session(test_engine) -> Generator[Session, None, None]:
     """
@@ -92,8 +128,9 @@ def db_session(test_engine) -> Generator[Session, None, None]:
 
     yield session
 
+    if transaction.is_active:
+        transaction.rollback()
     session.close()
-    transaction.rollback()
     connection.close()
 
 

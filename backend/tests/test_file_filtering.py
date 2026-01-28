@@ -347,64 +347,56 @@ def file_history_snapshot_file(tmp_path: Path) -> Path:
 
 
 class TestOrchestratorMetadataSkipping:
-    """Test that orchestrator skips metadata-only files."""
+    """Test that ingestion handles metadata-only files."""
 
     def test_file_history_snapshot_ingested(
-        self, db_session, file_history_snapshot_file: Path
+        self, db_session, sample_workspace, file_history_snapshot_file: Path
     ):
         """Test that file-history-snapshot-only files are ingested as non-conversational messages.
 
         Since we now support non-conversational message types (file-history-snapshot,
         summary, system events), files containing only these types are no longer skipped.
         """
-        from catsyphon.parsers import get_default_registry
-        from catsyphon.pipeline.orchestrator import ingest_log_file
+        from catsyphon.db.repositories import ConversationRepository
+        from catsyphon.services.ingestion_service import IngestionService
 
-        registry = get_default_registry()
-
-        outcome = ingest_log_file(
-            session=db_session,
+        service = IngestionService(db_session)
+        outcome = service.ingest_from_file(
             file_path=file_history_snapshot_file,
-            registry=registry,
+            workspace_id=sample_workspace.id,
             project_name=None,
             developer_username=None,
-            tags=None,
-            skip_duplicates=True,
-            update_mode="skip",
             source_type="upload",
         )
 
         # Now successfully ingested with non-conversational messages
         assert outcome.status == "success"
-        assert outcome.conversation is not None
+        conversation = ConversationRepository(db_session).get(outcome.conversation_id)
+        assert conversation is not None
         assert outcome.conversation_id is not None
 
     def test_file_history_snapshot_tracked_in_jobs(
-        self, db_session, file_history_snapshot_file: Path
+        self, db_session, sample_workspace, file_history_snapshot_file: Path
     ):
         """Test that ingested metadata files are tracked in ingestion_jobs."""
         from catsyphon.db.repositories import IngestionJobRepository
-        from catsyphon.parsers import get_default_registry
-        from catsyphon.pipeline.orchestrator import ingest_log_file
+        from catsyphon.services.ingestion_service import IngestionService
 
-        registry = get_default_registry()
-
-        outcome = ingest_log_file(
-            session=db_session,
+        service = IngestionService(db_session)
+        outcome = service.ingest_from_file(
             file_path=file_history_snapshot_file,
-            registry=registry,
+            workspace_id=sample_workspace.id,
             project_name=None,
             developer_username=None,
-            tags=None,
-            skip_duplicates=True,
-            update_mode="skip",
             source_type="upload",
         )
         db_session.commit()
 
         # Verify job was tracked as success (non-conversational messages now ingested)
         repo = IngestionJobRepository(db_session)
-        job = repo.get(outcome.job_id)
+        jobs = repo.get_by_conversation(outcome.conversation_id)
+        assert jobs
+        job = jobs[0]
 
         assert job is not None
         assert job.status == "success"

@@ -19,6 +19,7 @@ from catsyphon.api.routes import (
     ingestion,
     insights,
     metadata,
+    otel,
     patterns,
     plans,
     projects,
@@ -217,3 +218,4 @@ app.include_router(watch.router, prefix="", tags=["watch"])
 app.include_router(ingestion.router, prefix="", tags=["ingestion"])
 app.include_router(recommendations.router, prefix="", tags=["recommendations"])
 app.include_router(setup.router)
+app.include_router(otel.router)

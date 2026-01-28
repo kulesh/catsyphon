@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from catsyphon.canonicalization import (
@@ -202,37 +203,70 @@ class CanonicalRepository(BaseRepository[ConversationCanonical]):
         Returns:
             Saved database model
         """
-        # Delete existing entry if present (upsert pattern)
-        self.invalidate(
-            conversation_id=conversation_id,
-            canonical_type=canonical_type,
-        )
-
         # Estimate source tokens (for window-based regeneration)
         # Simple estimate: message_count * avg_tokens_per_message
         estimated_source_tokens = canonical.message_count * 100  # Conservative estimate
 
-        db_canonical = ConversationCanonical(
-            conversation_id=conversation_id,
-            version=canonical.canonical_version,
-            canonical_type=canonical_type,
-            narrative=canonical.narrative,
-            token_count=canonical.token_count,
-            canonical_metadata={
+        data = {
+            "conversation_id": conversation_id,
+            "version": canonical.canonical_version,
+            "canonical_type": canonical_type,
+            "narrative": canonical.narrative,
+            "token_count": canonical.token_count,
+            "canonical_metadata": {
                 "tools_used": canonical.tools_used,
                 "files_touched": canonical.files_touched,
                 "has_errors": canonical.has_errors,
                 "code_changes_summary": canonical.code_changes_summary,
             },
-            config=canonical.config.to_dict() if canonical.config else {},
-            source_message_count=canonical.message_count,
-            source_token_estimate=estimated_source_tokens,
-            generated_at=canonical.generated_at or datetime.now(),
-        )
+            "config": canonical.config.to_dict() if canonical.config else {},
+            "source_message_count": canonical.message_count,
+            "source_token_estimate": estimated_source_tokens,
+            "generated_at": canonical.generated_at or datetime.now(),
+        }
 
-        self.session.add(db_canonical)
-        self.session.flush()
-        self.session.refresh(db_canonical)
+        # Prefer PostgreSQL upsert to avoid race conditions across workers.
+        if self.session.bind and self.session.bind.dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            stmt = pg_insert(ConversationCanonical).values(**data)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["conversation_id", "version", "canonical_type"],
+                set_={
+                    "narrative": data["narrative"],
+                    "token_count": data["token_count"],
+                    "canonical_metadata": data["canonical_metadata"],
+                    "config": data["config"],
+                    "source_message_count": data["source_message_count"],
+                    "source_token_estimate": data["source_token_estimate"],
+                    "generated_at": data["generated_at"],
+                },
+            ).returning(ConversationCanonical.id)
+
+            canonical_id = self.session.execute(stmt).scalar_one()
+            db_canonical = self.session.get(ConversationCanonical, canonical_id)
+            if db_canonical is None:
+                raise RuntimeError("Upserted canonical row could not be loaded")
+        else:
+            # SQLite fallback: use a savepoint and handle unique conflicts.
+            savepoint = self.session.begin_nested()
+            try:
+                # Delete existing entry if present (upsert pattern)
+                self.invalidate(
+                    conversation_id=conversation_id,
+                    canonical_type=canonical_type,
+                )
+                db_canonical = ConversationCanonical(**data)
+                self.session.add(db_canonical)
+                self.session.flush()
+                savepoint.commit()
+            except IntegrityError:
+                savepoint.rollback()
+                db_canonical = self.get_cached(conversation_id, canonical_type)
+                if db_canonical is None:
+                    raise
+            else:
+                self.session.refresh(db_canonical)
 
         logger.info(
             f"Saved canonical for conversation {conversation_id} "

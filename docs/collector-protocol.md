@@ -46,6 +46,14 @@ This document specifies the HTTP-based collector events protocol for streaming c
 2. gRPC support (Phase 2, separate epic)
 3. Multi-region replication
 
+### OTEL Ingestion (Codex)
+
+CatSyphon also supports OTLP HTTP log ingestion for Codex via `POST /v1/logs`.
+This is separate from the collector events protocol and is intended for
+OpenTelemetry exporters. OTEL ingestion is opt-in and gated by configuration.
+
+See `docs/otel-ingestion.md` for setup details and required headers.
+
 ---
 
 ## Architecture

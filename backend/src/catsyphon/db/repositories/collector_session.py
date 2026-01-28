@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories.base import BaseRepository
@@ -121,6 +122,23 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         return (
             self.session.query(Conversation)
             .filter(Conversation.collector_session_id == collector_session_id)
+            .first()
+        )
+
+    def get_by_workspace_session_id(
+        self,
+        workspace_id: uuid.UUID,
+        conversation_type: ConversationType,
+        session_id: str,
+    ) -> Optional[Conversation]:
+        """Get conversation by workspace + conversation_type + session_id metadata."""
+        return (
+            self.session.query(Conversation)
+            .filter(
+                Conversation.workspace_id == workspace_id,
+                Conversation.conversation_type == conversation_type,
+                Conversation.extra_data["session_id"].as_string() == session_id,
+            )
             .first()
         )
 
@@ -251,10 +269,6 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         Returns:
             Tuple of (conversation, created) where created is True if new
         """
-        existing = self.get_by_collector_session_id(collector_session_id)
-        if existing:
-            return existing, False
-
         # Look up parent conversation if parent_session_id provided
         parent_conversation_id = None
         parent_conversation = None
@@ -268,6 +282,23 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         conversation_type = (
             ConversationType.AGENT if parent_session_id else ConversationType.MAIN
         )
+
+        existing = self.get_by_collector_session_id(collector_session_id)
+        if existing:
+            return existing, False
+
+        existing_by_metadata = self.get_by_workspace_session_id(
+            workspace_id=workspace_id,
+            conversation_type=conversation_type,
+            session_id=collector_session_id,
+        )
+        if existing_by_metadata:
+            if existing_by_metadata.collector_session_id is None:
+                existing_by_metadata.collector_session_id = collector_session_id
+            if collector_id and existing_by_metadata.collector_id is None:
+                existing_by_metadata.collector_id = collector_id
+            self.session.flush()
+            return existing_by_metadata, False
 
         # Get or create project from working directory
         project = self._get_or_create_project(workspace_id, working_directory)
@@ -340,18 +371,33 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             agent_metadata=resolved_agent_metadata,  # Never None - always a dict
             extra_data=extra_data,
         )
-        self.session.add(conversation)
-        self.session.flush()
+        savepoint = self.session.begin_nested()
+        try:
+            self.session.add(conversation)
+            self.session.flush()
 
-        # Create default epoch for the conversation
-        epoch = Epoch(
-            conversation_id=conversation.id,
-            sequence=1,
-            start_time=start_time,
-            extra_data={"source": "collector"},
-        )
-        self.session.add(epoch)
-        self.session.flush()
+            # Create default epoch for the conversation
+            epoch = Epoch(
+                conversation_id=conversation.id,
+                sequence=1,
+                start_time=start_time,
+                extra_data={"source": "collector"},
+            )
+            self.session.add(epoch)
+            self.session.flush()
+            savepoint.commit()
+        except IntegrityError:
+            savepoint.rollback()
+            existing_after_conflict = self.get_by_collector_session_id(
+                collector_session_id
+            ) or self.get_by_workspace_session_id(
+                workspace_id=workspace_id,
+                conversation_type=conversation_type,
+                session_id=collector_session_id,
+            )
+            if existing_after_conflict:
+                return existing_after_conflict, False
+            raise
 
         return conversation, True
 

@@ -158,6 +158,7 @@ pnpm tsc --noEmit               # Type check
 - [Parser SDK](docs/plugin-sdk.md) - Add support for other AI assistants
 - [Collector SDK](docs/collector-sdk.md) - Build HTTP clients for CatSyphon
 - [Collector Protocol](docs/collector-protocol.md) - Event streaming API specification
+- [OTEL Ingestion](docs/otel-ingestion.md) - Ingest Codex OTLP events
 - [API Reference](docs/api-reference.md) - REST API documentation
 
 ### Reference

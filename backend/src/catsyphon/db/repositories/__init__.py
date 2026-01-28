@@ -15,6 +15,7 @@ from catsyphon.db.repositories.epoch import EpochRepository
 from catsyphon.db.repositories.ingestion_job import IngestionJobRepository
 from catsyphon.db.repositories.insights import InsightsRepository
 from catsyphon.db.repositories.message import MessageRepository
+from catsyphon.db.repositories.otel_event import OtelEventRepository
 from catsyphon.db.repositories.organization import OrganizationRepository
 from catsyphon.db.repositories.project import ProjectRepository
 from catsyphon.db.repositories.raw_log import RawLogRepository
@@ -35,6 +36,7 @@ __all__ = [
     "IngestionJobRepository",
     "InsightsRepository",
     "MessageRepository",
+    "OtelEventRepository",
     "OrganizationRepository",
     "ProjectRepository",
     "RawLogRepository",

@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from alembic.config import Config as AlembicConfig
@@ -38,7 +38,7 @@ class StartupMetrics:
 
 
 # Global startup metrics (populated during startup)
-startup_metrics = StartupMetrics(started_at=datetime.utcnow())
+startup_metrics = StartupMetrics(started_at=datetime.now(timezone.utc))
 
 
 class StartupCheckError(Exception):
@@ -365,10 +365,10 @@ def run_all_startup_checks() -> None:
             sys.exit(1)
 
     # Record successful completion
-    startup_metrics.completed_at = datetime.utcnow()
+    startup_metrics.completed_at = datetime.now(timezone.utc)
     startup_metrics.total_duration_ms = (time.time() - startup_start) * 1000
     startup_metrics.checks_passed = True
-    startup_metrics.last_check_time = datetime.utcnow()
+    startup_metrics.last_check_time = datetime.now(timezone.utc)
 
     print("\n" + "=" * 70)
     print(
@@ -399,7 +399,7 @@ def check_readiness() -> tuple[bool, dict]:
         db_ready = False
 
     # Calculate uptime
-    uptime = (datetime.utcnow() - startup_metrics.started_at).total_seconds()
+    uptime = (datetime.now(timezone.utc) - startup_metrics.started_at).total_seconds()
 
     # Build response
     ready = startup_metrics.checks_passed and db_ready

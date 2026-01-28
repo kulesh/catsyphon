@@ -424,6 +424,50 @@ class CollectorClient:
         except httpx.RequestError:
             return None
 
+    def ensure_session_started(
+        self,
+        *,
+        session_id: str,
+        agent_type: str,
+        agent_version: Optional[str] = None,
+        working_directory: Optional[str] = None,
+        git_branch: Optional[str] = None,
+        parent_session_id: Optional[str] = None,
+        emitted_at: Optional[datetime] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Ensure a session exists on the server by sending a session_start event.
+
+        Returns True if a session_start was sent, False if the session already exists.
+        """
+        status = self._get_session_status(session_id)
+        if status:
+            return False
+
+        session_start_data: dict[str, Any] = {
+            "agent_type": agent_type or "unknown",
+            "agent_version": agent_version or "unknown",
+            "working_directory": working_directory,
+            "git_branch": git_branch,
+        }
+        if parent_session_id:
+            session_start_data["parent_session_id"] = parent_session_id
+
+        if metadata:
+            for key, value in metadata.items():
+                if key not in session_start_data:
+                    session_start_data[key] = _serialize_for_json(value)
+
+        event_time = emitted_at or datetime.now(timezone.utc)
+        event = self._create_event(
+            event_type="session_start",
+            emitted_at=event_time,
+            data=session_start_data,
+        )
+        self._send_events(session_id, [event])
+        return True
+
     def _complete_session(
         self,
         session_id: str,

@@ -167,6 +167,9 @@ class Workspace(Base):
     watch_configurations: Mapped[list["WatchConfiguration"]] = relationship(
         back_populates="workspace"
     )
+    otel_events: Mapped[list["OtelEvent"]] = relationship(
+        back_populates="workspace"
+    )
 
     def __repr__(self) -> str:
         return f"<Workspace(id={self.id}, name={self.name!r}, slug={self.slug!r})>"
@@ -1093,6 +1096,56 @@ class IngestionJob(Base):
             f"<IngestionJob(id={self.id}, "
             f"source_type={self.source_type!r}, "
             f"status={self.status!r})>"
+        )
+
+
+class OtelEvent(Base):
+    """OpenTelemetry log event captured from OTLP ingestion."""
+
+    __tablename__ = "otel_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_conversation_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+
+    event_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    event_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    severity_text: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    severity_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    trace_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    span_id: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
+    body: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    resource_attributes: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    scope_attributes: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="otel_events")
+
+    def __repr__(self) -> str:
+        return (
+            f"<OtelEvent(id={self.id}, "
+            f"event_name={self.event_name!r}, "
+            f"event_timestamp={self.event_timestamp})>"
         )
 
 

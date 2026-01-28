@@ -121,7 +121,7 @@ async def get_overview_stats(
             total_agent_conversations = count
 
     # Recent conversations (last 7 days, workspace scoped)
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     recent_conversations = conv_repo.count_by_filters(
         workspace_id=workspace_id, start_date=seven_days_ago
     )

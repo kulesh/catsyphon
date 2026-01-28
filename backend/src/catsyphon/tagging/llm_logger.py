@@ -9,7 +9,7 @@ import json
 import logging
 import logging.handlers
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from catsyphon.config import settings
@@ -96,7 +96,7 @@ class LLMLogger:
         log_entry = {
             "type": "request",
             "request_id": request_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "model": model,
             "session_id": conversation.session_id,
             "message_count": len(conversation.messages),
@@ -138,7 +138,7 @@ class LLMLogger:
             log_entry = {
                 "type": "response",
                 "request_id": request_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "model": response.model,
                 "finish_reason": finish_reason,
                 "content_length": len(content),
@@ -189,7 +189,7 @@ class LLMLogger:
         log_entry = {
             "type": "error",
             "request_id": request_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "error_type": type(error).__name__,
             "error_message": str(error),
         }
@@ -214,7 +214,7 @@ class LLMLogger:
 
         log_entry = {
             "type": "cache_hit",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "session_id": conversation.session_id,
             "message_count": len(conversation.messages),
         }

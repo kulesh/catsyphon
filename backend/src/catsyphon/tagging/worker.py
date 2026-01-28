@@ -11,6 +11,8 @@ import threading
 import time
 from typing import Optional
 
+from sqlalchemy.exc import OperationalError
+
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.conversation import ConversationRepository
@@ -94,6 +96,10 @@ class TaggingWorker:
                 if not job_processed:
                     # No jobs available - wait before polling again
                     self._stop_event.wait(self.poll_interval)
+            except OperationalError as e:
+                logger.warning(f"Tagging worker DB unavailable: {e}")
+                # Back off briefly before retrying
+                self._stop_event.wait(5.0)
             except Exception as e:
                 logger.error(f"Error in tagging worker loop: {e}", exc_info=True)
                 # Brief pause before retrying
@@ -135,9 +141,11 @@ class TaggingWorker:
             if not job:
                 return False
 
+            job_id = job.id
+            conversation_id = job.conversation_id
             self._jobs_processed += 1
             logger.info(
-                f"Processing tagging job {job.id} for conversation {job.conversation_id}"
+                f"Processing tagging job {job_id} for conversation {conversation_id}"
             )
 
             try:
@@ -146,12 +154,12 @@ class TaggingWorker:
                 # Use workspace_id from conversation's workspace
                 conversation = (
                     session.query(conv_repo.model)
-                    .filter_by(id=job.conversation_id)
+                    .filter_by(id=conversation_id)
                     .first()
                 )
 
                 if not conversation:
-                    raise ValueError(f"Conversation {job.conversation_id} not found")
+                    raise ValueError(f"Conversation {conversation_id} not found")
 
                 # Run tagging pipeline
                 tags, metrics = pipeline.tag_from_canonical(
@@ -165,28 +173,29 @@ class TaggingWorker:
                 session.flush()
 
                 # Mark job complete
-                queue.complete(job.id, success=True)
+                queue.complete(job_id, success=True)
                 session.commit()
 
                 self._jobs_succeeded += 1
                 self._last_job_time = time.time()
 
                 logger.info(
-                    f"Completed tagging job {job.id}: "
+                    f"Completed tagging job {job_id}: "
                     f"intent={tags.get('intent')}, outcome={tags.get('outcome')}, "
                     f"tokens={metrics.get('llm_total_tokens', 0)}"
                 )
 
             except Exception as e:
+                session.rollback()
                 # Mark job failed (will be retried or marked permanently failed)
-                queue.complete(job.id, success=False, error=str(e))
+                queue.complete(job_id, success=False, error=str(e))
                 session.commit()
 
                 self._jobs_failed += 1
 
                 logger.warning(
-                    f"Failed tagging job {job.id} for conversation "
-                    f"{job.conversation_id}: {e}"
+                    f"Failed tagging job {job_id} for conversation "
+                    f"{conversation_id}: {e}"
                 )
 
         return True
@@ -208,6 +217,8 @@ class TaggingWorker:
                     logger.info(f"Purged {purged_count} old completed tagging jobs")
 
                 session.commit()
+        except OperationalError as e:
+            logger.warning(f"Tagging worker cleanup skipped (DB unavailable): {e}")
         except Exception as e:
             logger.error(f"Error during tagging worker cleanup: {e}")
 
