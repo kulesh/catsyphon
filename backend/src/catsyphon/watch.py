@@ -279,6 +279,7 @@ class FileWatcher(FileSystemEventHandler):
 
     def __init__(
         self,
+        directory: Path,
         project_name: Optional[str] = None,
         developer_username: Optional[str] = None,
         retry_queue: Optional[RetryQueue] = None,
@@ -292,6 +293,7 @@ class FileWatcher(FileSystemEventHandler):
         super().__init__()
         self.project_name = project_name
         self.developer_username = developer_username
+        self.directory = directory
         self.retry_queue = retry_queue or RetryQueue()
         self.stats = stats or WatcherStats()
         self.debounce_seconds = debounce_seconds
@@ -932,6 +934,7 @@ class WatcherDaemon:
             max_retries=max_retries, base_interval=retry_interval
         )
         self.event_handler = FileWatcher(
+            directory=directory,
             project_name=project_name,
             developer_username=developer_username,
             retry_queue=self.retry_queue,
