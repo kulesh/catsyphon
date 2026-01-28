@@ -797,5 +797,9 @@ class DaemonManager:
                 repo.update_stats(config_id, stats_snapshot)
                 session.commit()
                 logger.debug(f"Saved stats for config {config_id}: {stats_snapshot}")
+        except OperationalError as e:
+            logger.warning(
+                f"Failed to save stats for {config_id} (DB unavailable): {e}"
+            )
         except Exception as e:
             logger.error(f"Failed to save stats for {config_id}: {e}", exc_info=True)

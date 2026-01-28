@@ -11,6 +11,8 @@ import threading
 import time
 from typing import Optional
 
+from sqlalchemy.exc import OperationalError
+
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
 from catsyphon.db.repositories.conversation import ConversationRepository
@@ -94,6 +96,10 @@ class TaggingWorker:
                 if not job_processed:
                     # No jobs available - wait before polling again
                     self._stop_event.wait(self.poll_interval)
+            except OperationalError as e:
+                logger.warning(f"Tagging worker DB unavailable: {e}")
+                # Back off briefly before retrying
+                self._stop_event.wait(5.0)
             except Exception as e:
                 logger.error(f"Error in tagging worker loop: {e}", exc_info=True)
                 # Brief pause before retrying
@@ -211,6 +217,8 @@ class TaggingWorker:
                     logger.info(f"Purged {purged_count} old completed tagging jobs")
 
                 session.commit()
+        except OperationalError as e:
+            logger.warning(f"Tagging worker cleanup skipped (DB unavailable): {e}")
         except Exception as e:
             logger.error(f"Error during tagging worker cleanup: {e}")
 

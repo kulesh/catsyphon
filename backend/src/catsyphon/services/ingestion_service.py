@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from catsyphon.config import settings
@@ -39,6 +40,17 @@ logger = logging.getLogger(__name__)
 def _utc_now() -> datetime:
     """Get current UTC time."""
     return datetime.now(timezone.utc)
+
+
+def _is_deadlock_error(exc: BaseException) -> bool:
+    """Check whether a database error is a deadlock or serialization failure."""
+    if not isinstance(exc, DBAPIError):
+        return False
+    orig = exc.orig
+    pgcode = getattr(orig, "pgcode", None)
+    if pgcode in {"40P01", "40001"}:  # deadlock detected / serialization failure
+        return True
+    return orig.__class__.__name__ in {"DeadlockDetected", "SerializationFailure"}
 
 
 def _compute_event_hash(
@@ -256,210 +268,236 @@ class IngestionService:
         """
         start_time = time.time()
         start_datetime = _utc_now()
+        max_attempts = 3
 
-        # Create ingestion job for tracking
-        ingestion_job = IngestionJob(
-            source_type=source_type,
-            collector_id=collector_id,
-            status="processing",
-            started_at=start_datetime,
-            messages_added=0,
-            metrics={},
-        )
-        self.session.add(ingestion_job)
-        self.session.flush()
-
-        try:
-            # Sort events by timestamp
-            sorted_events = sorted(events, key=lambda e: e.emitted_at)
-
-            if not sorted_events:
-                ingestion_job.status = "skipped"
-                ingestion_job.completed_at = _utc_now()
-                return IngestionOutcome(status="skipped")
-
-            session_start_event = next(
-                (event for event in sorted_events if event.type == "session_start"),
-                None,
-            )
-            earliest_event = sorted_events[0]
-
-            # Extract session metadata from session_start when available
-            session_data = (session_start_event or earliest_event).data
-            conversation, created = self.session_repo.get_or_create_session(
-                collector_session_id=session_id,
-                workspace_id=workspace_id,
+        for attempt in range(max_attempts):
+            # Create ingestion job for tracking
+            ingestion_job = IngestionJob(
+                source_type=source_type,
                 collector_id=collector_id,
-                agent_type=session_data.get("agent_type", "unknown"),
-                agent_version=session_data.get("agent_version"),
-                working_directory=session_data.get("working_directory"),
-                git_branch=session_data.get("git_branch"),
-                parent_session_id=session_data.get("parent_session_id"),
-                context_semantics=session_data.get("context_semantics"),
-                first_event_timestamp=earliest_event.emitted_at,
-                slug=session_data.get("slug"),
-                summaries=session_data.get("summaries"),
-                compaction_events=session_data.get("compaction_events"),
+                status="processing",
+                started_at=start_datetime,
+                messages_added=0,
+                metrics={},
             )
+            self.session.add(ingestion_job)
+            self.session.flush()
 
-            ingestion_job.conversation_id = conversation.id
+            try:
+                # Sort events by timestamp
+                sorted_events = sorted(events, key=lambda e: e.emitted_at)
 
-            # Content-based deduplication
-            existing_hashes = self.session_repo.get_event_hashes(conversation.id)
-            new_events = [
-                e for e in sorted_events if e.event_hash not in existing_hashes
-            ]
+                if not sorted_events:
+                    ingestion_job.status = "skipped"
+                    ingestion_job.completed_at = _utc_now()
+                    return IngestionOutcome(status="skipped")
 
-            # Process events
-            messages_added = 0
-            files_touched = 0
-            session_completed = False
-
-            # Tools for file tracking
-            file_modifying_tools = {
-                "Edit": "write",
-                "Write": "write",
-                "NotebookEdit": "write",
-                "MultiEdit": "write",
-            }
-            file_reading_tools = {"Read", "Glob", "Grep"}
-
-            for event in new_events:
-                # Skip session_start for existing sessions
-                if event.type == "session_start":
-                    if not created:
-                        if _apply_session_start_metadata(conversation, event.data):
-                            logger.debug(
-                                "Backfilled session metadata for %s",
-                                conversation.id,
-                            )
-                    continue
-
-                # Add message for message-like events
-                if event.type in (
-                    "message",
-                    "tool_call",
-                    "tool_result",
-                    "thinking",
-                    "error",
-                ):
-                    self.session_repo.add_message(
-                        conversation=conversation,
-                        event_type=event.type,
-                        emitted_at=event.emitted_at,
-                        observed_at=event.observed_at,
-                        data=event.data,
-                        event_hash=event.event_hash,
-                    )
-                    messages_added += 1
-
-                    # Track file touches from tool_call events
-                    if event.type == "tool_call":
-                        tool_name = event.data.get("tool_name")
-                        params = event.data.get("parameters", {})
-                        file_path = params.get("file_path") or params.get("path")
-
-                        if file_path:
-                            if tool_name in file_modifying_tools:
-                                self.session_repo.add_file_touched(
-                                    conversation=conversation,
-                                    file_path=file_path,
-                                    change_type=file_modifying_tools[tool_name],
-                                    timestamp=event.emitted_at,
-                                )
-                                files_touched += 1
-                            elif tool_name in file_reading_tools:
-                                self.session_repo.add_file_touched(
-                                    conversation=conversation,
-                                    file_path=file_path,
-                                    change_type="read",
-                                    timestamp=event.emitted_at,
-                                )
-                                files_touched += 1
-
-                # Handle session_end
-                if event.type == "session_end":
-                    self.session_repo.complete_session(
-                        conversation=conversation,
-                        final_sequence=0,
-                        outcome=event.data.get("outcome", "unknown"),
-                        summary=event.data.get("summary"),
-                        event_timestamp=event.emitted_at,
-                        plans=event.data.get("plans"),
-                        files_touched=event.data.get("files_touched"),
-                    )
-                    session_completed = True
-
-            # Update counts
-            if new_events:
-                last_sequence = (conversation.last_event_sequence or 0) + len(
-                    new_events
+                session_start_event = next(
+                    (event for event in sorted_events if event.type == "session_start"),
+                    None,
                 )
-                self.session_repo.update_sequence(
-                    conversation=conversation,
+                earliest_event = sorted_events[0]
+
+                # Extract session metadata from session_start when available
+                session_data = (session_start_event or earliest_event).data
+                conversation, created = self.session_repo.get_or_create_session(
+                    collector_session_id=session_id,
+                    workspace_id=workspace_id,
+                    collector_id=collector_id,
+                    agent_type=session_data.get("agent_type", "unknown"),
+                    agent_version=session_data.get("agent_version"),
+                    working_directory=session_data.get("working_directory"),
+                    git_branch=session_data.get("git_branch"),
+                    parent_session_id=session_data.get("parent_session_id"),
+                    context_semantics=session_data.get("context_semantics"),
+                    first_event_timestamp=earliest_event.emitted_at,
+                    slug=session_data.get("slug"),
+                    summaries=session_data.get("summaries"),
+                    compaction_events=session_data.get("compaction_events"),
+                )
+
+                ingestion_job.conversation_id = conversation.id
+
+                # Content-based deduplication
+                existing_hashes = self.session_repo.get_event_hashes(conversation.id)
+                new_events = [
+                    e for e in sorted_events if e.event_hash not in existing_hashes
+                ]
+
+                # Process events
+                messages_added = 0
+                files_touched = 0
+                session_completed = False
+
+                # Tools for file tracking
+                file_modifying_tools = {
+                    "Edit": "write",
+                    "Write": "write",
+                    "NotebookEdit": "write",
+                    "MultiEdit": "write",
+                }
+                file_reading_tools = {"Read", "Glob", "Grep"}
+
+                for event in new_events:
+                    # Skip session_start for existing sessions
+                    if event.type == "session_start":
+                        if not created:
+                            if _apply_session_start_metadata(conversation, event.data):
+                                logger.debug(
+                                    "Backfilled session metadata for %s",
+                                    conversation.id,
+                                )
+                        continue
+
+                    # Add message for message-like events
+                    if event.type in (
+                        "message",
+                        "tool_call",
+                        "tool_result",
+                        "thinking",
+                        "error",
+                    ):
+                        self.session_repo.add_message(
+                            conversation=conversation,
+                            event_type=event.type,
+                            emitted_at=event.emitted_at,
+                            observed_at=event.observed_at,
+                            data=event.data,
+                            event_hash=event.event_hash,
+                        )
+                        messages_added += 1
+
+                        # Track file touches from tool_call events
+                        if event.type == "tool_call":
+                            tool_name = event.data.get("tool_name")
+                            params = event.data.get("parameters", {})
+                            file_path = params.get("file_path") or params.get("path")
+
+                            if file_path:
+                                if tool_name in file_modifying_tools:
+                                    self.session_repo.add_file_touched(
+                                        conversation=conversation,
+                                        file_path=file_path,
+                                        change_type=file_modifying_tools[tool_name],
+                                        timestamp=event.emitted_at,
+                                    )
+                                    files_touched += 1
+                                elif tool_name in file_reading_tools:
+                                    self.session_repo.add_file_touched(
+                                        conversation=conversation,
+                                        file_path=file_path,
+                                        change_type="read",
+                                        timestamp=event.emitted_at,
+                                    )
+                                    files_touched += 1
+
+                    # Handle session_end
+                    if event.type == "session_end":
+                        self.session_repo.complete_session(
+                            conversation=conversation,
+                            final_sequence=0,
+                            outcome=event.data.get("outcome", "unknown"),
+                            summary=event.data.get("summary"),
+                            event_timestamp=event.emitted_at,
+                            plans=event.data.get("plans"),
+                            files_touched=event.data.get("files_touched"),
+                        )
+                        session_completed = True
+
+                # Update counts
+                if new_events:
+                    last_sequence = (conversation.last_event_sequence or 0) + len(
+                        new_events
+                    )
+                    self.session_repo.update_sequence(
+                        conversation=conversation,
+                        last_sequence=last_sequence,
+                        event_count_delta=messages_added,
+                    )
+                    last_event = max(new_events, key=lambda e: e.emitted_at)
+                    self.session_repo.update_last_activity(
+                        conversation=conversation,
+                        event_timestamp=last_event.emitted_at,
+                    )
+
+                # Link orphaned sessions
+                linked = self.session_repo.link_orphaned_collectors(workspace_id)
+                if linked > 0:
+                    logger.info(f"Linked {linked} orphaned collector sessions")
+
+                # Calculate processing time
+                processing_time_ms = int((time.time() - start_time) * 1000)
+
+                # Update ingestion job
+                ingestion_job.status = "success"
+                ingestion_job.messages_added = messages_added
+                ingestion_job.processing_time_ms = processing_time_ms
+                ingestion_job.completed_at = _utc_now()
+                ingestion_job.metrics = {
+                    "events_received": len(sorted_events),
+                    "events_accepted": len(new_events),
+                    "events_deduplicated": len(sorted_events) - len(new_events),
+                    "files_touched": files_touched,
+                    "session_created": created,
+                    "total_ms": processing_time_ms,
+                }
+
+                # Queue tagging if enabled
+                if enable_tagging and session_completed and settings.openai_api_key:
+                    self._queue_tagging(conversation.id)
+
+                # Extract values before potential session expiry
+                conversation_id = conversation.id
+                last_sequence = conversation.last_event_sequence
+
+                return IngestionOutcome(
+                    status="success",
+                    conversation_id=conversation_id,
+                    messages_added=messages_added,
+                    events_accepted=len(new_events),
+                    events_deduplicated=len(sorted_events) - len(new_events),
+                    processing_time_ms=processing_time_ms,
                     last_sequence=last_sequence,
-                    event_count_delta=messages_added,
-                )
-                last_event = max(new_events, key=lambda e: e.emitted_at)
-                self.session_repo.update_last_activity(
-                    conversation=conversation,
-                    event_timestamp=last_event.emitted_at,
+                    warnings=[],
                 )
 
-            # Link orphaned sessions
-            linked = self.session_repo.link_orphaned_collectors(workspace_id)
-            if linked > 0:
-                logger.info(f"Linked {linked} orphaned collector sessions")
+            except DBAPIError as e:
+                self.session.rollback()
+                if _is_deadlock_error(e) and attempt < max_attempts - 1:
+                    backoff = 0.05 * (2**attempt)
+                    logger.warning(
+                        "Deadlock detected during ingestion for session %s "
+                        "(attempt %s/%s), retrying in %.2fs",
+                        session_id,
+                        attempt + 1,
+                        max_attempts,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    continue
+                processing_time_ms = int((time.time() - start_time) * 1000)
+                logger.error(f"Event processing failed: {e}", exc_info=True)
+                return IngestionOutcome(
+                    status="error",
+                    error_message=str(e),
+                    processing_time_ms=processing_time_ms,
+                )
+            except Exception as e:
+                self.session.rollback()
+                processing_time_ms = int((time.time() - start_time) * 1000)
+                logger.error(f"Event processing failed: {e}", exc_info=True)
+                return IngestionOutcome(
+                    status="error",
+                    error_message=str(e),
+                    processing_time_ms=processing_time_ms,
+                )
 
-            # Calculate processing time
-            processing_time_ms = int((time.time() - start_time) * 1000)
-
-            # Update ingestion job
-            ingestion_job.status = "success"
-            ingestion_job.messages_added = messages_added
-            ingestion_job.processing_time_ms = processing_time_ms
-            ingestion_job.completed_at = _utc_now()
-            ingestion_job.metrics = {
-                "events_received": len(sorted_events),
-                "events_accepted": len(new_events),
-                "events_deduplicated": len(sorted_events) - len(new_events),
-                "files_touched": files_touched,
-                "session_created": created,
-                "total_ms": processing_time_ms,
-            }
-
-            # Queue tagging if enabled
-            if enable_tagging and session_completed and settings.openai_api_key:
-                self._queue_tagging(conversation.id)
-
-            # Extract values before potential session expiry
-            conversation_id = conversation.id
-            last_sequence = conversation.last_event_sequence
-
-            return IngestionOutcome(
-                status="success",
-                conversation_id=conversation_id,
-                messages_added=messages_added,
-                events_accepted=len(new_events),
-                events_deduplicated=len(sorted_events) - len(new_events),
-                processing_time_ms=processing_time_ms,
-                last_sequence=last_sequence,
-                warnings=[],
-            )
-
-        except Exception as e:
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            ingestion_job.status = "failed"
-            ingestion_job.error_message = f"{type(e).__name__}: {str(e)}"
-            ingestion_job.processing_time_ms = processing_time_ms
-            ingestion_job.completed_at = _utc_now()
-
-            logger.error(f"Event processing failed: {e}", exc_info=True)
-            return IngestionOutcome(
-                status="error",
-                error_message=str(e),
-                processing_time_ms=processing_time_ms,
-            )
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        return IngestionOutcome(
+            status="error",
+            error_message="Event processing failed after retries",
+            processing_time_ms=processing_time_ms,
+        )
 
     def _parsed_to_events(self, parsed: "ParsedConversation") -> list[CollectorEvent]:
         """
