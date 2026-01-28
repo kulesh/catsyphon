@@ -18,6 +18,7 @@ from uuid import UUID
 
 import psutil
 import requests
+from sqlalchemy.exc import OperationalError
 
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
@@ -482,6 +483,10 @@ class DaemonManager:
                 repo.clear_daemon_pid(config_id)
                 session.commit()
                 logger.debug(f"Cleared PID from database for config {config_id}")
+        except OperationalError as e:
+            logger.warning(
+                "Failed to clear PID from database (database unavailable): %s", e
+            )
         except Exception as e:
             logger.error(f"Failed to clear PID from database: {e}", exc_info=True)
 
