@@ -21,6 +21,7 @@ This document provides a comprehensive technical overview of CatSyphon's archite
 CatSyphon is a full-stack application for analyzing AI coding assistant conversation logs. It provides:
 
 - **Log ingestion** from multiple AI coding assistants (Claude Code, Cursor, Copilot, etc.)
+- **OTEL ingestion** via OTLP HTTP for Codex telemetry events (opt-in)
 - **AI-powered enrichment** using OpenAI GPT-4o-mini for sentiment, intent, and outcome analysis
 - **Canonicalization** with intelligent message sampling and LLM-optimized narrative generation
 - **60+ insights** across session success, developer experience, tool usage, and code productivity
@@ -39,6 +40,7 @@ graph TB
         CX[OpenAI Codex Logs]
         CR[Cursor Logs]
         CP[Copilot Logs]
+        OTEL[OTLP Log Events]
         OT[Other Agent Logs]
     end
 
@@ -46,6 +48,7 @@ graph TB
         WD[Watch Daemon<br/>Live Monitoring]
         CLI[CLI Tool<br/>Batch Ingestion]
         UPLOAD[Upload API<br/>Web Upload]
+        OTLP[OTLP HTTP Ingest]
     end
 
     subgraph "Processing Pipeline"
@@ -84,6 +87,9 @@ graph TB
     CR --> WD
     CR --> CLI
     OT --> WD
+    OTEL --> OTLP
+
+    OTLP --> PG
 
     WD --> REG
     CLI --> REG
@@ -118,6 +124,7 @@ graph TB
 | **Ingestion** | Watch Daemon | Monitors directories for new logs |
 | | CLI Tool | Batch processing of log files |
 | | Upload API | Web-based file uploads |
+| | OTLP Ingest | Ingests OpenTelemetry logs via HTTP |
 | **Processing** | Parser Registry | Auto-detects log format |
 | | Plugin Parsers | Extensible parser implementations |
 | | Incremental Parser | Optimized for appends (10-106x faster) |

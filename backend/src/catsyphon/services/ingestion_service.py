@@ -65,6 +65,33 @@ def _serialize_for_json(obj: Any) -> Any:
     return obj
 
 
+def _apply_session_start_metadata(
+    conversation: Conversation, data: dict[str, Any]
+) -> bool:
+    """Update conversation metadata from a session_start event."""
+    changed = False
+    agent_type = data.get("agent_type")
+    if agent_type and conversation.agent_type == "unknown":
+        conversation.agent_type = agent_type
+        changed = True
+
+    agent_version = data.get("agent_version")
+    if agent_version and (conversation.agent_version in (None, "unknown")):
+        conversation.agent_version = agent_version
+        changed = True
+
+    if conversation.extra_data is None:
+        conversation.extra_data = {}
+
+    for key in ("working_directory", "git_branch", "parent_session_id", "slug"):
+        if key in data and data[key] is not None:
+            if key not in conversation.extra_data:
+                conversation.extra_data[key] = data[key]
+                changed = True
+
+    return changed
+
+
 @dataclass
 class IngestionOutcome:
     """Result of an ingestion operation."""
@@ -251,11 +278,14 @@ class IngestionService:
                 ingestion_job.completed_at = _utc_now()
                 return IngestionOutcome(status="skipped")
 
-            # Get or create session (conversation)
-            first_event = sorted_events[0]
+            session_start_event = next(
+                (event for event in sorted_events if event.type == "session_start"),
+                None,
+            )
+            earliest_event = sorted_events[0]
 
-            # Extract session metadata from first event
-            session_data = first_event.data
+            # Extract session metadata from session_start when available
+            session_data = (session_start_event or earliest_event).data
             conversation, created = self.session_repo.get_or_create_session(
                 collector_session_id=session_id,
                 workspace_id=workspace_id,
@@ -266,7 +296,7 @@ class IngestionService:
                 git_branch=session_data.get("git_branch"),
                 parent_session_id=session_data.get("parent_session_id"),
                 context_semantics=session_data.get("context_semantics"),
-                first_event_timestamp=first_event.emitted_at,
+                first_event_timestamp=earliest_event.emitted_at,
                 slug=session_data.get("slug"),
                 summaries=session_data.get("summaries"),
                 compaction_events=session_data.get("compaction_events"),
@@ -296,7 +326,13 @@ class IngestionService:
 
             for event in new_events:
                 # Skip session_start for existing sessions
-                if event.type == "session_start" and not created:
+                if event.type == "session_start":
+                    if not created:
+                        if _apply_session_start_metadata(conversation, event.data):
+                            logger.debug(
+                                "Backfilled session metadata for %s",
+                                conversation.id,
+                            )
                     continue
 
                 # Add message for message-like events
@@ -356,10 +392,13 @@ class IngestionService:
 
             # Update counts
             if new_events:
+                last_sequence = (conversation.last_event_sequence or 0) + len(
+                    new_events
+                )
                 self.session_repo.update_sequence(
                     conversation=conversation,
-                    last_sequence=conversation.message_count + len(new_events),
-                    event_count_delta=len(new_events),
+                    last_sequence=last_sequence,
+                    event_count_delta=messages_added,
                 )
                 last_event = max(new_events, key=lambda e: e.emitted_at)
                 self.session_repo.update_last_activity(

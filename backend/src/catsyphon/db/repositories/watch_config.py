@@ -3,6 +3,7 @@ Watch configuration repository.
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -89,7 +90,7 @@ class WatchConfigurationRepository(BaseRepository[WatchConfiguration]):
         """
         from datetime import datetime
 
-        return self.update(id, is_active=True, last_started_at=datetime.utcnow())
+        return self.update(id, is_active=True, last_started_at=datetime.now(timezone.utc))
 
     def deactivate(self, id: uuid.UUID) -> Optional[WatchConfiguration]:
         """
@@ -103,7 +104,7 @@ class WatchConfigurationRepository(BaseRepository[WatchConfiguration]):
         """
         from datetime import datetime
 
-        return self.update(id, is_active=False, last_stopped_at=datetime.utcnow())
+        return self.update(id, is_active=False, last_stopped_at=datetime.now(timezone.utc))
 
     def update_stats(
         self, id: uuid.UUID, stats: dict[str, int]

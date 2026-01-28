@@ -26,7 +26,7 @@ async def upload_conversation_logs(
     update_mode: str = Query(
         "skip",
         description="How to handle existing conversations: 'skip' (default), 'replace', or 'append'",
-        regex="^(skip|replace|append)$",
+        pattern="^(skip|replace|append)$",
     ),
     session: Session = Depends(get_db),
 ) -> UploadResponse:

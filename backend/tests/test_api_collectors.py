@@ -9,7 +9,7 @@ Tests the collector events protocol:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from catsyphon.api.app import app
 from catsyphon.api.routes.collectors import generate_api_key, verify_api_key
 from catsyphon.db.repositories import CollectorRepository
+from catsyphon.models.db import Conversation
 
 
 @pytest.fixture
@@ -182,6 +183,60 @@ class TestEventSubmission:
         assert data["last_sequence"] == 3
         assert "conversation_id" in data
         assert data["warnings"] == []
+
+    def test_session_start_out_of_order_updates_agent_type(
+        self, client, db_session, workspace_with_collector
+    ):
+        """Use session_start metadata even if not first by timestamp."""
+        collector = workspace_with_collector["collector"]
+        api_key = workspace_with_collector["api_key"]
+        session_id = f"test-session-{uuid.uuid4()}"
+
+        base_time = datetime.now(timezone.utc)
+
+        events = [
+            {
+                "sequence": 1,
+                "type": "message",
+                "emitted_at": base_time.isoformat(),
+                "observed_at": base_time.isoformat(),
+                "data": {
+                    "author_role": "human",
+                    "message_type": "prompt",
+                    "content": "hello",
+                },
+            },
+            {
+                "sequence": 2,
+                "type": "session_start",
+                "emitted_at": (base_time + timedelta(seconds=5)).isoformat(),
+                "observed_at": (base_time + timedelta(seconds=5)).isoformat(),
+                "data": {
+                    "agent_type": "codex",
+                    "agent_version": "1.0.0",
+                    "working_directory": "/tmp/project",
+                },
+            },
+        ]
+
+        response = client.post(
+            "/collectors/events",
+            json={"session_id": session_id, "events": events},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-Collector-ID": str(collector.id),
+            },
+        )
+
+        assert response.status_code == 202
+
+        conversation = (
+            db_session.query(Conversation)
+            .filter(Conversation.collector_session_id == session_id)
+            .first()
+        )
+        assert conversation is not None
+        assert conversation.agent_type == "codex"
 
     def test_submit_events_unauthorized(self, client, workspace_with_collector):
         """Test event submission with invalid API key."""

@@ -335,7 +335,7 @@ class IngestionJobTracker:
         self.job.incremental = incremental
         merged_meta = {**metadata_fields, "ingest_mode": ingest_mode}
         self.job.metrics = self._finalize_metrics(metrics, merged_meta)
-        self.job.completed_at = datetime.utcnow()
+        self.job.completed_at = datetime.now(UTC)
         self.session.flush()
 
     def mark_failed(
@@ -352,7 +352,7 @@ class IngestionJobTracker:
         self.job.messages_added = messages_added
         self.job.incremental = incremental
         self.job.metrics = self._finalize_metrics(metrics, metadata_fields)
-        self.job.completed_at = datetime.utcnow()
+        self.job.completed_at = datetime.now(UTC)
         self.session.flush()
 
 
@@ -381,7 +381,7 @@ def _log_ingestion_failure_out_of_band(
                 status="failed",
                 error_message=error_message,
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(UTC),
                 processing_time_ms=processing_time_ms,
                 incremental=incremental,
                 messages_added=messages_added,

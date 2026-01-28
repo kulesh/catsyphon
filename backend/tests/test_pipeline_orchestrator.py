@@ -1,17 +1,16 @@
 import tempfile
 from pathlib import Path
 
-from catsyphon.parsers.registry import get_default_registry
-from catsyphon.pipeline.orchestrator import ingest_log_file
+from catsyphon.db.repositories import ConversationRepository
+from catsyphon.services.ingestion_service import IngestionService
 
 
 def _write_jsonl(path: Path, lines: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def test_ingest_log_file_full_parse(db_session):
-    """Integration: full parse + ingest via orchestrator creates conversation."""
-    registry = get_default_registry()
+def test_ingest_log_file_full_parse(db_session, sample_workspace):
+    """Integration: full parse + ingest via ingestion service creates conversation."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         path = Path(f.name)
     _write_jsonl(
@@ -22,31 +21,24 @@ def test_ingest_log_file_full_parse(db_session):
         ],
     )
 
-    outcome = ingest_log_file(
-        session=db_session,
+    service = IngestionService(db_session)
+    outcome = service.ingest_from_file(
         file_path=path,
-        registry=registry,
+        workspace_id=sample_workspace.id,
         project_name=None,
         developer_username=None,
-        tags=None,
-        skip_duplicates=True,
-        update_mode="skip",
         source_type="cli",
-        source_config_id=None,
-        created_by=None,
-        enable_incremental=True,
     )
     db_session.commit()
 
-    conv = outcome.conversation
+    conv = ConversationRepository(db_session).get(outcome.conversation_id)
     assert conv is not None
     assert outcome.status == "success"
     assert conv.message_count == 2
 
 
-def test_ingest_log_file_incremental_append(db_session):
-    """Integration: incremental append path increases message_count."""
-    registry = get_default_registry()
+def test_ingest_log_file_incremental_append(db_session, sample_workspace):
+    """Integration: reingesting appended file increases message_count."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         path = Path(f.name)
     _write_jsonl(
@@ -56,14 +48,13 @@ def test_ingest_log_file_incremental_append(db_session):
         ],
     )
 
-    outcome = ingest_log_file(
-        session=db_session,
+    service = IngestionService(db_session)
+    outcome = service.ingest_from_file(
         file_path=path,
-        registry=registry,
-        enable_incremental=True,
+        workspace_id=sample_workspace.id,
     )
     db_session.commit()
-    conv = outcome.conversation
+    conv = ConversationRepository(db_session).get(outcome.conversation_id)
     assert conv is not None
     assert conv.message_count == 1
 
@@ -76,23 +67,20 @@ def test_ingest_log_file_incremental_append(db_session):
         ],
     )
 
-    outcome2 = ingest_log_file(
-        session=db_session,
+    outcome2 = service.ingest_from_file(
         file_path=path,
-        registry=registry,
-        enable_incremental=True,
+        workspace_id=sample_workspace.id,
     )
     db_session.commit()
-    conv2 = outcome2.conversation
+    conv2 = ConversationRepository(db_session).get(outcome2.conversation_id)
     assert conv2 is not None
     assert conv2.id == conv.id
     assert conv2.message_count == 2
-    assert outcome2.incremental is True
+    assert outcome2.messages_added == 1
 
 
-def test_ingest_log_file_duplicate_returns_duplicate_status(db_session):
-    """Ingesting the same file twice returns duplicate outcome."""
-    registry = get_default_registry()
+def test_ingest_log_file_duplicate_returns_duplicate_status(db_session, sample_workspace):
+    """Ingesting the same file twice does not add new messages."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         path = Path(f.name)
     _write_jsonl(
@@ -102,13 +90,20 @@ def test_ingest_log_file_duplicate_returns_duplicate_status(db_session):
         ],
     )
 
-    first = ingest_log_file(session=db_session, file_path=path, registry=registry)
+    service = IngestionService(db_session)
+    first = service.ingest_from_file(
+        file_path=path,
+        workspace_id=sample_workspace.id,
+    )
     db_session.commit()
     assert first.status == "success"
-    assert first.conversation is not None
+    assert first.conversation_id is not None
 
-    second = ingest_log_file(session=db_session, file_path=path, registry=registry)
+    second = service.ingest_from_file(
+        file_path=path,
+        workspace_id=sample_workspace.id,
+    )
     db_session.commit()
-    assert second.status == "duplicate"
-    assert second.conversation is not None
-    assert second.conversation.id == first.conversation.id
+    assert second.status == "success"
+    assert second.messages_added == 0
+    assert second.conversation_id == first.conversation_id

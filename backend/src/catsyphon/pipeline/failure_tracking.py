@@ -5,7 +5,7 @@ Centralizes the logic for persisting ingestion/parser failures to the database.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
@@ -44,8 +44,8 @@ def track_failure(
                 file_path=str(file_path) if file_path else None,
                 status="failed",
                 error_message=error_msg,
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 processing_time_ms=0,  # Failed immediately
                 incremental=False,
                 messages_added=0,
@@ -90,8 +90,8 @@ def track_skip(
                 file_path=str(file_path),
                 status="skipped",
                 error_message=reason,  # Store reason in error_message field
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 processing_time_ms=0,
                 incremental=False,
                 messages_added=0,

@@ -130,3 +130,6 @@ class TestSettings:
         # Application settings
         assert hasattr(settings, "environment")
         assert hasattr(settings, "log_level")
+        assert hasattr(settings, "otel_ingest_enabled")
+        assert hasattr(settings, "otel_ingest_token")
+        assert hasattr(settings, "otel_ingest_max_payload_bytes")

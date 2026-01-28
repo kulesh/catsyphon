@@ -205,6 +205,17 @@ class Settings(BaseSettings):
         default=3, alias="CATSYPHON_COLLECTOR_MAX_RETRIES"
     )  # Max retry attempts for failed requests
 
+    # OTEL Ingestion
+    otel_ingest_enabled: bool = Field(
+        default=False, alias="CATSYPHON_OTEL_INGEST_ENABLED"
+    )
+    otel_ingest_token: str | None = Field(
+        default=None, alias="CATSYPHON_OTEL_INGEST_TOKEN"
+    )
+    otel_ingest_max_payload_bytes: int = Field(
+        default=5_000_000, alias="CATSYPHON_OTEL_MAX_PAYLOAD_BYTES"
+    )
+
     # Application
     environment: str = "development"
     parser_modules: list[str] | str = []  # Optional additional parser module paths

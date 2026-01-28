@@ -9,7 +9,7 @@ connection pool exhaustion.
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, text
@@ -117,7 +117,7 @@ class TaggingJobQueue:
 
         # Mark as processing
         job.status = TaggingJobStatus.PROCESSING.value
-        job.started_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
         job.attempts += 1
         self.session.flush()
 
@@ -145,7 +145,7 @@ class TaggingJobQueue:
             logger.warning(f"Job {job_id} not found when trying to complete")
             return
 
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
 
         if success:
             job.status = TaggingJobStatus.COMPLETED.value

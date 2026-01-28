@@ -3,7 +3,7 @@ Collector configuration repository.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -124,7 +124,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
             Updated CollectorConfig or None
         """
         if heartbeat_time is None:
-            heartbeat_time = datetime.utcnow()
+            heartbeat_time = datetime.now(timezone.utc)
         return self.update(id, last_heartbeat=heartbeat_time)
 
     def increment_uploads(
@@ -146,7 +146,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
                 id,
                 total_uploads=collector.total_uploads + 1,
                 total_conversations=collector.total_conversations + conversation_count,
-                last_upload_at=datetime.utcnow(),
+                last_upload_at=datetime.now(timezone.utc),
             )
         return None
 
@@ -164,7 +164,7 @@ class CollectorRepository(BaseRepository[CollectorConfig]):
         """
         from datetime import timedelta
 
-        threshold = datetime.utcnow() - timedelta(minutes=stale_threshold_minutes)
+        threshold = datetime.now(timezone.utc) - timedelta(minutes=stale_threshold_minutes)
         return (
             self.session.query(CollectorConfig)
             .filter(

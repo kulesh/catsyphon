@@ -1609,6 +1609,16 @@ class BenchmarkAvailabilityResponse(BaseModel):
     requires_token: bool
 
 
+# ===== OTEL Schemas =====
+
+
+class OtelStatsResponse(BaseModel):
+    """Response schema for OTEL ingestion stats."""
+
+    total_events: int
+    last_event_at: Optional[datetime] = None
+
+
 # ===== Recap Schemas =====
 
 

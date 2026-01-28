@@ -3,7 +3,7 @@ RawLog repository.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -230,7 +230,7 @@ class RawLogRepository(BaseRepository[RawLog]):
         raw_log.file_size_bytes = file_size
         raw_log.last_processed_offset = file_size  # Processed entire file
         raw_log.partial_hash = partial_hash
-        raw_log.imported_at = datetime.utcnow()
+        raw_log.imported_at = datetime.now(timezone.utc)
 
         # Note: Caller is responsible for flushing to ensure proper
         # transaction ordering (messages must be persisted before RawLog state)

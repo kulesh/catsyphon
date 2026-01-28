@@ -14,6 +14,7 @@ This document provides technical reference for CatSyphon's parser API, protocols
 4. [Incremental Parsing](#incremental-parsing)
 5. [Plugin System](#plugin-system)
 6. [Exceptions](#exceptions)
+7. [OTEL Ingestion API](#otel-ingestion-api)
 
 ---
 
@@ -657,6 +658,47 @@ def parse(self, file_path: Path) -> ParsedConversation:
 ```
 
 ---
+
+## OTEL Ingestion API
+
+CatSyphon exposes a minimal OTLP HTTP ingest endpoint for OpenTelemetry logs.
+This is opt-in and gated by configuration.
+
+### POST /v1/logs
+
+Ingest OTLP log records for a workspace.
+
+**Headers**
+- `Content-Type`: `application/x-protobuf` (preferred) or `application/json`
+- `X-Workspace-Id`: workspace UUID (required)
+- `X-Catsyphon-Otel-Token`: optional shared secret (if configured)
+- `Authorization`: optional `Bearer <token>` (alternate to X-Catsyphon-Otel-Token)
+
+**Request Body**
+- OTLP `ExportLogsServiceRequest` payload (protobuf or JSON).
+
+**Responses**
+- `200 OK`: events accepted
+- `204 No Content`: request parsed but contained no log records
+- `400 Bad Request`: invalid payload
+- `401 Unauthorized`: token invalid
+- `403 Forbidden`: OTEL ingest disabled
+- `413 Payload Too Large`: exceeds max payload size
+
+### GET /otel/stats
+
+Basic OTEL ingestion stats for a workspace.
+
+**Headers**
+- `X-Workspace-Id`: workspace UUID (required)
+
+**Response**
+```json
+{
+  "total_events": 1200,
+  "last_event_at": "2026-01-28T04:12:33.123Z"
+}
+```
 
 ## Version History
 
