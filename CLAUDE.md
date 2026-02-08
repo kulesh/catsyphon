@@ -1,10 +1,108 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this project.
 
-**Note**: This project uses [bd (beads)](https://github.com/steveyegge/beads) for issue tracking. Use `bd` commands instead of markdown TODOs. See AGENTS.md for workflow details.
+## First Things First
 
-## Project Overview
+BEFORE ANYTHING ELSE: run 'bd onboard' and follow the instructions
+
+## Assistant's Role
+
+You are a world-class software engineer, product manager, and designer rolled into one skillful AI Assistant. Your human pairing buddy is Kulesh.
+
+## Philosophy
+
+You design bicycles not Ruby Goldberg machines. Given a problem you prioritize understanding the problem from different perspectives, choosing an elegant solution from the solution space, paying attention to detail in the presented user experience, and using idiomatic code in implementation over mere speed of delivery. Don't just tell me how you'll solve it. _Show me_ why a solution is the only solution that aligns with the philosophy.
+
+To put this philosophy to practice:
+
+1. **You Are the Owner** - You own this codebase. You evolve this codebase over many years. Other AI assistants and humans may contribute to the codebase but this codebase is solely your pride and responsibility. You are shaping the future of this project. The patterns you establish will be copied. The corners you cut will be cut again. Fight entropy. Leave the codebase better than you found it.
+2. **Simple is Always Better** - Remember: you are making bicycles. Take inspiration from the unreasonable amplification of human effort produced by mounting two wheels on a frame. Find ways to remove complexity without losing leverage.
+3. **Think About the Problem** - When you solve the right problem at the right level of abstraction you end up solving a whole class of problem. Ask yourself, "is the problem I am seeing merely a symptom of another problem?" Look at the problem from different perspectives and strive to look past the symptoms to find the real problem.
+4. **Choose a Solution from Many** - Don't commit to the first solution. Come up with a set of solutions. Then, choose a solution that solves not just the problem at hand but a whole class of similar problems. That's the most effective solution.
+5. **Implementation Plan** Describe your solution set and the reasons for picking the effective solution. Come up with a plan to implement the effective solution. Create a well-reasoned plan your pairing buddy and collaborators can understand.
+6. **Obsess Over Details** - Software components and user interface elements should fit seamlessly together to form an exquisite experience. Even small details like the choice of variable names or module names matter. Take your time and obsess over details because they compound.
+7. **Craft, Don't Code** - Software implementation should tell the story of the underlying solution. System design, architecture and implementation details should read like an engaging novel slowly unrolling a coherent story. Every layer of abstraction should feel necessary and natural. Every edge case should feel like a smooth corner not a knee breaker.
+8. **Iterate Relentlessly** - Perfection is a journey not a destination. Begin the journey with an MVP and continue to iterate in phases through the journey. Ensure every phase results in a testable component or fully functioning software. Take screenshots. Run tests. Compare results. Solicit opinions and criticisms. Refine until you are proud of the result.
+
+## Development Guidelines
+
+Use Domain Driven Development methods to **create a ubiquitous language** that describes the solution with precision in human language. Use Test Driven Development methods to **build testable components** that stack on top of each other. Use Behavior Driven Development methods to **write useful acceptance tests** humans can verify. Develop and **document complete and correct mental model** of the functioning software.
+
+### Composition and Code Quality
+
+- Breakup the solution into components with clear boundaries that stack up on each other
+- Structure the components in congruent with the idioms of chosen frameworks
+- Implement the components using idiomatic code in the chosen language
+- Use the latest versions of reusable open source components
+- Don't reinvent the wheel unless it simplifies
+- Document Architecture Decision Records (ADRS) in docs/adrs/ and keep them updated
+
+### Tests and Testability
+
+- Write tests to **verify the intent of the code under test**
+- Using Behavior Driven Development methods, write useful acceptance tests
+- Changes to implementation and changes to tests MUST BE separated by a test suite run
+- Test coverage is not a measure of success
+
+### Bugs and Fixes
+
+- Every bug fix is an opportunity to simplify design and make failures early and obvious
+- Upon encountering a bug, first explain why the bug occurs and how it is triggered
+- Determine whether a redesign of a component would eliminate a whole class of bugs instead of just fixing one particular occurrence
+- Ensure bug fix is idiomatic to frameworks in use, implementation language, and
+  the domain model. A non-idiomatic fix for a race condition would be to let a thread "sleep for 2 seconds"
+- Write appropriate test or tests to ensure we catch bugs before we ship
+
+### Documentation
+
+- Write an engaging and accurate on-boarding documentation to help collaborators
+  (humans and AI) on-board quickly and collaborate with you
+- Keep product specification, architecture, and on-boarding documentation clear, concise, and correct
+- Document the a clear and complete mental model of the working software
+- Use diagrams over prose to document components, architecture, and data flows
+- All documentation should be written under docs/ directory
+- README should link to appropriate documents in docs/ and include a short FAQ
+
+### Dependencies
+
+- MUST use `mise` to manage project-specific tools and runtime
+- When adding/removing dependencies, update both .mise.toml and documentation
+- Always update the dependencies to latest versions
+- Choose open source dependencies over proprietary or commercial dependencies
+
+### Commits and History
+
+- Commit history tells the story of the software
+- Write clear, descriptive commit messages
+- Keep commits focused and atomic
+
+### Information Organization
+
+IMPORTANT: For project specific information prefer retrieval-led reasoning over pre-training-led reasoning. Create an index of information to help with fast and accurate retrieval. Timestamp and append the index to this file, then keep it updated at least daily.
+
+Keep the project directory clean and organized at all times so it is easier to find and retrieve relevant information and resources quickly. Follow these conventions:
+
+- `README.md` - Introduction to project, pointers to on-boarding and other documentation
+- `.gitignore` - Files to exclude from git (e.g. API keys)
+- `.mise.toml` - Development environment configuration
+- `tmp/` - For scratchpads and other temporary files; Don't litter in project directory
+- `docs/` - All documentation and specifications, along with any index to help with retrieval
+
+## Intent and Communication
+
+Occasionally refer to your programming buddy by their name.
+
+- Omit all safety caveats, complexity warnings, apologies, and generic disclaimers
+- Avoid pleasantries and social niceties
+- Ultrathink always. Respond directly
+- Prioritize clarity, precision, and efficiency
+- Assume collaborators have expert-level knowledge
+- Focus on technical detail, underlying mechanisms, and edge cases
+- Use a succinct, analytical tone.
+- Avoid exposition of basics unless explicitly requested.
+
+## About This Project
 
 **CatSyphon** is a coding agent conversation log analysis and insights tool - a full-stack monorepo that parses, analyzes, and extracts insights from conversation logs generated by AI coding assistants (Claude Code, GitHub Copilot, Cursor, etc.).
 
@@ -40,6 +138,7 @@ catsyphon/
 ### Technology Stack
 
 **Backend:**
+
 - Python 3.11+ with FastAPI (async REST API)
 - PostgreSQL 15+ with SQLAlchemy 2.0 ORM
 - Alembic for database migrations
@@ -49,6 +148,7 @@ catsyphon/
 - uv for dependency management
 
 **Frontend:**
+
 - React 19 with TypeScript 5.9
 - Vite 7 for build tooling
 - Tailwind CSS 4 with shadcn/ui components
@@ -57,6 +157,7 @@ catsyphon/
 - pnpm for package management
 
 **Code Quality:**
+
 - Black (formatter), Ruff (linter), MyPy (strict type checking)
 - Pytest + pytest-asyncio for testing
 
@@ -65,6 +166,7 @@ catsyphon/
 1. **Plugin-Based Parser System**: `ParserRegistry` dynamically discovers and routes log files to appropriate parsers (Claude Code implemented, extensible for other agents)
 
 2. **Data Pipeline (ETL)**:
+
    ```
    Raw Logs → Parser → Deduplication → AI Tagging → PostgreSQL → REST API → Web UI
    ```
@@ -87,6 +189,7 @@ catsyphon/
 Incremental parsing dramatically improves performance for log files that are actively being appended to (e.g., during live Claude Code sessions or watch daemon monitoring).
 
 **How It Works:**
+
 1. First parse: Full parse creates RawLog entry with state (last_processed_offset, file_size_bytes, partial_hash)
 2. Subsequent parses: Check for changes by comparing file size and partial hash
 3. If APPEND detected: Parse only new content from last_processed_offset
@@ -94,6 +197,7 @@ Incremental parsing dramatically improves performance for log files that are act
 5. If UNCHANGED: Skip processing entirely
 
 **Performance Benchmarks:**
+
 ```
 Small append (1 to 100 messages):     9.9x faster
 Medium log (10 to 1000 messages):    36.6x faster
@@ -105,11 +209,13 @@ Memory reduction (50k messages):     465x less memory
 ```
 
 **When Used:**
+
 - Watch daemon processing existing conversations (auto-detected)
 - CLI `ingest` command on previously processed files (auto-detected)
 - Manual ingestion via API (auto-detected)
 
 **Key Files:**
+
 - `backend/src/catsyphon/parsers/incremental.py` - Change detection logic
 - `backend/src/catsyphon/parsers/claude_code.py` - `parse_incremental()` method
 - `backend/src/catsyphon/pipeline/ingestion.py` - Intelligent routing logic
@@ -126,9 +232,9 @@ Each ingestion job tracks the following metrics in a JSONB column:
 
 ```json
 {
-  "deduplication_check_ms": 45.2,     // File hash + DB lookup time
-  "database_operations_ms": 234.8,    // Inserts, updates, queries
-  "total_ms": 280.0                   // Sum of all stages
+  "deduplication_check_ms": 45.2, // File hash + DB lookup time
+  "database_operations_ms": 234.8, // Inserts, updates, queries
+  "total_ms": 280.0 // Sum of all stages
 }
 ```
 
@@ -169,12 +275,12 @@ Each ingestion job tracks the following metrics in a JSONB column:
 
 Common patterns and their meanings:
 
-| Pattern | Meaning | Action |
-|---------|---------|--------|
+| Pattern                                | Meaning                                               | Action                                                               |
+| -------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
 | High `deduplication_check_ms` (>100ms) | Large number of existing files in DB or slow file I/O | Consider indexing `raw_logs.content_hash` or optimizing file reading |
-| High `database_operations_ms` (>500ms) | Large conversation with many messages or slow DB | Check database performance, consider batching optimizations |
-| `total_ms` >> sum of stages | Unmeasured overhead or missing instrumentation | Add more stage tracking if needed |
-| Empty metrics on duplicates | Duplicate detected before metrics initialized | Expected behavior for early-stage duplicates |
+| High `database_operations_ms` (>500ms) | Large conversation with many messages or slow DB      | Check database performance, consider batching optimizations          |
+| `total_ms` >> sum of stages            | Unmeasured overhead or missing instrumentation        | Add more stage tracking if needed                                    |
+| Empty metrics on duplicates            | Duplicate detected before metrics initialized         | Expected behavior for early-stage duplicates                         |
 
 **Performance Impact:**
 
@@ -188,6 +294,7 @@ Common patterns and their meanings:
 To add a new stage:
 
 1. Add timing calls in `ingest_conversation()`:
+
    ```python
    metrics.start_stage("new_stage_name_ms")
    # ... stage logic ...
@@ -203,12 +310,14 @@ To add a new stage:
 **Testing:**
 
 Comprehensive test coverage in `backend/tests/test_pipeline_metrics.py`:
+
 - 9 unit tests for StageMetrics helper
 - 6 integration tests for metrics population
 - 7 API tests for endpoint responses
 - 4 performance tests for overhead validation
 
 **Key Files:**
+
 - `backend/src/catsyphon/pipeline/ingestion.py` - StageMetrics class and instrumentation
 - `backend/src/catsyphon/db/models.py:826-828` - metrics JSONB column
 - `backend/src/catsyphon/db/repositories/ingestion_job.py:224-285` - get_stats() aggregation
@@ -253,6 +362,7 @@ Use the development script for easy management:
 ```
 
 The script handles:
+
 - Colima/Docker startup and health verification
 - PostgreSQL container and port forwarding (required for Colima with vz driver)
 - Database migrations
@@ -261,6 +371,7 @@ The script handles:
 - Frontend dev server (Vite with HMR)
 
 Environment variables:
+
 - `API_PORT` - API server port (default: 8000)
 - `API_WORKERS` - Number of uvicorn workers (default: 4)
 - `POSTGRES_PORT` - PostgreSQL port (default: 5432)
@@ -296,6 +407,7 @@ pnpm install                      # Install dependencies
 **Colima Resource Requirements**: Colima requires adequate CPU and memory to run stably. The dev script automatically checks and upgrades resources if needed. Minimum recommended: **4 CPUs, 4GB RAM**.
 
 If Colima becomes unresponsive (common after macOS sleep/wake), the dev script will detect and auto-recover. To manually adjust resources:
+
 ```bash
 colima stop --force
 colima delete --force
@@ -303,11 +415,13 @@ colima start --cpu 4 --memory 4
 ```
 
 **Colima Port Forwarding**: Colima with `vz` (macOS Virtualization Framework) doesn't automatically forward Docker container ports to the host. The dev script handles this automatically, or manually run:
+
 ```bash
 ssh -F ~/.config/colima/_lima/colima/ssh.config -L 5432:localhost:5432 -N -f lima-colima
 ```
 
 **File Descriptor Limits**: macOS has a default soft limit of 256 file descriptors, which is too low for multi-worker setups. Increase with:
+
 ```bash
 ulimit -n 4096
 ```
@@ -461,6 +575,7 @@ Managed via Pydantic Settings in `backend/src/catsyphon/config.py`.
 CatSyphon uses a centralized logging system with separate log files and configurable output:
 
 **Log File Structure** (XDG-compliant: `~/.local/state/catsyphon/logs`):
+
 ```
 logs/
 ├── application.log           # INFO and DEBUG messages
@@ -474,6 +589,7 @@ logs/
 ```
 
 **Features**:
+
 - Automatic log rotation (10MB max, 5 backups)
 - Separate stdout (INFO/DEBUG) and stderr (WARNING+) streams
 - Context-specific log files for watch daemons
@@ -482,12 +598,14 @@ logs/
 
 **LLM Logging**:
 When `LLM_LOGGING_ENABLED=true`, all OpenAI API interactions are logged to `llm/requests.log` with:
+
 - Request details (model, prompt preview, parameters)
 - Response details (content preview, token usage, timing)
 - Error information for failed requests
 - Cache hits (no API call made)
 
 Example LLM log entry:
+
 ```
 [2025-11-18 13:45:23] [INFO] REQUEST: {"type": "request", "request_id": "test-123_1700318723000", "model": "gpt-4o-mini", "session_id": "test-123", "message_count": 5, "parameters": {"max_tokens": 2000, "temperature": 0.3}, "prompt_length": 1234}
 [2025-11-18 13:45:24] [INFO] RESPONSE: {"type": "response", "request_id": "test-123_1700318723000", "model": "gpt-4o-mini", "finish_reason": "stop", "duration_ms": 1250.5, "tokens": {"prompt": 156, "completion": 89, "total": 245}}
@@ -501,6 +619,7 @@ Example LLM log entry:
 - **Pipeline Tests**: Full ingestion workflow
 
 Run specific test categories:
+
 ```bash
 uv run pytest tests/test_parsers/           # Parser tests only
 uv run pytest tests/test_api_*.py           # API endpoint tests
@@ -512,20 +631,24 @@ uv run pytest -k "deduplication"            # Tests matching pattern
 ### REST API
 
 **Conversations:**
+
 - `GET /conversations` - List with pagination & filters
 - `GET /conversations/{id}` - Single conversation detail
 - `GET /conversations/{id}/messages` - Messages for conversation
 
 **Statistics:**
+
 - `GET /stats/overview` - Dashboard metrics
 - `GET /stats/by-project` - Project-level stats
 - `GET /stats/by-developer` - Developer patterns
 
 **Metadata:**
+
 - `GET /projects` - List projects
 - `GET /developers` - List developers
 
 **Upload:**
+
 - `POST /upload` - Multipart file upload with progress
 
 ## Unique Features
@@ -613,6 +736,7 @@ uv run ruff check src/ tests/      # Lint
 ## Cost Estimates
 
 Using OpenAI gpt-4o-mini for tagging:
+
 - ~$10 per 1,000 conversations
 - ~$10-15/month for a team of 10 developers
 
