@@ -10,3 +10,4 @@ export { Sparkline } from './Sparkline';
 export { PlanViewer } from './PlanViewer';
 export { PlanMarker, type PlanMarkerType } from './PlanMarker';
 export { RecommendationsPanel } from './RecommendationsPanel';
+export { TabNavigation, type TabDefinition } from './TabNavigation';

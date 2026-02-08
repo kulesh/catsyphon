@@ -15,10 +15,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from catsyphon.models.db import Conversation, Workspace
+from catsyphon.models.db import Workspace
 from catsyphon.parsers.claude_code import ClaudeCodeParser
 from catsyphon.pipeline.ingestion import ingest_conversation
-
 
 FIXTURES_DIR = Path(__file__).parent.parent / "test_parsers" / "fixtures"
 
@@ -107,12 +106,10 @@ class TestIngestAndQuery:
         """Given a log with tool use, the parser extracts tool calls."""
         parsed = parser.parse(full_fixture)
 
-        tool_bearing_messages = [
-            m for m in parsed.messages if len(m.tool_calls) > 0
-        ]
-        assert len(tool_bearing_messages) >= 1, (
-            "Full conversation should contain at least one message with tool calls"
-        )
+        tool_bearing_messages = [m for m in parsed.messages if len(m.tool_calls) > 0]
+        assert (
+            len(tool_bearing_messages) >= 1
+        ), "Full conversation should contain at least one message with tool calls"
 
     # -- Given/When/Then: pipeline persists and API returns the data ------
 

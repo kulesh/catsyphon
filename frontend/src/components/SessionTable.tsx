@@ -58,7 +58,7 @@ export function SessionTable({
               {columns.map((col) => (
                 <th
                   key={col.id}
-                  className={`px-${isObservatory ? '4' : '6'} py-3 text-${col.align || 'left'} text-xs font-${isObservatory ? 'mono' : 'medium'} ${isObservatory ? 'font-semibold' : ''} text-muted-foreground uppercase tracking-wider`}
+                  className={`${isObservatory ? 'px-4' : 'px-6'} py-3 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} text-xs ${isObservatory ? 'font-mono font-semibold' : 'font-medium'} text-muted-foreground uppercase tracking-wider`}
                 >
                   {col.label}
                 </th>
@@ -67,12 +67,12 @@ export function SessionTable({
           </thead>
           <tbody>
             <tr>
-              <td colSpan={columns.length} className={`px-${isObservatory ? '4' : '6'} py-12 text-center`}>
-                <p className={`font-${isObservatory ? 'mono' : 'medium'} text-sm text-muted-foreground`}>
+              <td colSpan={columns.length} className={`${isObservatory ? 'px-4' : 'px-6'} py-12 text-center`}>
+                <p className={`${isObservatory ? 'font-mono' : 'font-medium'} text-sm text-muted-foreground`}>
                   {isObservatory ? emptyMessage.toUpperCase() : emptyMessage}
                 </p>
                 {emptyHint && (
-                  <p className={`font-${isObservatory ? 'mono' : 'normal'} text-xs text-muted-foreground${isObservatory ? '/60' : ''} mt-1`}>
+                  <p className={`${isObservatory ? 'font-mono text-muted-foreground/60' : 'font-normal text-muted-foreground'} text-xs mt-1`}>
                     {emptyHint}
                   </p>
                 )}
@@ -99,7 +99,7 @@ export function SessionTable({
                   <th
                     key={col.id}
                     onClick={() => sorting.onSort(col.id)}
-                    className={`px-${isObservatory ? '4' : '6'} py-3 text-${col.align || 'left'} text-xs font-${isObservatory ? 'mono' : 'medium'} ${isObservatory ? 'font-semibold' : ''} text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-${isObservatory ? 'slate-800/50' : 'muted'} transition-colors`}
+                    className={`${isObservatory ? 'px-4' : 'px-6'} py-3 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} text-xs ${isObservatory ? 'font-mono font-semibold' : 'font-medium'} text-muted-foreground uppercase tracking-wider cursor-pointer ${isObservatory ? 'hover:bg-slate-800/50' : 'hover:bg-muted'} transition-colors`}
                   >
                     <div className="flex items-center gap-2">
                       {col.label}
@@ -120,7 +120,7 @@ export function SessionTable({
               return (
                 <th
                   key={col.id}
-                  className={`px-${isObservatory ? '4' : '6'} py-3 text-${col.align || 'left'} text-xs font-${isObservatory ? 'mono' : 'medium'} ${isObservatory ? 'font-semibold' : ''} text-muted-foreground uppercase tracking-wider`}
+                  className={`${isObservatory ? 'px-4' : 'px-6'} py-3 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} text-xs ${isObservatory ? 'font-mono font-semibold' : 'font-medium'} text-muted-foreground uppercase tracking-wider`}
                 >
                   {col.label}
                 </th>
@@ -156,7 +156,7 @@ export function SessionTable({
                 {columns.map((col) => (
                   <td
                     key={col.id}
-                    className={`px-${isObservatory ? '4' : '6'} py-${isObservatory ? '3.5' : '4'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''} ${col.id.includes('time') || col.id === 'messages' ? 'whitespace-nowrap' : ''}`}
+                    className={`${isObservatory ? 'px-4 py-3.5' : 'px-6 py-4'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''} ${col.id.includes('time') || col.id === 'messages' ? 'whitespace-nowrap' : ''}`}
                     style={col.id === 'agent_type' && isChild ? { paddingLeft: `calc(${isObservatory ? '1rem' : '1.5rem'} + 1em)` } : undefined}
                   >
                     {col.render(session)}
@@ -183,7 +183,7 @@ export function SessionTable({
 export const renderHelpers = {
   /** Format start time */
   startTime: (session: Session, variant: 'observatory' | 'default' = 'default') => (
-    <span className={`font-mono text-${variant === 'observatory' ? 'xs' : 'sm'} text-foreground${variant === 'observatory' ? '/90' : ''}`}>
+    <span className={`font-mono ${variant === 'observatory' ? 'text-xs text-foreground/90' : 'text-sm text-foreground'}`}>
       {format(
         new Date(session.start_time),
         variant === 'observatory' ? 'MMM dd, yyyy HH:mm' : 'PPp'
@@ -271,7 +271,7 @@ export const renderHelpers = {
   /** Format message count */
   messageCount: (session: Session, variant: 'observatory' | 'default' = 'default') => (
     <span
-      className={`font-mono text-${variant === 'observatory' ? 'xs' : 'sm'} ${variant === 'observatory' ? 'text-foreground/90' : ''}`}
+      className={`font-mono ${variant === 'observatory' ? 'text-xs text-foreground/90' : 'text-sm'}`}
       title="Total number of messages in this conversation"
     >
       {session.message_count.toLocaleString()}

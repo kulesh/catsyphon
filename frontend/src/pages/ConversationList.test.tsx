@@ -1,5 +1,10 @@
 /**
  * Tests for ConversationList component.
+ *
+ * The ConversationList uses an "observatory" theme with uppercase labels,
+ * SessionTable/SessionPagination components, and StatusBadge. Tests use
+ * accessible queries and body text matching for resilience against
+ * visual/theme changes.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -66,20 +71,24 @@ describe('ConversationList', () => {
     vi.mocked(api.getDevelopers).mockResolvedValue(mockDevelopers);
   });
 
-  // REMOVED: Brittle tests checking for specific UI text labels
-  // These tests time out due to element query issues and don't provide value
-
-  it.skip('should render the page title', async () => {
+  it('should render the page title', async () => {
     render(<ConversationList />);
 
-    expect(screen.getByText('Conversations')).toBeInTheDocument();
+    // Observatory theme uses "SESSION ARCHIVE" as heading
+    await waitFor(() => {
+      const heading = screen.getByRole('heading', { level: 1 });
+      expect(heading).toBeInTheDocument();
+      expect(heading.textContent).toContain('SESSION ARCHIVE');
+    });
   });
 
-  it.skip('should display auto-refresh badge', async () => {
+  it('should display auto-refresh indicator', async () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      expect(screen.getByText('Auto-refresh: 15s')).toBeInTheDocument();
+      // Observatory theme shows "AUTO Ns" format
+      const bodyText = document.body.textContent || '';
+      expect(bodyText).toMatch(/AUTO \d+s/);
     });
   });
 
@@ -96,35 +105,40 @@ describe('ConversationList', () => {
     });
   });
 
-  it.skip('should display conversation count', async () => {
+  it('should display entry count in pagination', async () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Showing 1 to 2 of 2 conversations/)).toBeInTheDocument();
+      // SessionPagination (full variant) shows "N - M of T entries"
+      const bodyText = document.body.textContent || '';
+      expect(bodyText).toContain('entries');
+      expect(bodyText).toContain('2'); // total count
     });
   });
 
-  it.skip('should render filters', async () => {
+  it('should render filter controls', async () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      // Wait for data to load by checking for something unique
-      expect(screen.getByText('Clear Filters')).toBeInTheDocument();
+      // Wait for data to load by checking for developer names in table
+      expect(screen.getAllByText('testuser').length).toBeGreaterThan(0);
     });
 
-    // Then check unique filter labels/options are present
-    expect(screen.getByText('Agent Type')).toBeInTheDocument();
-    expect(screen.getByText('Start Date')).toBeInTheDocument();
-    expect(screen.getByText('End Date')).toBeInTheDocument();
-    expect(screen.getByText('All Projects')).toBeInTheDocument();
-    expect(screen.getByText('All Developers')).toBeInTheDocument();
+    // Filter panel is rendered with "FILTER PARAMETERS" heading
+    const bodyText = document.body.textContent || '';
+    expect(bodyText).toContain('FILTER PARAMETERS');
+
+    // Check filter dropdown options exist
+    expect(screen.getByRole('option', { name: 'All Projects' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'All Developers' })).toBeInTheDocument();
   });
 
-  it.skip('should display clear filters button', async () => {
+  it('should display reset button for filters', async () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      expect(screen.getByText('Clear Filters')).toBeInTheDocument();
+      // Observatory theme uses "Reset" button instead of "Clear Filters"
+      expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument();
     });
   });
 
@@ -137,16 +151,18 @@ describe('ConversationList', () => {
     });
   });
 
-  it.skip('should show status badges', async () => {
+  it('should show status badges for conversations', async () => {
     render(<ConversationList />);
 
     await waitFor(() => {
+      // StatusBadge in observatory mode replaces underscores with spaces
+      // "completed" stays as "completed", "in_progress" becomes "in progress"
       expect(screen.getByText('completed')).toBeInTheDocument();
-      expect(screen.getByText('in_progress')).toBeInTheDocument();
+      expect(screen.getByText('in progress')).toBeInTheDocument();
     });
   });
 
-  it.skip('should handle empty state', async () => {
+  it('should handle empty state when no conversations match', async () => {
     vi.mocked(api.getConversations).mockResolvedValue({
       items: [],
       total: 0,
@@ -158,11 +174,13 @@ describe('ConversationList', () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      expect(screen.getByText('No conversations found')).toBeInTheDocument();
+      // SessionTable with observatory variant uppercases the empty message
+      const bodyText = document.body.textContent || '';
+      expect(bodyText).toContain('NO ARCHIVE ENTRIES FOUND');
     });
   });
 
-  it.skip('should handle API errors gracefully', async () => {
+  it('should handle API errors gracefully', async () => {
     vi.mocked(api.getConversations).mockRejectedValue(
       new Error('Failed to fetch conversations')
     );
@@ -170,9 +188,10 @@ describe('ConversationList', () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Error loading conversations/)
-      ).toBeInTheDocument();
+      // Error state shows "Archive Error" heading and the error message
+      const bodyText = document.body.textContent || '';
+      expect(bodyText).toContain('Archive Error');
+      expect(bodyText).toContain('Failed to fetch conversations');
     });
   });
 
@@ -194,7 +213,7 @@ describe('ConversationList', () => {
     });
   });
 
-  it.skip('should display success indicators correctly', async () => {
+  it('should display success indicators correctly', async () => {
     vi.mocked(api.getConversations).mockResolvedValue({
       items: [
         {
@@ -243,12 +262,19 @@ describe('ConversationList', () => {
     render(<ConversationList />);
 
     await waitFor(() => {
-      // Success checkmark
-      expect(screen.getByText('✓')).toBeInTheDocument();
-      // Failure X
-      expect(screen.getByText('✗')).toBeInTheDocument();
-      // In progress shows dash
-      expect(screen.getAllByText('-').length).toBeGreaterThan(0);
+      // Success checkmark (rendered by renderHelpers.successIndicator)
+      const checkmark = screen.getByTitle('Session achieved its goal');
+      expect(checkmark).toBeInTheDocument();
+      expect(checkmark.textContent).toBe('✓');
+
+      // Failure X mark
+      const xmark = screen.getByTitle('Session failed to achieve its goal');
+      expect(xmark).toBeInTheDocument();
+      expect(xmark.textContent).toBe('✗');
+
+      // Null success shows "---"
+      const unknown = screen.getByTitle('Success status unknown or not yet determined');
+      expect(unknown).toBeInTheDocument();
     });
   });
 

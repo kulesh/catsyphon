@@ -1,8 +1,6 @@
 """Unit tests for the plan_extraction module (standalone functions)."""
 
-import pytest
-
-from catsyphon.models.parsed import ParsedMessage, PlanInfo, ToolCall
+from catsyphon.models.parsed import ParsedMessage, ToolCall
 from catsyphon.parsers.plan_extraction import (
     PLAN_FILE_PATTERN,
     PLAN_MODE_ENTRY_PATTERN,

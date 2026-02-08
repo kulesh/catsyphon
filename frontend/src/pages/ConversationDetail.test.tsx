@@ -9,12 +9,22 @@ import userEvent from '@testing-library/user-event';
 import { render } from '@/test/utils';
 import ConversationDetail from './ConversationDetail';
 import * as api from '@/lib/api';
+import { ApiError } from '@/lib/api';
 import type { ConversationDetail as ConversationDetailType } from '@/types/api';
 
-// Mock the API module
-vi.mock('@/lib/api', () => ({
-  getConversation: vi.fn(),
-}));
+// Mock the API module - include all exports the component uses
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    getConversation: vi.fn(),
+    getConversationInsights: vi.fn().mockRejectedValue(new Error('not called')),
+    getConversationRecap: vi.fn().mockRejectedValue(new Error('not called')),
+    getCanonicalNarrative: vi.fn().mockRejectedValue(new Error('not called')),
+    tagConversation: vi.fn(),
+    generateConversationRecap: vi.fn(),
+  };
+});
 
 // Mock react-router-dom
 vi.mock('react-router-dom', async () => {
@@ -48,16 +58,35 @@ const mockConversation: ConversationDetailType = {
   message_count: 42,
   epoch_count: 5,
   files_count: 12,
+  // ConversationListItem fields
+  parent_conversation_id: null,
+  conversation_type: 'human',
+  context_semantics: {},
+  agent_metadata: {},
+  children_count: 0,
+  depth_level: 0,
+  plan_count: 0,
+  slug: null,
+  git_branch: null,
+  total_tokens: null,
   project: {
     id: 'proj-1',
     name: 'Test Project',
-    conversation_count: 10,
+    description: null,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+    directory_path: '/test',
+    session_count: 10,
+    last_session_at: null,
   },
   developer: {
     id: 'dev-1',
     username: 'John Doe',
-    conversation_count: 15,
+    email: null,
+    extra_data: {},
+    created_at: '2025-01-01T00:00:00Z',
   },
+  // ConversationDetail fields
   epochs: [
     {
       id: 'epoch-1',
@@ -70,24 +99,41 @@ const mockConversation: ConversationDetailType = {
       end_time: '2025-01-12T10:30:00Z',
       duration_seconds: 1800,
       extra_data: {},
+      message_count: 10,
     },
   ],
   messages: [
     {
       id: 'msg-1',
-      conversation_id: 'conv-123',
       role: 'user',
       content: 'Help me fix this bug',
+      thinking_content: null,
       timestamp: '2025-01-12T10:00:00Z',
       sequence: 1,
+      tool_calls: [],
+      tool_results: [],
+      code_changes: [],
+      entities: {},
+      extra_data: {},
+      model: null,
+      token_usage: null,
+      stop_reason: null,
     },
     {
       id: 'msg-2',
-      conversation_id: 'conv-123',
       role: 'assistant',
       content: 'I can help with that',
+      thinking_content: null,
       timestamp: '2025-01-12T10:01:00Z',
       sequence: 2,
+      tool_calls: [],
+      tool_results: [],
+      code_changes: [],
+      entities: {},
+      extra_data: {},
+      model: null,
+      token_usage: null,
+      stop_reason: null,
     },
   ],
   files_touched: [
@@ -112,29 +158,12 @@ const mockConversation: ConversationDetailType = {
       extra_data: {},
     },
   ],
-  conversation_tags: [
-    {
-      id: 'tag-1',
-      tag_type: 'intent',
-      tag_value: 'bug_fix',
-      confidence: 0.95,
-      extra_data: {},
-    },
-    {
-      id: 'tag-2',
-      tag_type: 'outcome',
-      tag_value: 'success',
-      confidence: 0.98,
-      extra_data: {},
-    },
-    {
-      id: 'tag-3',
-      tag_type: 'sentiment',
-      tag_value: 'positive',
-      confidence: 0.85,
-      extra_data: {},
-    },
-  ],
+  raw_logs: [],
+  plans: [],
+  children: [],
+  parent: null,
+  summaries: [],
+  compaction_events: [],
 };
 
 describe('ConversationDetail', () => {
@@ -442,7 +471,7 @@ describe('ConversationDetail', () => {
       agent_version: null,
       epochs: [],
       files_touched: [],
-      conversation_tags: [],
+      tags: {},
     });
 
     render(<ConversationDetail />);
@@ -486,5 +515,94 @@ describe('ConversationDetail', () => {
     await waitFor(() => {
       expect(screen.getByText('failed')).toBeInTheDocument();
     });
+  });
+});
+
+describe('ConversationDetail error scenarios', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should display error message from a 404 API error', async () => {
+    vi.mocked(api.getConversation).mockRejectedValue(
+      new ApiError(404, 'Not Found', 'Conversation not found')
+    );
+
+    render(<ConversationDetail />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Error loading conversation/)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Conversation not found/)).toBeInTheDocument();
+    });
+  });
+
+  it('should display error message from a 500 API error', async () => {
+    vi.mocked(api.getConversation).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error', 'Database connection failed')
+    );
+
+    render(<ConversationDetail />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Error loading conversation/)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Database connection failed/)).toBeInTheDocument();
+    });
+  });
+
+  it('should display generic network error message', async () => {
+    vi.mocked(api.getConversation).mockRejectedValue(
+      new Error('Network error: TypeError: Failed to fetch')
+    );
+
+    render(<ConversationDetail />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Error loading conversation/)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Network error/)).toBeInTheDocument();
+    });
+  });
+
+  it('should show back link on error state for navigation recovery', async () => {
+    vi.mocked(api.getConversation).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error', 'Server down')
+    );
+
+    render(<ConversationDetail />);
+
+    await waitFor(() => {
+      const backLink = screen.getByText('← Back to conversations');
+      expect(backLink).toBeInTheDocument();
+      expect(backLink.closest('a')).toHaveAttribute('href', '/conversations');
+    });
+  });
+
+  it('should show loading state while fetching conversation', () => {
+    // Return a promise that never resolves to keep loading state
+    vi.mocked(api.getConversation).mockReturnValue(
+      new Promise(() => {})
+    );
+
+    render(<ConversationDetail />);
+
+    expect(screen.getByText('Loading conversation...')).toBeInTheDocument();
+  });
+
+  it('should show not found state when API returns null', async () => {
+    vi.mocked(api.getConversation).mockResolvedValue(null as any);
+
+    render(<ConversationDetail />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Conversation not found')).toBeInTheDocument();
+    });
+
+    // Should still provide navigation back
+    expect(screen.getByText('← Back to conversations')).toBeInTheDocument();
   });
 });

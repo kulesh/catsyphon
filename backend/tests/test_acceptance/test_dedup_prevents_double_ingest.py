@@ -18,7 +18,6 @@ from catsyphon.parsers.claude_code import ClaudeCodeParser
 from catsyphon.pipeline.ingestion import ingest_conversation
 from catsyphon.utils.hashing import calculate_file_hash
 
-
 FIXTURES_DIR = Path(__file__).parent.parent / "test_parsers" / "fixtures"
 
 

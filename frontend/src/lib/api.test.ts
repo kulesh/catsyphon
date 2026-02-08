@@ -579,3 +579,164 @@ describe('Error handling edge cases', () => {
     await expect(getConversations()).rejects.toThrow('Invalid JSON');
   });
 });
+
+describe('Error handling', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('should throw ApiError with status 404 for not found responses', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      text: async () => 'Resource not found',
+    });
+
+    try {
+      await getConversation('nonexistent-id');
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      const apiError = error as ApiError;
+      expect(apiError.status).toBe(404);
+      expect(apiError.statusText).toBe('Not Found');
+      expect(apiError.name).toBe('ApiError');
+    }
+  });
+
+  it('should throw ApiError with status 500 for server errors', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => 'Something went wrong on the server',
+    });
+
+    try {
+      await getOverviewStats();
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      const apiError = error as ApiError;
+      expect(apiError.status).toBe(500);
+      expect(apiError.statusText).toBe('Internal Server Error');
+    }
+  });
+
+  it('should throw Error with meaningful message on network failure', async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    try {
+      await getProjects();
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(ApiError);
+      expect((error as Error).message).toContain('Network error');
+      expect((error as Error).message).toContain('Failed to fetch');
+    }
+  });
+
+  it('should include response body text as error message', async () => {
+    const errorBody = '{"detail":"Conversation conv-999 not found"}';
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      text: async () => errorBody,
+    });
+
+    try {
+      await getConversation('conv-999');
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      const apiError = error as ApiError;
+      expect(apiError.message).toBe(errorBody);
+      expect(apiError.status).toBe(404);
+    }
+  });
+
+  it('should differentiate 401 unauthorized from other errors', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: async () => 'Authentication required',
+    });
+
+    try {
+      await getHealth();
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      const apiError = error as ApiError;
+      expect(apiError.status).toBe(401);
+      expect(apiError.message).toBe('Authentication required');
+    }
+  });
+
+  it('should handle empty response body on error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      text: async () => '',
+    });
+
+    try {
+      await getDevelopers();
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      const apiError = error as ApiError;
+      expect(apiError.status).toBe(502);
+      // Empty body is falsy, so ApiError falls back to default message format
+      expect(apiError.message).toBe('API Error: 502 Bad Gateway');
+    }
+  });
+
+  it('should wrap non-ApiError exceptions as network errors', async () => {
+    mockFetch.mockRejectedValueOnce('string error');
+
+    try {
+      await getConversationMessages('conv-123');
+      expect.fail('Should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(ApiError);
+      expect((error as Error).message).toContain('Network error');
+    }
+  });
+
+  it('should preserve error status across different API endpoints', async () => {
+    // Test that error handling works consistently across endpoints
+    const endpoints = [
+      () => getConversations(),
+      () => getConversation('id'),
+      () => getConversationMessages('id'),
+      () => getProjects(),
+      () => getDevelopers(),
+      () => getOverviewStats(),
+      () => getHealth(),
+    ];
+
+    for (const endpoint of endpoints) {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        text: async () => 'Maintenance',
+      });
+
+      try {
+        await endpoint();
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).status).toBe(503);
+      }
+    }
+  });
+});

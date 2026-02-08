@@ -10,7 +10,7 @@ import { ApiError, generateConversationRecap, getCanonicalNarrative, getConversa
 import { groupFilesByPath } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
-import { PlanViewer, PlanMarker, type PlanMarkerType, RecommendationsPanel } from '@/components';
+import { PlanViewer, PlanMarker, type PlanMarkerType, RecommendationsPanel, TabNavigation, type TabDefinition } from '@/components';
 
 type Tab = 'overview' | 'insights' | 'recommendations' | 'messages' | 'canonical' | 'plan';
 
@@ -56,12 +56,12 @@ export default function ConversationDetail() {
 
   // Tab configuration - Plan tab only shown if conversation has plans
   const hasPlan = conversation?.plans && conversation.plans.length > 0;
-  const tabs = [
-    { id: 'overview' as Tab, label: 'Overview', icon: Info },
-    { id: 'insights' as Tab, label: 'Insights', icon: Lightbulb },
-    { id: 'recommendations' as Tab, label: 'Advisor', icon: Terminal },
-    { id: 'messages' as Tab, label: 'Messages', icon: MessageSquare },
-    { id: 'canonical' as Tab, label: 'Canonical', icon: FileText },
+  const tabs: TabDefinition<Tab>[] = [
+    { id: 'overview', label: 'Overview', icon: Info },
+    { id: 'insights', label: 'Insights', icon: Lightbulb },
+    { id: 'recommendations', label: 'Advisor', icon: Terminal },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'canonical', label: 'Canonical', icon: FileText },
     ...(hasPlan ? [{ id: 'plan' as Tab, label: 'Plan', icon: ClipboardList }] : []),
   ];
 
@@ -262,34 +262,7 @@ export default function ConversationDetail() {
       )}
 
       {/* Tab Navigation */}
-      <div className="mb-6">
-        <nav className="flex gap-2 bg-slate-900/30 p-1 rounded-lg border border-border/50" aria-label="Tabs">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`
-                  flex-1 inline-flex items-center justify-center gap-2 py-3 px-4 rounded-md font-mono text-xs font-semibold uppercase tracking-wider
-                  transition-all duration-200
-                  ${
-                    isActive
-                      ? 'bg-cyan-400/10 text-cyan-400 border border-cyan-400/30'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'
-                  }
-                `}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      <TabNavigation tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Tab Content */}
       <div className="animate-in fade-in duration-300">

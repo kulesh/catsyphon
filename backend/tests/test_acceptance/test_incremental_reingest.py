@@ -8,7 +8,6 @@ And the total message count matches full parse + incremental delta
 """
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,6 @@ import pytest
 from catsyphon.parsers.claude_code import ClaudeCodeParser
 from catsyphon.parsers.incremental import (
     ChangeType,
-    IncrementalParseResult,
     calculate_partial_hash,
     detect_file_change_type,
 )
@@ -55,23 +53,39 @@ SESSION = "incr-session-001"
 
 INITIAL_LINES = [
     _make_message(
-        SESSION, "m1", "00000000-0000-0000-0000-000000000000",
-        "user", "Hello", "2025-06-01T10:00:00.000Z",
+        SESSION,
+        "m1",
+        "00000000-0000-0000-0000-000000000000",
+        "user",
+        "Hello",
+        "2025-06-01T10:00:00.000Z",
     ),
     _make_message(
-        SESSION, "m2", "m1",
-        "assistant", "Hi there!", "2025-06-01T10:00:01.000Z",
+        SESSION,
+        "m2",
+        "m1",
+        "assistant",
+        "Hi there!",
+        "2025-06-01T10:00:01.000Z",
     ),
 ]
 
 APPENDED_LINES = [
     _make_message(
-        SESSION, "m3", "m2",
-        "user", "What is Python?", "2025-06-01T10:00:02.000Z",
+        SESSION,
+        "m3",
+        "m2",
+        "user",
+        "What is Python?",
+        "2025-06-01T10:00:02.000Z",
     ),
     _make_message(
-        SESSION, "m4", "m3",
-        "assistant", "A programming language.", "2025-06-01T10:00:03.000Z",
+        SESSION,
+        "m4",
+        "m3",
+        "assistant",
+        "A programming language.",
+        "2025-06-01T10:00:03.000Z",
     ),
 ]
 
@@ -95,9 +109,7 @@ class TestIncrementalReingest:
 
     # -- Step 1: Full parse establishes baseline -------------------------
 
-    def test_full_parse_baseline(
-        self, parser: ClaudeCodeParser, log_file: Path
-    ):
+    def test_full_parse_baseline(self, parser: ClaudeCodeParser, log_file: Path):
         """
         Given a fresh log file with 2 messages
         When fully parsed
@@ -258,8 +270,12 @@ class TestIncrementalReingest:
 
         # Second append: 1 more message
         extra_line = _make_message(
-            SESSION, "m5", "m4",
-            "user", "Thanks!", "2025-06-01T10:00:04.000Z",
+            SESSION,
+            "m5",
+            "m4",
+            "user",
+            "Thanks!",
+            "2025-06-01T10:00:04.000Z",
         )
         with log_file.open("a", encoding="utf-8") as f:
             f.write(extra_line + "\n")
