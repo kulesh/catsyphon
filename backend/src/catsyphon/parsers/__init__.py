@@ -14,6 +14,7 @@ from catsyphon.parsers.base import (
 )
 from catsyphon.parsers.claude_code import ClaudeCodeParser
 from catsyphon.parsers.codex import CodexParser
+from catsyphon.parsers.plan_extraction import extract_plan_operations
 from catsyphon.parsers.registry import ParserRegistry, get_default_registry
 from catsyphon.parsers.types import ParseResult
 
@@ -28,4 +29,5 @@ __all__ = [
     "ParserRegistry",
     "get_default_registry",
     "ParseResult",
+    "extract_plan_operations",
 ]
