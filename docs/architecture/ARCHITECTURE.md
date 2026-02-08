@@ -657,7 +657,7 @@ Intent: feature_add
 Sampling: 18/42 messages (43%)
 ```
 
-For full details, see [Canonicalization Architecture](./docs/canonicalization-architecture.md).
+For full details, see [Canonicalization Architecture](../archive/canonicalization-architecture.md).
 
 ---
 
@@ -706,7 +706,7 @@ pie title Insights Distribution
 - Tool call sequences
 - Agent delegation frequency
 
-For the complete catalog, see [Insights Comprehensive Analysis](./docs/insights-comprehensive-analysis.md).
+For the complete catalog, see [Insights Comprehensive Analysis](../archive/insights-comprehensive-analysis.md).
 
 ---
 
@@ -1051,7 +1051,7 @@ class ProjectStats(BaseModel):
 
 ### Performance Benchmarks
 
-See [Benchmarks](./benchmarks.md) for how to run and review performance
+See [Benchmarks](../reference/benchmarks.md) for how to run and review performance
 benchmarks from the web UI or CLI.
 
 ## Security Considerations
@@ -1155,8 +1155,8 @@ CatSyphon's architecture prioritizes:
 | **Future-proofing** | Multi-tenancy ready, scalable design |
 
 For more details, see:
-- [Implementation Plan](./docs/implementation-plan.md)
-- [Parser Plugin SDK](./docs/plugin-sdk.md)
-- [Incremental Parsing Guide](./docs/incremental-parsing.md)
-- [Canonicalization Architecture](./docs/canonicalization-architecture.md)
-- [Insights Comprehensive Analysis](./docs/insights-comprehensive-analysis.md)
+- [Implementation Plan](../archive/implementation-plan.md)
+- [Parser Plugin SDK](../guides/plugin-sdk.md)
+- [Incremental Parsing Guide](./incremental-parsing.md)
+- [Canonicalization Architecture](../archive/canonicalization-architecture.md)
+- [Insights Comprehensive Analysis](../archive/insights-comprehensive-analysis.md)

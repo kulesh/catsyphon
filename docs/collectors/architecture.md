@@ -587,9 +587,9 @@ This section compares the original architectural planning documents with what wa
 
 Three documents defined the original vision:
 
-1. **type-system-reconciliation.md** - Type system alignment between aiobscura and CatSyphon
-2. **log-collection-architecture.md** - High-level product vision and protocol design
-3. **implementation-plan-collector.md** - Detailed phase-by-phase implementation plan
+1. **[type-system-reconciliation.md](../architecture/type-system-reconciliation.md)** - Type system alignment between aiobscura and CatSyphon
+2. **[log-collection.md](./log-collection.md)** - High-level product vision and protocol design
+3. **[implementation-plan.md](./implementation-plan.md)** - Detailed phase-by-phase implementation plan
 
 ### 7.2 What Was Planned vs What Was Built
 

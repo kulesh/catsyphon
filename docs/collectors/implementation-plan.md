@@ -12,7 +12,7 @@ Both products continue to work standalone; integration is opt-in.
 
 ## Phase 0: Type System Alignment (Foundation)
 
-The type systems of aiobscura and CatSyphon have diverged. Before adding integration or security fixes, we must establish a stable, aligned foundation. See `docs/type-system-reconciliation.md` for full analysis.
+The type systems of aiobscura and CatSyphon have diverged. Before adding integration or security fixes, we must establish a stable, aligned foundation. See [Type System Reconciliation](../architecture/type-system-reconciliation.md) for full analysis.
 
 ### 0.1 Summary of Changes
 

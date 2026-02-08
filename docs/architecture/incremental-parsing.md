@@ -436,7 +436,7 @@ Potential improvements for future phases:
 
 ## References
 
-- [Implementation Plan](./implementation-plan.md) - Phase 2 implementation details
+- [Implementation Plan](../archive/implementation-plan.md) - Phase 2 implementation details
 - [Database Schema](../backend/db/migrations/) - Alembic migrations for state tracking
 - [Parser Plugin System](../backend/src/catsyphon/parsers/) - Parser architecture
 - [Performance Benchmarks](../backend/tests/test_performance.py) - Benchmark tests

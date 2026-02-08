@@ -76,6 +76,7 @@ Use Domain Driven Development methods to **create a ubiquitous language** that d
 - Commit history tells the story of the software
 - Write clear, descriptive commit messages
 - Keep commits focused and atomic
+- Follow the conventions in [docs/guides/git-conventions.md](docs/guides/git-conventions.md)
 
 ### Information Organization
 
@@ -192,12 +193,13 @@ pnpm tsc --noEmit
 
 ## Docs to Reference
 
-- docs/ARCHITECTURE.md: system overview, pipeline flow, metrics
-- docs/CLAUDE_CODE_LOG_FORMAT.md: Claude Code log format details
-- docs/incremental-parsing.md: incremental parse behavior and benchmarks
-- docs/plugin-sdk.md: building new parser plugins
-- docs/collector-sdk.md and docs/collector-protocol.md: external collector clients
-- docs/api-reference.md: REST API surface
+- docs/INDEX.md: documentation navigation hub
+- docs/architecture/ARCHITECTURE.md: system overview, pipeline flow, metrics
+- docs/reference/claude-code-log-format.md: Claude Code log format details
+- docs/architecture/incremental-parsing.md: incremental parse behavior and benchmarks
+- docs/guides/plugin-sdk.md: building new parser plugins
+- docs/collectors/sdk.md and docs/collectors/protocol.md: external collector clients
+- docs/reference/api-reference.md: REST API surface
 
 ## Issue Tracking with bd (beads)
 

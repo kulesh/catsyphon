@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## First Things First
 
-BEFORE ANYTHING ELSE: run 'bd onboard' and follow the instructions
+BEFORE ANYTHING ELSE: run 'bd ready' and review available work
 
 ## Assistant's Role
 
@@ -76,6 +76,7 @@ Use Domain Driven Development methods to **create a ubiquitous language** that d
 - Commit history tells the story of the software
 - Write clear, descriptive commit messages
 - Keep commits focused and atomic
+- Follow the conventions in [docs/guides/git-conventions.md](docs/guides/git-conventions.md)
 
 ### Information Organization
 
@@ -87,7 +88,7 @@ Keep the project directory clean and organized at all times so it is easier to f
 - `.gitignore` - Files to exclude from git (e.g. API keys)
 - `.mise.toml` - Development environment configuration
 - `tmp/` - For scratchpads and other temporary files; Don't litter in project directory
-- `docs/` - All documentation and specifications, along with any index to help with retrieval
+- `docs/` - All documentation organized into subdirectories; see [docs/INDEX.md](docs/INDEX.md) for navigation
 
 ## Intent and Communication
 
@@ -742,7 +743,9 @@ Using OpenAI gpt-4o-mini for tagging:
 
 ## Documentation
 
-- [Implementation Plan](./docs/implementation-plan.md) - Comprehensive technical specifications
+- [Documentation Index](./docs/INDEX.md) - Navigation hub for all documentation
+- [Architecture](./docs/architecture/ARCHITECTURE.md) - System design and data flow
+- [ADR Index](./docs/adrs/README.md) - Architecture Decision Records
 - [Agent Guidelines](./AGENTS.md) - Issue tracking workflow for AI agents
 - [README.md](./README.md) - Project overview and quick start
 

@@ -334,8 +334,8 @@ pip install .     # Production
 
 ## Full Documentation
 
-- **Complete SDK Guide:** [docs/plugin-sdk.md](./plugin-sdk.md)
-- **API Reference:** [docs/api-reference.md](./api-reference.md)
+- **Complete SDK Guide:** [Plugin SDK](./plugin-sdk.md)
+- **API Reference:** [API Reference](../reference/api-reference.md)
 - **Examples:** [examples/parsers/](../examples/parsers/)
 
 ---

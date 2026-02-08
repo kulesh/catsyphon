@@ -372,9 +372,9 @@ max_connections = 200
 
 ## Next Steps
 
-- [Collector Protocol Reference](./collector-protocol.md) - Full API specification
-- [Collector SDK](./collector-sdk.md) - Build custom collectors
-- [API Reference](./api-reference.md) - REST API documentation
+- [Collector Protocol Reference](../collectors/protocol.md) - Full API specification
+- [Collector SDK](../collectors/sdk.md) - Build custom collectors
+- [API Reference](../reference/api-reference.md) - REST API documentation
 
 ---
 

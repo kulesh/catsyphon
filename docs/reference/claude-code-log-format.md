@@ -51,7 +51,7 @@ Claude Code generates conversation logs in **JSONL** (JSON Lines) format, where 
 - `isSidechain` flag varies per-message
 - Agent and main messages interleaved
 
-**⚠️ Parser Limitation:** Legacy format files cannot be properly separated into parent-child hierarchies. See [PARSER_LIMITATIONS.md](./PARSER_LIMITATIONS.md) for details.
+**⚠️ Parser Limitation:** Legacy format files cannot be properly separated into parent-child hierarchies. See [PARSER_LIMITATIONS.md](../archive/PARSER_LIMITATIONS.md) for details.
 
 ## File Structure
 
@@ -396,7 +396,7 @@ All messages typically include:
 }
 ```
 
-**⚠️ Limitation:** Parser cannot extract parent-child relationships from legacy format. See [PARSER_LIMITATIONS.md](./PARSER_LIMITATIONS.md).
+**⚠️ Limitation:** Parser cannot extract parent-child relationships from legacy format. See [PARSER_LIMITATIONS.md](../archive/PARSER_LIMITATIONS.md).
 
 ## File Locations
 
@@ -516,10 +516,10 @@ Example:
 
 See the parser implementation at `backend/src/catsyphon/parsers/claude_code.py` for complete parsing logic.
 
-For limitations and edge cases, see [PARSER_LIMITATIONS.md](./PARSER_LIMITATIONS.md).
+For limitations and edge cases, see [PARSER_LIMITATIONS.md](../archive/PARSER_LIMITATIONS.md).
 
 ## References
 
 - Claude Code: https://code.claude.com
 - Parser implementation: `backend/src/catsyphon/parsers/claude_code.py`
-- Parser limitations: `docs/PARSER_LIMITATIONS.md`
+- Parser limitations: [PARSER_LIMITATIONS.md](../archive/PARSER_LIMITATIONS.md)

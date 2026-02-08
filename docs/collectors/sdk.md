@@ -555,9 +555,9 @@ Invalid events return 422 with details.
 
 ## Reference
 
-- [Collector Protocol Specification](./collector-protocol.md) - Full protocol design
-- [API Reference](./api-reference.md) - All REST endpoints
-- [Parser SDK](./plugin-sdk.md) - For building log parsers (not collectors)
+- [Collector Protocol Specification](./protocol.md) - Full protocol design
+- [API Reference](../reference/api-reference.md) - All REST endpoints
+- [Parser SDK](../guides/plugin-sdk.md) - For building log parsers (not collectors)
 
 ---
 

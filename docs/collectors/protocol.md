@@ -52,7 +52,7 @@ CatSyphon also supports OTLP HTTP log ingestion for Codex via `POST /v1/logs`.
 This is separate from the collector events protocol and is intended for
 OpenTelemetry exporters. OTEL ingestion is opt-in and gated by configuration.
 
-See `docs/otel-ingestion.md` for setup details and required headers.
+See [OTEL Ingestion](../reference/otel-ingestion.md) for setup details and required headers.
 
 ---
 

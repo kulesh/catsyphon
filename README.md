@@ -94,7 +94,7 @@ See which files changed most, lines added/deleted across all sessions.
 |-------|--------|
 | Claude Code | Built-in |
 | OpenAI Codex | Built-in |
-| Others | [Plugin SDK](docs/plugin-sdk.md) |
+| Others | [Plugin SDK](docs/guides/plugin-sdk.md) |
 
 ---
 
@@ -140,29 +140,31 @@ pnpm tsc --noEmit               # Type check
 
 | I want to... | Start here |
 |-------------|------------|
-| **Analyze my own logs locally** | [Getting Started](docs/getting-started.md) |
-| **Deploy for my team/company** | [Enterprise Deployment](docs/enterprise-deployment.md) |
-| **Build a parser plugin** | [Parser SDK](docs/plugin-sdk.md) |
-| **Build a collector client** | [Collector SDK](docs/collector-sdk.md) |
+| **Analyze my own logs locally** | [Getting Started](docs/guides/getting-started.md) |
+| **Deploy for my team/company** | [Enterprise Deployment](docs/guides/enterprise-deployment.md) |
+| **Build a parser plugin** | [Parser SDK](docs/guides/plugin-sdk.md) |
+| **Build a collector client** | [Collector SDK](docs/collectors/sdk.md) |
 | **Contribute to CatSyphon** | [Contributing](CONTRIBUTING.md) |
 
 ---
 
 ## Documentation
 
+See the [Documentation Index](docs/INDEX.md) for the full navigation hub.
+
 ### For Users
-- [Getting Started](docs/getting-started.md) - Quick start for individual users
-- [Enterprise Deployment](docs/enterprise-deployment.md) - Team/organization setup
+- [Getting Started](docs/guides/getting-started.md) - Quick start for individual users
+- [Enterprise Deployment](docs/guides/enterprise-deployment.md) - Team/organization setup
 
 ### For Developers
-- [Parser SDK](docs/plugin-sdk.md) - Add support for other AI assistants
-- [Collector SDK](docs/collector-sdk.md) - Build HTTP clients for CatSyphon
-- [Collector Protocol](docs/collector-protocol.md) - Event streaming API specification
-- [OTEL Ingestion](docs/otel-ingestion.md) - Ingest Codex OTLP events
-- [API Reference](docs/api-reference.md) - REST API documentation
+- [Parser SDK](docs/guides/plugin-sdk.md) - Add support for other AI assistants
+- [Collector SDK](docs/collectors/sdk.md) - Build HTTP clients for CatSyphon
+- [Collector Protocol](docs/collectors/protocol.md) - Event streaming API specification
+- [OTEL Ingestion](docs/reference/otel-ingestion.md) - Ingest Codex OTLP events
+- [API Reference](docs/reference/api-reference.md) - REST API documentation
 
 ### Reference
-- [Architecture](docs/ARCHITECTURE.md) - System design and diagrams
+- [Architecture](docs/architecture/ARCHITECTURE.md) - System design and diagrams
 - [Contributing](CONTRIBUTING.md) - Development workflow
 
 ---

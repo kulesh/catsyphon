@@ -161,7 +161,7 @@ cd frontend && pnpm dev
 ## Getting Help
 
 - **Issues**: https://github.com/kulesh/catsyphon/issues
-- **Documentation**: [Full Docs](./README.md)
+- **Documentation**: [Full Docs](../INDEX.md)
 
 ---
 

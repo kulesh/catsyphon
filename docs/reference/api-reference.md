@@ -714,6 +714,6 @@ Basic OTEL ingestion stats for a workspace.
 
 ## See Also
 
-- [Parser Plugin SDK](./plugin-sdk.md) - Complete guide to creating parsers
-- [Parser Quick Start](./parser-quickstart.md) - 15-minute tutorial
-- [Implementation Plan](./implementation-plan.md) - Technical architecture
+- [Parser Plugin SDK](../guides/plugin-sdk.md) - Complete guide to creating parsers
+- [Parser Quick Start](../guides/parser-quickstart.md) - 15-minute tutorial
+- [Implementation Plan](../archive/implementation-plan.md) - Technical architecture
