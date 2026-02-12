@@ -327,9 +327,77 @@ Comprehensive test coverage in `backend/tests/test_pipeline_metrics.py`:
 - `frontend/src/pages/Ingestion.tsx` - Live Activity UI
 - `backend/tests/test_pipeline_metrics.py` - Comprehensive test suite
 
+## Spinning Up the App
+
+The full stack runs entirely in Docker — **no native Python, Node, uv, or pnpm required**. A working `docker` and `docker compose` is the only prerequisite.
+
+```bash
+./catsyphon up        # Detect AI tools, build, and start all services
+```
+
+That's it. The launcher script detects installed AI tools (Claude Code, Codex), mounts their log directories read-only, generates a `docker-compose.override.yml`, auto-creates the organization/workspace/watch configs on first boot, and starts all services. The app is available at `http://localhost:3000`.
+
+Other launcher commands:
+```bash
+./catsyphon down      # Stop all containers
+./catsyphon status    # Show container status and detected tools
+./catsyphon logs      # Stream backend logs
+./catsyphon reset     # Destroy all data and start fresh
+```
+
+### Docker Runtime Detection (for AI assistants)
+
+When asked to "spin up the app", run `./catsyphon up`. The launcher handles all Docker detection, port conflict resolution, and auto-bootstrap. If the user doesn't have Docker running, it will tell them.
+
+For manual control or debugging, the raw `docker compose` commands still work:
+
+```bash
+docker compose up --build -d     # Manual start (no auto-bootstrap)
+docker compose down -v           # Full reset
+```
+
+### Docker Architecture
+
+```
+              :3000 (host)
+┌──────────────────────────┐
+│    Frontend (Nginx)      │  Static React build + reverse proxy
+│    /api/* → backend:8000 │
+└───────────┬──────────────┘
+            │
+┌───────────▼──────────────┐
+│    Backend (FastAPI)     │  uvicorn, 4 workers
+│    :8000 (internal)      │
+└───────────┬──────────────┘
+            │
+┌───────────▼──────────────┐
+│    PostgreSQL 15         │  :5432 (internal)
+└──────────────────────────┘
+```
+
+- Nginx serves the built React SPA and reverse-proxies `/api/*` to the backend (stripping the `/api` prefix). Same-origin — no CORS.
+- Backend runs migrations automatically on startup via `entrypoint.sh`.
+- Postgres is internal only — not exposed to the host by default.
+
+### Environment Variables (Docker)
+
+Override via `.env` file or inline:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FRONTEND_PORT` | `3000` | Host port for the frontend |
+| `API_WORKERS` | `4` | Uvicorn worker count |
+| `POSTGRES_DB` | `catsyphon` | Database name |
+| `POSTGRES_USER` | `catsyphon` | Database user |
+| `POSTGRES_PASSWORD` | `catsyphon_dev_password` | Database password |
+| `OPENAI_API_KEY` | (empty) | For AI tagging (optional) |
+| `LOG_LEVEL` | `INFO` | Backend log level |
+
 ## Development Commands
 
-### Quick Start (Recommended)
+### Native Development (optional)
+
+For active development with hot-reload, you can run services natively instead of Docker. This requires `mise`, `uv`, and `npm`.
 
 Use the development script for easy management:
 
@@ -371,17 +439,10 @@ The script handles:
 - API server with optimal worker count and health check
 - Frontend dev server (Vite with HMR)
 
-Environment variables:
-
-- `API_PORT` - API server port (default: 8000)
-- `API_WORKERS` - Number of uvicorn workers (default: 4)
-- `POSTGRES_PORT` - PostgreSQL port (default: 5432)
-- `FRONTEND_PORT` - Frontend dev server port (default: 5173)
-
 ### Manual Environment Setup
 
 ```bash
-# Install tools (Python 3.11, Node 20, uv, pnpm)
+# Install tools (Python 3.11, Node 20, uv, npm)
 mise install
 
 # Start Colima (Docker runtime)
@@ -400,7 +461,7 @@ uv run alembic upgrade head       # Run migrations
 
 # Frontend setup
 cd frontend
-pnpm install                      # Install dependencies
+npm install                       # Install dependencies
 ```
 
 ### Known Issues
