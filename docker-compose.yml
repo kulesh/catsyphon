@@ -34,13 +34,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-catsyphon}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catsyphon_dev_password}
       POSTGRES_PORT: 5432
-      API_WORKERS: ${API_WORKERS:-2}
+      API_WORKERS: ${API_WORKERS:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    cpus: ${BACKEND_CPU_LIMIT:-1.5}
-    mem_limit: ${BACKEND_MEMORY_LIMIT:-1024m}
-    mem_reservation: ${BACKEND_MEMORY_RESERVATION:-512m}
+    cpus: ${BACKEND_CPU_LIMIT:-2.0}
+    mem_limit: ${BACKEND_MEMORY_LIMIT:-3072m}
+    mem_reservation: ${BACKEND_MEMORY_RESERVATION:-1024m}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s

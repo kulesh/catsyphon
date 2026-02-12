@@ -39,7 +39,7 @@ else:
     from watchdog.observers import Observer
 
 from catsyphon.config import settings
-from catsyphon.db.connection import db_session
+from catsyphon.db.connection import db_session, engine as db_engine
 from catsyphon.db.repositories.raw_log import RawLogRepository
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers.base import EmptyFileError
@@ -1308,6 +1308,10 @@ def run_daemon_process(
     logger.info(
         f"Watch daemon process starting (PID: {os.getpid()}, config: {config_id})"
     )
+
+    # This process is forked from the API process; dispose inherited pooled
+    # connections so the child creates its own DB connections safely.
+    db_engine.dispose()
 
     # Build API config (required for ingestion)
     api_config = ApiIngestionConfig(

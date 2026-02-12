@@ -495,6 +495,57 @@ class TestDaemonManager:
             # Verify it tried to deactivate the failed config
             mock_watch_repo.deactivate.assert_called_once_with(bad_config.id)
 
+    @patch("catsyphon.daemon_manager.db_session")
+    def test_load_active_configs_across_all_workspaces(self, mock_db_session):
+        """Test load_active_configs starts daemons from all active workspaces."""
+        workspace_1 = Mock(id=uuid4(), is_active=True)
+        workspace_2 = Mock(id=uuid4(), is_active=True)
+
+        config_1 = WatchConfiguration(
+            id=uuid4(),
+            workspace_id=workspace_1.id,
+            directory="/tmp/ws1",
+            is_active=True,
+            enable_tagging=False,
+            stats={},
+            extra_config={},
+        )
+        config_2 = WatchConfiguration(
+            id=uuid4(),
+            workspace_id=workspace_2.id,
+            directory="/tmp/ws2",
+            is_active=True,
+            enable_tagging=False,
+            stats={},
+            extra_config={},
+        )
+
+        mock_session = Mock()
+        mock_watch_repo = Mock()
+        mock_watch_repo.get_all_active.side_effect = [[config_1], [config_2]]
+        mock_workspace_repo = Mock()
+        mock_workspace_repo.get_all.return_value = [workspace_1, workspace_2]
+        mock_db_session.return_value.__enter__.return_value = mock_session
+
+        manager = DaemonManager()
+
+        with (
+            patch(
+                "catsyphon.daemon_manager.WatchConfigurationRepository",
+                return_value=mock_watch_repo,
+            ),
+            patch(
+                "catsyphon.daemon_manager.WorkspaceRepository",
+                return_value=mock_workspace_repo,
+            ),
+            patch.object(manager, "start_daemon") as mock_start,
+        ):
+            manager.load_active_configs()
+
+        assert mock_start.call_count == 2
+        mock_start.assert_any_call(config_1)
+        mock_start.assert_any_call(config_2)
+
     @patch("catsyphon.daemon_manager.fetch_builtin_credentials")
     @patch("catsyphon.daemon_manager.db_session")
     def test_stats_sync_loop(
@@ -630,6 +681,42 @@ class TestDaemonManager:
         with manager._lock:
             if config.id in manager._daemons:
                 assert manager._daemons[config.id].restart_policy.crash_count > 0
+
+    @patch("catsyphon.daemon_manager.WatchConfigurationRepository")
+    @patch("catsyphon.daemon_manager.db_session")
+    def test_check_daemon_health_respects_backoff_before_deactivation(
+        self, mock_db_session, mock_watch_repo
+    ):
+        """Test crashed daemon is not immediately deactivated during backoff."""
+        config_id = uuid4()
+
+        mock_session = Mock()
+        mock_repo = Mock()
+        mock_watch_repo.return_value = mock_repo
+        mock_db_session.return_value.__enter__.return_value = mock_session
+
+        manager = DaemonManager()
+
+        dead_process = Mock()
+        dead_process.is_alive.return_value = False
+        dead_process.pid = 99999
+
+        entry = DaemonEntry(
+            process=dead_process,
+            config_id=config_id,
+            pid=99999,
+        )
+
+        with manager._lock:
+            manager._daemons[config_id] = entry
+
+        manager._check_daemon_health(config_id)
+
+        with manager._lock:
+            assert config_id in manager._daemons
+            assert manager._daemons[config_id].restart_policy.restart_attempts == 1
+
+        mock_repo.deactivate.assert_not_called()
 
 
 @pytest.mark.slow
