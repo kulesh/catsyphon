@@ -332,39 +332,29 @@ Comprehensive test coverage in `backend/tests/test_pipeline_metrics.py`:
 The full stack runs entirely in Docker — **no native Python, Node, uv, or pnpm required**. A working `docker` and `docker compose` is the only prerequisite.
 
 ```bash
-docker compose up --build        # Build and start all services
+./catsyphon up        # Detect AI tools, build, and start all services
 ```
 
-That's it. Postgres, the FastAPI backend, and the Nginx-served React frontend all come up with health checks and dependency ordering. The app is available at `http://localhost:3000`.
+That's it. The launcher script detects installed AI tools (Claude Code, Codex), mounts their log directories read-only, generates a `docker-compose.override.yml`, auto-creates the organization/workspace/watch configs on first boot, and starts all services. The app is available at `http://localhost:3000`.
+
+Other launcher commands:
+```bash
+./catsyphon down      # Stop all containers
+./catsyphon status    # Show container status and detected tools
+./catsyphon logs      # Stream backend logs
+./catsyphon reset     # Destroy all data and start fresh
+```
 
 ### Docker Runtime Detection (for AI assistants)
 
-When asked to "spin up the app", follow this procedure:
+When asked to "spin up the app", run `./catsyphon up`. The launcher handles all Docker detection, port conflict resolution, and auto-bootstrap. If the user doesn't have Docker running, it will tell them.
 
-1. **Check for a working Docker runtime.** Run `docker info` (not `which docker`). If it succeeds, Docker is available — regardless of whether it's Docker Desktop, Colima, OrbStack, Rancher Desktop, Podman with docker-compat, or anything else. Do NOT assume a specific runtime or try to install one.
+For manual control or debugging, the raw `docker compose` commands still work:
 
-2. **If `docker info` fails**, tell the user Docker isn't running and ask them to start their preferred runtime. Do not `brew install` anything.
-
-3. **Check for `docker compose`** (v2, as a subcommand). Run `docker compose version`. If unavailable, fall back to checking `docker-compose --version` (v1 standalone). Use whichever is available.
-
-4. **Handle port conflicts.** The default ports are:
-   - `3000` — Frontend (Nginx)
-   - Internal only: `8000` (backend), `5432` (Postgres) — not exposed to host
-
-   Before running `docker compose up`, check if port 3000 is occupied:
-   ```bash
-   lsof -i :3000 -t  # macOS/Linux
-   ```
-   If occupied, start with an alternate port:
-   ```bash
-   FRONTEND_PORT=3001 docker compose up --build
-   ```
-   Then tell the user the actual URL (e.g. `http://localhost:3001`).
-
-5. **Run `docker compose up --build`** and wait for all containers to report healthy. Verify with:
-   ```bash
-   curl -s http://localhost:${PORT}/api/health
-   ```
+```bash
+docker compose up --build -d     # Manual start (no auto-bootstrap)
+docker compose down -v           # Full reset
+```
 
 ### Docker Architecture
 

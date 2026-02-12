@@ -216,6 +216,14 @@ class Settings(BaseSettings):
         default=5_000_000, alias="CATSYPHON_OTEL_MAX_PAYLOAD_BYTES"
     )
 
+    # Auto-bootstrap (set by launcher script)
+    auto_setup: bool = Field(default=False, alias="AUTO_SETUP")
+    auto_org_name: str = Field(default="", alias="AUTO_ORG_NAME")
+    auto_workspace_name: str = Field(
+        default="Engineering", alias="AUTO_WORKSPACE_NAME"
+    )
+    auto_watch_dirs: str = Field(default="", alias="AUTO_WATCH_DIRS")
+
     # Application
     environment: str = "development"
     parser_modules: list[str] | str = []  # Optional additional parser module paths

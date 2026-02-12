@@ -30,6 +30,7 @@ from catsyphon.api.routes import (
     upload,
     watch,
 )
+from catsyphon.config import settings
 from catsyphon.daemon_manager import DaemonManager
 from catsyphon.logging_config import setup_logging
 from catsyphon.startup import run_all_startup_checks
@@ -99,6 +100,15 @@ async def lifespan(app: FastAPI):
         else:
             logger.error("Server not ready after 15s, skipping config loading")
             return
+
+        # Auto-bootstrap org, workspace, and watch configs if configured
+        if settings.auto_setup:
+            try:
+                from catsyphon.bootstrap import auto_bootstrap
+
+                auto_bootstrap()
+            except Exception as e:
+                logger.error(f"Auto-bootstrap failed: {e}", exc_info=True)
 
         # Load configs (with retry in fetch_builtin_credentials for robustness)
         try:
