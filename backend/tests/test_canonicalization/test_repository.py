@@ -3,8 +3,13 @@
 from datetime import datetime
 from uuid import uuid4
 
+from sqlalchemy.dialects import postgresql
+
 from catsyphon.canonicalization.version import CANONICAL_VERSION
-from catsyphon.db.repositories.canonical import CanonicalRepository
+from catsyphon.db.repositories.canonical import (
+    CanonicalRepository,
+    _build_postgres_upsert_stmt,
+)
 
 
 def test_get_cached_returns_none_when_no_cache(test_session):
@@ -258,3 +263,27 @@ def test_invalidate_by_conversation(test_session, sample_conversation):
         canonical_type="tagging",
     )
     assert cached is None
+
+
+def test_postgres_upsert_uses_metadata_column_for_jsonb() -> None:
+    """Ensure Postgres upsert targets physical `metadata` JSONB column."""
+    data = {
+        "conversation_id": uuid4(),
+        "version": CANONICAL_VERSION,
+        "canonical_type": "tagging",
+        "narrative": "canonical text",
+        "token_count": 123,
+        "canonical_metadata": {"tools_used": ["Read"]},
+        "config": {"token_budget": 8000},
+        "source_message_count": 5,
+        "source_token_estimate": 500,
+        "generated_at": datetime.now(),
+    }
+
+    stmt = _build_postgres_upsert_stmt(data)
+    sql = str(stmt.compile(dialect=postgresql.dialect()))
+
+    # Regression guard: avoid emitting non-existent/alias column name.
+    assert "canonical_metadata" not in sql
+    assert "metadata" in sql
+    assert "metadata = %(param_" in sql

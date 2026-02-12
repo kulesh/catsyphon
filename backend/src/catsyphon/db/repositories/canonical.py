@@ -21,6 +21,51 @@ from catsyphon.models.db import ConversationCanonical
 logger = logging.getLogger(__name__)
 
 
+def _build_postgres_upsert_stmt(data: dict):
+    """Build PostgreSQL upsert statement for canonical cache rows.
+
+    Uses physical column names from `conversation_canonical` to avoid ORM
+    attribute alias mismatches (e.g. `canonical_metadata` -> `metadata`).
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    table = ConversationCanonical.__table__
+    insert_values = {
+        "conversation_id": data["conversation_id"],
+        "version": data["version"],
+        "canonical_type": data["canonical_type"],
+        "narrative": data["narrative"],
+        "token_count": data["token_count"],
+        "metadata": data["canonical_metadata"],
+        "config": data["config"],
+        "source_message_count": data["source_message_count"],
+        "source_token_estimate": data["source_token_estimate"],
+        "generated_at": data["generated_at"],
+    }
+
+    return (
+        pg_insert(table)
+        .values(**insert_values)
+        .on_conflict_do_update(
+            index_elements=[
+                table.c.conversation_id,
+                table.c.version,
+                table.c.canonical_type,
+            ],
+            set_={
+                table.c.narrative: insert_values["narrative"],
+                table.c.token_count: insert_values["token_count"],
+                table.c.metadata: insert_values["metadata"],
+                table.c.config: insert_values["config"],
+                table.c.source_message_count: insert_values["source_message_count"],
+                table.c.source_token_estimate: insert_values["source_token_estimate"],
+                table.c.generated_at: insert_values["generated_at"],
+            },
+        )
+        .returning(table.c.id)
+    )
+
+
 class CanonicalRepository(BaseRepository[ConversationCanonical]):
     """Repository for managing canonical conversation representations.
 
@@ -227,22 +272,7 @@ class CanonicalRepository(BaseRepository[ConversationCanonical]):
 
         # Prefer PostgreSQL upsert to avoid race conditions across workers.
         if self.session.bind and self.session.bind.dialect.name == "postgresql":
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-            stmt = pg_insert(ConversationCanonical).values(**data)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["conversation_id", "version", "canonical_type"],
-                set_={
-                    "narrative": data["narrative"],
-                    "token_count": data["token_count"],
-                    "canonical_metadata": data["canonical_metadata"],
-                    "config": data["config"],
-                    "source_message_count": data["source_message_count"],
-                    "source_token_estimate": data["source_token_estimate"],
-                    "generated_at": data["generated_at"],
-                },
-            ).returning(ConversationCanonical.id)
-
+            stmt = _build_postgres_upsert_stmt(data)
             canonical_id = self.session.execute(stmt).scalar_one()
             db_canonical = self.session.get(ConversationCanonical, canonical_id)
             if db_canonical is None:
