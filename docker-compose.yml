@@ -10,6 +10,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-catsyphon}
       POSTGRES_USER: ${POSTGRES_USER:-catsyphon}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catsyphon_dev_password}
+    cpus: ${POSTGRES_CPU_LIMIT:-1.0}
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-768m}
+    mem_reservation: ${POSTGRES_MEMORY_RESERVATION:-384m}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -31,10 +34,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-catsyphon}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catsyphon_dev_password}
       POSTGRES_PORT: 5432
-      API_WORKERS: ${API_WORKERS:-4}
+      API_WORKERS: ${API_WORKERS:-2}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    cpus: ${BACKEND_CPU_LIMIT:-1.5}
+    mem_limit: ${BACKEND_MEMORY_LIMIT:-1024m}
+    mem_reservation: ${BACKEND_MEMORY_RESERVATION:-512m}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -51,6 +57,9 @@ services:
         condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    cpus: ${FRONTEND_CPU_LIMIT:-0.5}
+    mem_limit: ${FRONTEND_MEMORY_LIMIT:-256m}
+    mem_reservation: ${FRONTEND_MEMORY_RESERVATION:-128m}
     restart: unless-stopped
 
 volumes:

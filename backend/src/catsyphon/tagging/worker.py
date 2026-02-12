@@ -148,6 +148,11 @@ class TaggingWorker:
                 f"Processing tagging job {job_id} for conversation {conversation_id}"
             )
 
+            # Persist claim state before processing so failed attempts are counted.
+            # Without this commit, a rollback in the exception path resets attempts
+            # and can cause infinite retry loops.
+            session.commit()
+
             try:
                 # Load conversation
                 conv_repo = ConversationRepository(session)
