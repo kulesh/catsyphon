@@ -21,6 +21,7 @@ This directory captures key architectural decisions for CatSyphon using the ligh
 | [005](005-hash-based-deduplication.md) | Hash-Based Deduplication | Accepted |
 | [006](006-polling-over-websockets.md) | Polling Over WebSockets | Accepted |
 | [007](007-unified-ingestion-architecture.md) | Unified Ingestion Architecture | Accepted |
+| [008](008-skill-native-analytics-architecture.md) | Skill-Native Analytics Architecture | Accepted |
 
 ## Template
 

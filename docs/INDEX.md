@@ -28,6 +28,8 @@ New to CatSyphon? Read these in order:
 | [Incremental Parsing](architecture/incremental-parsing.md) | Offset-based parsing optimization |
 | [Type System](architecture/type-system-reconciliation.md) | Type alignment across stack |
 | [AI Insights & Metrics](architecture/ai-insights-metrics-analysis.md) | Metrics analysis design |
+| [Skill-Based Analytics Product Spec](architecture/skill-based-analytics-product-spec.md) | Product specification for skill-native analytics |
+| [Skill-Based Analytics Implementation Plan](architecture/skill-based-analytics-implementation-plan.md) | Phased implementation and migration plan |
 
 ## Reference
 
@@ -59,5 +61,6 @@ New to CatSyphon? Read these in order:
 | [005](adrs/005-hash-based-deduplication.md) | Hash-Based Deduplication |
 | [006](adrs/006-polling-over-websockets.md) | Polling Over WebSockets |
 | [007](adrs/007-unified-ingestion-architecture.md) | Unified Ingestion Architecture |
+| [008](adrs/008-skill-native-analytics-architecture.md) | Skill-Native Analytics Architecture |
 
 See [ADR Index](adrs/README.md) for template and status legend.
