@@ -177,14 +177,22 @@ class TestStartupScan:
         mock_db_session.return_value.__enter__.return_value = mock_session
 
         mock_repo = Mock()
-        mock_repo.get_files_in_directory.return_value = [mock_raw_logs[0]]
+        # Return all 3 raw logs as tracked so Phase 3 finds no new files
+        mock_repo.get_files_in_directory.return_value = mock_raw_logs
         mock_repo_class.return_value = mock_repo
 
-        mock_detect_change.return_value = ChangeType.APPEND
+        # Only file1 has APPEND change; others unchanged
+        file_path = Path(mock_raw_logs[0].file_path)
+
+        def detect_side_effect(fp, *args, **kwargs):
+            if fp == file_path:
+                return ChangeType.APPEND
+            return ChangeType.UNCHANGED
+
+        mock_detect_change.side_effect = detect_side_effect
         mock_collector_client.return_value = Mock()
 
         # Append to file to simulate change
-        file_path = Path(mock_raw_logs[0].file_path)
         file_path.write_text("test content 1\nmore content")
 
         daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
@@ -193,7 +201,7 @@ class TestStartupScan:
         # Run scan
         daemon._scan_existing_files()
 
-        # Verify file was processed
+        # Verify only the appended file was processed
         daemon.event_handler._process_file.assert_called_once()
         assert daemon.event_handler._process_file.call_args[0][0] == file_path
 
@@ -217,10 +225,19 @@ class TestStartupScan:
         mock_db_session.return_value.__enter__.return_value = mock_session
 
         mock_repo = Mock()
-        mock_repo.get_files_in_directory.return_value = [mock_raw_logs[0]]
+        # Return all 3 raw logs as tracked so Phase 3 finds no new files
+        mock_repo.get_files_in_directory.return_value = mock_raw_logs
         mock_repo_class.return_value = mock_repo
 
-        mock_detect_change.return_value = ChangeType.REWRITE
+        # Only file1 has REWRITE change; others unchanged
+        rewritten_path = Path(mock_raw_logs[0].file_path)
+
+        def detect_side_effect(fp, *args, **kwargs):
+            if fp == rewritten_path:
+                return ChangeType.REWRITE
+            return ChangeType.UNCHANGED
+
+        mock_detect_change.side_effect = detect_side_effect
         mock_collector_client.return_value = Mock()
 
         daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
@@ -229,7 +246,7 @@ class TestStartupScan:
         # Run scan
         daemon._scan_existing_files()
 
-        # Verify file was processed
+        # Verify only the rewritten file was processed
         daemon.event_handler._process_file.assert_called_once()
 
     @patch("catsyphon.collector_client.CollectorClient")
@@ -251,13 +268,18 @@ class TestStartupScan:
         mock_session = Mock()
         mock_db_session.return_value.__enter__.return_value = mock_session
 
-        # Delete the file
+        # Delete file1 from disk
         file_path = Path(mock_raw_logs[0].file_path)
         file_path.unlink()
 
         mock_repo = Mock()
-        mock_repo.get_files_in_directory.return_value = [mock_raw_logs[0]]
+        # Return all 3 raw logs as tracked; file2/file3 still on disk but tracked,
+        # so Phase 3 won't find them as new. file1 is deleted.
+        mock_repo.get_files_in_directory.return_value = mock_raw_logs
         mock_repo_class.return_value = mock_repo
+
+        # file2 and file3 are unchanged
+        mock_detect_change.return_value = ChangeType.UNCHANGED
         mock_collector_client.return_value = Mock()
 
         daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
@@ -266,9 +288,10 @@ class TestStartupScan:
         # Run scan
         daemon._scan_existing_files()
 
-        # Verify file was not processed (doesn't exist)
+        # Verify no file was processed — file1 deleted, file2/file3 unchanged
         daemon.event_handler._process_file.assert_not_called()
-        mock_detect_change.assert_not_called()
+        # detect_change should be called for file2 and file3 (skipped file1 - doesn't exist)
+        assert mock_detect_change.call_count == 2
 
     @patch("catsyphon.collector_client.CollectorClient")
     @patch("catsyphon.parsers.incremental.detect_file_change_type")

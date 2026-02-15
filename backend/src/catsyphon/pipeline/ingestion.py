@@ -1717,7 +1717,11 @@ def ingest_messages_incremental(
         raise
 
 
-def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
+def link_orphaned_agents(
+    session: Session,
+    workspace_id: UUID,
+    max_linking_attempts: int = 10,
+) -> int:
     """
     Link orphaned agent conversations to their parent conversations.
 
@@ -1726,9 +1730,13 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
     conversations without parent links and attempts to link them using the
     parent_session_id from agent_metadata.
 
+    Orphans that exceed ``max_linking_attempts`` are skipped to avoid wasting
+    queries on permanently-unresolvable entries (e.g. parent log was deleted).
+
     Args:
         session: Database session
         workspace_id: Workspace UUID to scope the linking
+        max_linking_attempts: Stop retrying after this many failed attempts
 
     Returns:
         Number of agents successfully linked
@@ -1761,8 +1769,18 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
     logger.info(f"Found {len(orphaned_agents)} orphaned agent conversations to link")
 
     linked_count = 0
+    skipped_count = 0
 
     for agent in orphaned_agents:
+        # Check and increment linking attempt counter
+        attempts = agent.agent_metadata.get("_linking_attempts", 0)
+        if attempts >= max_linking_attempts:
+            skipped_count += 1
+            logger.debug(
+                f"Skipping agent {agent.id}: exceeded max linking attempts ({attempts}/{max_linking_attempts})"
+            )
+            continue
+
         # Get parent_session_id from agent_metadata
         parent_session_id = agent.agent_metadata.get("parent_session_id")
 
@@ -1784,9 +1802,12 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
             )
 
         if not parent_conversation:
+            # Increment attempt counter so we eventually stop retrying
+            updated_metadata = {**agent.agent_metadata, "_linking_attempts": attempts + 1}
+            agent.agent_metadata = updated_metadata
             logger.warning(
-                f"Parent conversation (MAIN or METADATA) not found for agent {agent.id} "
-                f"(parent_session_id={parent_session_id})"
+                f"Parent conversation not found for agent {agent.id} "
+                f"(parent_session_id={parent_session_id}, attempt {attempts + 1}/{max_linking_attempts})"
             )
             continue
 
@@ -1803,6 +1824,7 @@ def link_orphaned_agents(session: Session, workspace_id: UUID) -> int:
 
     logger.info(
         f"Post-ingestion linking complete: linked {linked_count}/{len(orphaned_agents)} agents"
+        + (f", skipped {skipped_count} (max attempts)" if skipped_count else "")
     )
 
     return linked_count

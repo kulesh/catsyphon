@@ -5,6 +5,7 @@ Monitors a directory for new Claude Code conversation logs (.jsonl files)
 and automatically ingests them into the database using the existing pipeline.
 """
 
+import fcntl
 import logging
 import os
 import platform
@@ -12,6 +13,7 @@ import signal
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from multiprocessing import Queue
@@ -41,6 +43,7 @@ else:
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session, engine as db_engine
 from catsyphon.db.repositories.raw_log import RawLogRepository
+from catsyphon.models.db import Conversation
 from catsyphon.exceptions import DuplicateFileError
 from catsyphon.parsers.base import EmptyFileError
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
@@ -582,7 +585,15 @@ class FileWatcher(FileSystemEventHandler):
                 existing_raw_log = raw_log_repo.get_by_file_path(str(file_path))
 
                 if existing_raw_log:
-                    # Copy state to plain dict to avoid detached session issues
+                    # Copy state to plain dict to avoid detached session issues.
+                    # Include conversation metadata so the incremental path uses
+                    # the same session_id/working_directory as the original full
+                    # parse — prevents duplicate conversations for agents whose
+                    # file stems don't match the parser-extracted session_id
+                    # (e.g., Codex: file stem is "rollout-...-UUID" but parser
+                    # extracts just the UUID from session_meta).
+                    conv = session.get(Conversation, existing_raw_log.conversation_id)
+                    conv_metadata = conv.extra_data if conv else {}
                     existing_raw_log_state = {
                         "last_processed_offset": existing_raw_log.last_processed_offset
                         or 0,
@@ -591,6 +602,10 @@ class FileWatcher(FileSystemEventHandler):
                         "file_size_bytes": existing_raw_log.file_size_bytes or 0,
                         "partial_hash": existing_raw_log.partial_hash,
                         "agent_type": existing_raw_log.agent_type,
+                        "session_id": conv_metadata.get("session_id"),
+                        "working_directory": conv_metadata.get("working_directory"),
+                        "git_branch": conv_metadata.get("git_branch"),
+                        "parent_session_id": conv_metadata.get("parent_session_id"),
                     }
 
                     # Detect type of change
@@ -652,15 +667,17 @@ class FileWatcher(FileSystemEventHandler):
                 self.stats.last_activity = datetime.now()
             return
 
-        # Use parsed session_id if available (from log file), otherwise generate from path
-        # Using the real session_id is critical for parent-child linking to work
+        # Resolve session_id: prefer parser-extracted, then existing conversation,
+        # then file stem.  Using the original parser-extracted session_id on
+        # incremental updates is critical — without it, agents like Codex whose
+        # file stems differ from their parsed session_id create ghost duplicates.
         if parsed:
             session_id = getattr(parsed, "session_id", None)
         else:
-            # For incremental, we need the session_id from the existing raw_log's conversation
-            session_id = file_path.stem  # UUID is typically the filename stem
+            session_id = (existing_raw_log_state or {}).get("session_id")
         if not session_id:
-            # Fallback to UUID from file path if parser didn't extract session_id
+            session_id = file_path.stem
+        if not session_id:
             session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, str(file_path)))
             logger.debug(f"No session_id in parsed data, using generated: {session_id}")
 
@@ -681,10 +698,13 @@ class FileWatcher(FileSystemEventHandler):
             git_branch = parsed.git_branch
             parent_session_id = parsed.parent_session_id
         else:
+            # Incremental path: recover metadata from the existing conversation
+            # so project/developer associations are preserved on updates.
+            state = existing_raw_log_state or {}
             agent_version = None
-            working_directory = None
-            git_branch = None
-            parent_session_id = None
+            working_directory = state.get("working_directory")
+            git_branch = state.get("git_branch")
+            parent_session_id = state.get("parent_session_id")
 
         # Send to API
         if incremental_result and incremental_result.new_messages:
@@ -886,7 +906,7 @@ class WatcherDaemon:
         developer_username: Optional[str] = None,
         poll_interval: int = 2,
         retry_interval: int = 300,
-        linking_interval: int = 60,  # Link orphaned agents every 60 seconds
+        linking_interval: int = 300,  # Link orphaned agents every 5 minutes
         max_retries: int = 3,
         debounce_seconds: float = 1.0,
         enable_tagging: bool = False,
@@ -907,6 +927,7 @@ class WatcherDaemon:
         self.stats_queue = stats_queue
         self.api_config = api_config or ApiIngestionConfig()
         self.workspace_id = workspace_id  # For multi-tenancy orphan linking
+        self._scan_workers = 4  # Bounded concurrency for startup scan
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
 
         # API mode is always used
@@ -1123,9 +1144,26 @@ class WatcherDaemon:
 
         Called once during daemon startup to detect changes that occurred
         while the daemon was not running.
-        """
-        logger.info(f"Scanning directory: {self.directory}...")
 
+        Uses a file lock to serialize scans across daemon processes.
+        Without this, concurrent scans from multiple daemons (e.g. Claude
+        Code + Codex) can exceed the container memory limit, causing
+        OOM kills (SIGKILL / exit_code=-9).
+        """
+        lock_path = Path("/tmp/catsyphon-startup-scan.lock")
+        lock_fd = open(lock_path, "w")
+        try:
+            logger.info(f"Acquiring scan lock for {self.directory}...")
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            logger.info(f"Scan lock acquired, scanning {self.directory}...")
+            self._do_scan()
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+            logger.info("Scan lock released")
+
+    def _do_scan(self) -> None:
+        """Execute the actual directory scan (called under lock)."""
         try:
             from catsyphon.db.repositories.raw_log import RawLogRepository as RawLogRepo
 
@@ -1149,13 +1187,36 @@ class WatcherDaemon:
                 new_files = [f for f in all_jsonl_files if f not in tracked_paths]
 
                 if new_files:
-                    logger.info(f"Found {len(new_files)} new files to ingest")
-                    # Process new files asynchronously to avoid blocking daemon startup
-                    # Spawn threads for each file to process them concurrently
-                    for file_path in new_files:
-                        logger.info(f"Startup scan: queueing new file {file_path.name}")
-                        # Use _handle_file_event to process in background thread
-                        self.event_handler._handle_file_event(file_path)
+                    logger.info(
+                        f"Found {len(new_files)} new files to ingest "
+                        f"(workers: {self._scan_workers})"
+                    )
+                    # Process new files with a bounded thread pool to prevent OOM.
+                    # Submit in batches to cap peak memory — submitting all futures
+                    # at once still spikes when two daemons scan simultaneously.
+                    batch_size = self._scan_workers * 2
+                    for batch_start in range(0, len(new_files), batch_size):
+                        batch = new_files[batch_start : batch_start + batch_size]
+                        with ThreadPoolExecutor(
+                            max_workers=self._scan_workers
+                        ) as pool:
+                            futures = {
+                                pool.submit(
+                                    self.event_handler._process_file, fp
+                                ): fp
+                                for fp in batch
+                            }
+                            for future in as_completed(futures):
+                                fp = futures[future]
+                                try:
+                                    future.result()
+                                except Exception as e:
+                                    logger.error(
+                                        f"Startup scan failed for {fp.name}: {e}"
+                                    )
+                        if self.shutdown_event.is_set():
+                            logger.info("Shutdown requested, aborting startup scan")
+                            break
 
                 # PHASE 4: Check tracked files for changes
                 changed_count = 0

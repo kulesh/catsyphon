@@ -608,11 +608,13 @@ class Message(Base):
         UUID(as_uuid=True),
         ForeignKey("epochs.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
@@ -650,7 +652,9 @@ class Message(Base):
     thinking_content: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
     )  # Claude's extended thinking (internal reasoning)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)  # order within epoch
 
     # Dual timestamps aligned with aiobscura (nullable for historical messages)

@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from catsyphon.db.repositories.base import BaseRepository
-from catsyphon.models.db import Conversation, Message
+from catsyphon.models.db import Conversation
 
 
 class ConversationRepository(BaseRepository[Conversation]):
@@ -368,10 +368,11 @@ class ConversationRepository(BaseRepository[Conversation]):
             Count of conversations matching filters
         """
         query = self.session.query(Conversation).filter(
-            Conversation.workspace_id == workspace_id
+            Conversation.workspace_id == workspace_id,
+            Conversation.parent_conversation_id.is_(None),
         )
 
-        # Add filters (same as get_by_filters)
+        # Add filters (same as get_with_counts_hierarchical parent query)
         if project_id:
             query = query.filter(Conversation.project_id == project_id)
         if developer_id:
@@ -383,7 +384,11 @@ class ConversationRepository(BaseRepository[Conversation]):
         if success is not None:
             query = query.filter(Conversation.success == success)
         if start_date:
-            query = query.filter(Conversation.start_time >= start_date)
+            # Conversations with activity on or after start_date
+            query = query.filter(
+                func.coalesce(Conversation.end_time, Conversation.start_time)
+                >= start_date
+            )
         if end_date:
             query = query.filter(Conversation.start_time <= end_date)
         if collector_id:
@@ -535,15 +540,6 @@ class ConversationRepository(BaseRepository[Conversation]):
             .scalar_subquery()
         )
 
-        # Calculate last_activity from most recent message timestamp
-        # Use Message.timestamp (actual event time), not created_at (DB insertion time)
-        last_activity_subq = (
-            select(func.max(Message.timestamp))
-            .where(Message.conversation_id == Conversation.id)
-            .correlate(Conversation)
-            .scalar_subquery()
-        )
-
         parent_query = (
             self.session.query(
                 Conversation,
@@ -551,7 +547,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.epoch_count,
                 Conversation.files_count,
                 children_count_subq,
-                last_activity_subq.label("last_activity"),
+                Conversation.end_time.label("last_activity"),
             )
             .filter(
                 Conversation.workspace_id == workspace_id,
@@ -579,7 +575,11 @@ class ConversationRepository(BaseRepository[Conversation]):
         if success is not None:
             parent_query = parent_query.filter(Conversation.success == success)
         if start_date:
-            parent_query = parent_query.filter(Conversation.start_time >= start_date)
+            # Conversations with activity on or after start_date
+            parent_query = parent_query.filter(
+                func.coalesce(Conversation.end_time, Conversation.start_time)
+                >= start_date
+            )
         if end_date:
             parent_query = parent_query.filter(Conversation.start_time <= end_date)
         if collector_id:
@@ -589,8 +589,8 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         # Order parents with secondary sort by message_count
         if order_by == "last_activity":
-            # Use coalesce to fall back to start_time if no messages
-            order_col = func.coalesce(last_activity_subq, Conversation.start_time)
+            # Use coalesce to fall back to start_time if end_time is null
+            order_col = func.coalesce(Conversation.end_time, Conversation.start_time)
         else:
             order_col = getattr(Conversation, order_by, Conversation.start_time)
 
@@ -627,15 +627,6 @@ class ConversationRepository(BaseRepository[Conversation]):
             .scalar_subquery()
         )
 
-        # Also calculate last_activity for children
-        # Use Message.timestamp (actual event time), not created_at (DB insertion time)
-        last_activity_subq2 = (
-            select(func.max(Message.timestamp))
-            .where(Message.conversation_id == Conversation.id)
-            .correlate(Conversation)
-            .scalar_subquery()
-        )
-
         children_query = (
             self.session.query(
                 Conversation,
@@ -643,7 +634,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                 Conversation.epoch_count,
                 Conversation.files_count,
                 children_count_subq2,
-                last_activity_subq2.label("last_activity"),
+                Conversation.end_time.label("last_activity"),
             )
             .filter(
                 Conversation.workspace_id == workspace_id,
