@@ -927,7 +927,7 @@ class WatcherDaemon:
         self.stats_queue = stats_queue
         self.api_config = api_config or ApiIngestionConfig()
         self.workspace_id = workspace_id  # For multi-tenancy orphan linking
-        self._scan_workers = 4  # Bounded concurrency for startup scan
+        self._scan_workers = 1  # Sequential scan to avoid OOM under Docker memory limits
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
 
         # API mode is always used
@@ -1191,9 +1191,12 @@ class WatcherDaemon:
                         f"Found {len(new_files)} new files to ingest "
                         f"(workers: {self._scan_workers})"
                     )
-                    # Process new files with a bounded thread pool to prevent OOM.
-                    # Submit in batches to cap peak memory — submitting all futures
-                    # at once still spikes when two daemons scan simultaneously.
+                    # Process new files sequentially in small batches to prevent OOM.
+                    # Large Codex logs can consume hundreds of MB each during parsing
+                    # (raw JSON → ParsedMessage → events triple-buffered in memory).
+                    # GC between batches reclaims memory from completed parses.
+                    import gc
+
                     batch_size = self._scan_workers * 2
                     for batch_start in range(0, len(new_files), batch_size):
                         batch = new_files[batch_start : batch_start + batch_size]
@@ -1214,6 +1217,7 @@ class WatcherDaemon:
                                     logger.error(
                                         f"Startup scan failed for {fp.name}: {e}"
                                     )
+                        gc.collect()
                         if self.shutdown_event.is_set():
                             logger.info("Shutdown requested, aborting startup scan")
                             break
