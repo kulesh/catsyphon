@@ -22,9 +22,20 @@ const mockProjects: ProjectListItem[] = [
     description: 'Payment processing service with Stripe integration',
     directory_path: '/Users/kulesh/dev/payment-service',
     session_count: 23,
-    last_session_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    last_session_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
     created_at: '2025-10-15T10:00:00Z',
     updated_at: '2025-11-22T16:45:00Z',
+    recent_sessions: [
+      {
+        id: 'aaa00000-0000-0000-0000-000000000001',
+        start_time: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        last_active: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        agent_type: 'claude_code',
+        intent: 'feature_add',
+        outcome: 'success',
+        feature: 'Stripe webhook handling',
+      },
+    ],
   },
   {
     id: '660e8400-e29b-41d4-a716-446655440001',
@@ -32,9 +43,29 @@ const mockProjects: ProjectListItem[] = [
     description: 'AI conversation analytics platform',
     directory_path: '/Users/kulesh/dev/catsyphon',
     session_count: 156,
-    last_session_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 mins ago
+    last_session_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
     created_at: '2025-09-01T08:00:00Z',
     updated_at: '2025-11-22T17:50:00Z',
+    recent_sessions: [
+      {
+        id: 'bbb00000-0000-0000-0000-000000000001',
+        start_time: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        last_active: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        agent_type: 'claude_code',
+        intent: 'bug_fix',
+        outcome: 'success',
+        feature: 'Fix query bottleneck',
+      },
+      {
+        id: 'bbb00000-0000-0000-0000-000000000002',
+        start_time: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        last_active: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        agent_type: 'claude_code',
+        intent: 'refactor',
+        outcome: 'partial',
+        feature: null,
+      },
+    ],
   },
   {
     id: '770e8400-e29b-41d4-a716-446655440002',
@@ -42,9 +73,10 @@ const mockProjects: ProjectListItem[] = [
     description: null,
     directory_path: '/Users/sarah/projects/mobile-app',
     session_count: 45,
-    last_session_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    last_session_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     created_at: '2025-11-01T12:00:00Z',
     updated_at: '2025-11-21T14:30:00Z',
+    recent_sessions: [],
   },
 ];
 
@@ -65,13 +97,14 @@ describe('ProjectList', () => {
   });
 
   describe('rendering', () => {
-    it('should render the projects header', async () => {
+    it('should render the projects header with count', async () => {
       render(<ProjectList />);
 
       expect(screen.getByText('Projects')).toBeInTheDocument();
-      expect(
-        screen.getByText('Browse analytics for all your projects')
-      ).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(screen.getByText('3 projects')).toBeInTheDocument();
+      });
     });
 
     it('should render all projects with session counts', async () => {
@@ -81,12 +114,10 @@ describe('ProjectList', () => {
         expect(screen.getByText('payment-service')).toBeInTheDocument();
       });
 
-      // Verify all 3 projects rendered
-      expect(screen.getByText('payment-service')).toBeInTheDocument();
       expect(screen.getByText('catsyphon')).toBeInTheDocument();
       expect(screen.getByText('mobile-app')).toBeInTheDocument();
 
-      // Verify session counts displayed
+      // Session counts displayed inline
       expect(screen.getByText('23')).toBeInTheDocument();
       expect(screen.getByText('156')).toBeInTheDocument();
       expect(screen.getByText('45')).toBeInTheDocument();
@@ -125,10 +156,41 @@ describe('ProjectList', () => {
       render(<ProjectList />);
 
       await waitFor(() => {
-        // Verify relative timestamps are displayed (exact text may vary based on date-fns)
         const timestamps = screen.getAllByText(/ago$/);
         expect(timestamps.length).toBeGreaterThan(0);
       });
+    });
+  });
+
+  describe('recent activity', () => {
+    it('should render recent session chips with intent badges', async () => {
+      render(<ProjectList />);
+
+      await waitFor(() => {
+        expect(screen.getByText('payment-service')).toBeInTheDocument();
+      });
+
+      // Feature text from recent sessions
+      expect(screen.getByText('Stripe webhook handling')).toBeInTheDocument();
+      expect(screen.getByText('Fix query bottleneck')).toBeInTheDocument();
+
+      // Intent badges
+      expect(screen.getByText('feature')).toBeInTheDocument();
+      expect(screen.getByText('bugfix')).toBeInTheDocument();
+      expect(screen.getByText('refactor')).toBeInTheDocument();
+    });
+
+    it('should not render activity strip for projects with no sessions', async () => {
+      render(<ProjectList />);
+
+      await waitFor(() => {
+        expect(screen.getByText('mobile-app')).toBeInTheDocument();
+      });
+
+      // mobile-app has no recent_sessions, so no activity strip border
+      const mobileCard = screen.getByText('mobile-app').closest('button');
+      const activityStrip = mobileCard?.querySelector('.border-t');
+      expect(activityStrip).toBeNull();
     });
   });
 
@@ -141,7 +203,6 @@ describe('ProjectList', () => {
         expect(screen.getByText('payment-service')).toBeInTheDocument();
       });
 
-      // Click the first project card
       const projectCard = screen
         .getByText('payment-service')
         .closest('button');
@@ -162,7 +223,6 @@ describe('ProjectList', () => {
         expect(screen.getByText('catsyphon')).toBeInTheDocument();
       });
 
-      // Click the second project
       const catsyphonCard = screen.getByText('catsyphon').closest('button');
       await user.click(catsyphonCard!);
 
@@ -174,14 +234,12 @@ describe('ProjectList', () => {
 
   describe('loading state', () => {
     it('should show loading skeletons while fetching', () => {
-      // Make API call pending
       vi.mocked(api.getProjects).mockImplementation(
-        () => new Promise(() => {}) // Never resolves
+        () => new Promise(() => {})
       );
 
       render(<ProjectList />);
 
-      // Verify loading skeletons present (3 skeletons by default)
       const skeletons = screen.getAllByRole('generic').filter((el) =>
         el.className.includes('animate-pulse')
       );
@@ -195,7 +253,6 @@ describe('ProjectList', () => {
         expect(screen.getByText('payment-service')).toBeInTheDocument();
       });
 
-      // No loading skeletons should remain
       const skeletons = screen.queryAllByRole('generic').filter((el) =>
         el.className.includes('animate-pulse')
       );
@@ -264,41 +321,25 @@ describe('ProjectList', () => {
         expect(screen.getByText('payment-service')).toBeInTheDocument();
       });
 
-      // Verify Folder icons present (lucide-react renders SVGs without role)
       const projectCards = screen.getAllByRole('button');
       expect(projectCards.length).toBe(3);
 
-      // Each card should have the folder icon class
       projectCards.forEach((card) => {
         const svg = card.querySelector('svg.lucide-folder');
         expect(svg).toBeInTheDocument();
       });
     });
 
-    it('should render Activity icons for session metrics', async () => {
+    it('should render session counts with labels', async () => {
       render(<ProjectList />);
 
       await waitFor(() => {
         expect(screen.getByText('payment-service')).toBeInTheDocument();
       });
 
-      // Verify "Sessions" labels present
-      const sessionLabels = screen.getAllByText('Sessions', { exact: false });
-      expect(sessionLabels.length).toBe(3); // One per project
-    });
-
-    it('should render Clock icons for last activity', async () => {
-      render(<ProjectList />);
-
-      await waitFor(() => {
-        expect(screen.getByText('payment-service')).toBeInTheDocument();
-      });
-
-      // Verify "Last Active" labels present
-      const activityLabels = screen.getAllByText('Last Active', {
-        exact: false,
-      });
-      expect(activityLabels.length).toBe(3); // One per project
+      // Inline "sessions" labels (lowercase in new layout)
+      const sessionLabels = screen.getAllByText('sessions');
+      expect(sessionLabels.length).toBe(3);
     });
 
     it('should render ChevronRight icons for navigation affordance', async () => {
@@ -308,9 +349,11 @@ describe('ProjectList', () => {
         expect(screen.getByText('payment-service')).toBeInTheDocument();
       });
 
-      // ChevronRight icons should be present in all project cards
       const projectCards = screen.getAllByRole('button');
-      expect(projectCards.length).toBe(3);
+      projectCards.forEach((card) => {
+        const svg = card.querySelector('svg.lucide-chevron-right');
+        expect(svg).toBeInTheDocument();
+      });
     });
   });
 });

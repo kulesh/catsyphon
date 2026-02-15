@@ -31,11 +31,24 @@ class ProjectResponse(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RecentSession(BaseModel):
+    """Lightweight session summary for project card context."""
+
+    id: UUID
+    start_time: datetime
+    last_active: datetime
+    agent_type: str
+    intent: Optional[str] = None
+    outcome: Optional[str] = None
+    feature: Optional[str] = None
+
+
 class ProjectListItem(ProjectResponse):
     """Extended project info for list view with session counts."""
 
     session_count: int = 0
     last_session_at: Optional[datetime] = None
+    recent_sessions: list[RecentSession] = Field(default_factory=list)
 
 
 class SentimentTimelinePoint(BaseModel):

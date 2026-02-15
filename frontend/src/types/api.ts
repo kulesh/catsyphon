@@ -21,10 +21,21 @@ export interface ProjectResponse extends ProjectBase {
   updated_at: string;
 }
 
+export interface RecentSession {
+  id: string;
+  start_time: string;
+  last_active: string;
+  agent_type: string;
+  intent: string | null;
+  outcome: string | null;
+  feature: string | null;
+}
+
 export interface ProjectListItem extends ProjectResponse {
   directory_path: string;
   session_count: number;
   last_session_at: string | null;
+  recent_sessions: RecentSession[];
 }
 
 export interface DeveloperBase {
