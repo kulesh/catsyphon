@@ -12,8 +12,6 @@ import { useEffect, useMemo, useState } from 'react';
 
 export default function Dashboard() {
   const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
-  const [digestPollEnabled, setDigestPollEnabled] = useState(true);
-  const [digestMissing, setDigestMissing] = useState(false);
 
   const benchmarkAvailabilityQuery = useQuery({
     queryKey: ['benchmarks', 'availability'],
@@ -43,12 +41,18 @@ export default function Dashboard() {
     retry: false,
     enabled: benchmarkEnabled,
     refetchInterval: benchmarkEnabled ? 15000 : false,
-    onError: (err) => {
-      if (err instanceof ApiError && err.status === 403) {
-        setBenchmarksAvailable(false);
-      }
-    },
   });
+
+  // Disable benchmarks on 403 (TQ v5: derive from query state, not onError)
+  useEffect(() => {
+    if (
+      benchmarkStatusQuery.isError &&
+      benchmarkStatusQuery.error instanceof ApiError &&
+      benchmarkStatusQuery.error.status === 403
+    ) {
+      setBenchmarksAvailable(false);
+    }
+  }, [benchmarkStatusQuery.isError, benchmarkStatusQuery.error]);
 
   const benchmarkResultsQuery = useQuery({
     queryKey: ['benchmarks', 'results', 'latest'],
@@ -68,23 +72,17 @@ export default function Dashboard() {
     };
   }, []);
 
+  // Derive digest-missing from query state (TQ v5: no onError on useQuery)
   const digestQuery = useQuery({
     queryKey: ['digests', 'weekly', digestWindow.periodStart, digestWindow.periodEnd],
     queryFn: () => getWeeklyDigest(digestWindow.periodStart, digestWindow.periodEnd),
     retry: false,
-    enabled: digestPollEnabled,
-    refetchInterval: digestPollEnabled ? 60000 : false,
-    onSuccess: () => {
-      setDigestMissing(false);
-      setDigestPollEnabled(true);
-    },
-    onError: (err) => {
-      if (err instanceof ApiError && err.status === 404) {
-        setDigestMissing(true);
-        setDigestPollEnabled(false);
-      }
-    },
   });
+
+  const digestMissing =
+    digestQuery.isError &&
+    digestQuery.error instanceof ApiError &&
+    digestQuery.error.status === 404;
 
   const digestMutation = useMutation({
     mutationFn: ({ force }: { force: boolean }) =>
@@ -98,8 +96,6 @@ export default function Dashboard() {
         ['digests', 'weekly', digestWindow.periodStart, digestWindow.periodEnd],
         data
       );
-      setDigestMissing(false);
-      setDigestPollEnabled(true);
     },
   });
 
