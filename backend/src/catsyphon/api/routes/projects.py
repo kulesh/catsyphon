@@ -569,7 +569,7 @@ async def get_project_analytics(
         )
         role_counts[role] += 1
 
-        # Handoff stats
+        # Handoff stats (latency computed inline; clarifications batched below)
         if conv.parent_conversation_id:
             parent = conversation_lookup.get(conv.parent_conversation_id)
             if parent and parent.start_time and conv.start_time:
@@ -579,19 +579,38 @@ async def get_project_analytics(
                 handoff_latencies.append(delta_minutes)
                 if conv.success is True:
                     handoff_successes += 1
-                # Clarifications: count user messages in parent between parent start
-                # and agent start
-                # Use database count query instead of loading all messages
-                clarifications = (
-                    session.query(func.count(Message.id))
-                    .filter(Message.conversation_id == parent.id)
-                    .filter(Message.role == "user")
-                    .filter(Message.timestamp >= parent.start_time)
-                    .filter(Message.timestamp <= conv.start_time)
-                    .scalar()
-                    or 0
-                )
-                handoff_clarifications.append(clarifications)
+
+    # Batch handoff clarification counts (single query instead of N queries)
+    # Collect (parent_id, parent_start, child_start) triples from handoff convs
+    _handoff_specs: list[tuple[UUID, datetime, datetime]] = []
+    for conv in conversations:
+        if conv.parent_conversation_id:
+            parent = conversation_lookup.get(conv.parent_conversation_id)
+            if parent and parent.start_time and conv.start_time:
+                _handoff_specs.append((parent.id, parent.start_time, conv.start_time))
+
+    if _handoff_specs:
+        from sqlalchemy import literal, union_all
+
+        # Build a UNION ALL of COUNT subqueries, one per handoff
+        count_subqueries = [
+            session.query(
+                func.count(Message.id).label("cnt"),
+                literal(idx).label("idx"),
+            )
+            .filter(Message.conversation_id == parent_id)
+            .filter(Message.role == "user")
+            .filter(Message.timestamp >= parent_start)
+            .filter(Message.timestamp <= child_start)
+            for idx, (parent_id, parent_start, child_start) in enumerate(_handoff_specs)
+        ]
+        batched = union_all(*count_subqueries).subquery()
+        rows = session.query(batched.c.idx, batched.c.cnt).all()
+        _clarification_map = {r.idx: r.cnt or 0 for r in rows}
+
+        handoff_clarifications = [
+            _clarification_map.get(i, 0) for i in range(len(_handoff_specs))
+        ]
 
     # Influence flows (file introduction -> later adopter)
     # Load only needed columns for influence calculation (file_path, conversation_id,

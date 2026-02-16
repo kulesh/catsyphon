@@ -169,29 +169,31 @@ async def get_overview_stats(
             or 0
         )
 
-        # For plan status breakdown, we need to unnest the JSONB array
-        # This is more complex - use a limited fetch for status aggregation
-        # Only fetch extra_data for conversations with plans (already filtered)
-        plans_query = (
-            session.query(Conversation.extra_data)
-            .filter(Conversation.workspace_id == workspace_id)
-            .filter(Conversation.extra_data.isnot(None))
-            .filter(
-                func.jsonb_array_length(
-                    func.coalesce(Conversation.extra_data["plans"], "[]")
-                )
-                > 0
+        # Plan status breakdown using jsonb_array_elements() — fully in SQL
+        status_rows = (
+            session.execute(
+                text(
+                    """
+                    SELECT
+                        COALESCE(plan_elem->>'status', 'active') AS plan_status,
+                        COUNT(*) AS cnt
+                    FROM conversations,
+                         jsonb_array_elements(
+                             COALESCE(metadata->'plans', '[]'::jsonb)
+                         ) AS plan_elem
+                    WHERE workspace_id = :ws
+                      AND metadata IS NOT NULL
+                      AND jsonb_array_length(COALESCE(metadata->'plans', '[]'::jsonb)) > 0
+                    GROUP BY plan_status
+                    """
+                ),
+                {"ws": workspace_id},
             )
-            .limit(1000)  # Cap memory usage for status aggregation
+            .mappings()
+            .all()
         )
-
-        for (extra_data,) in plans_query.all():
-            if not extra_data:
-                continue
-            plans = extra_data.get("plans", [])
-            for plan in plans:
-                status = plan.get("status", "active")
-                plans_by_status[status] = plans_by_status.get(status, 0) + 1
+        for row in status_rows:
+            plans_by_status[row["plan_status"]] = row["cnt"]
 
     except Exception:
         # SQLite fallback: Use limited scan (less efficient but compatible)
