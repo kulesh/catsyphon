@@ -178,50 +178,32 @@ catsyphon/
 
 5. **Database Schema**: Highly normalized with Projects → Developers → Conversations → Epochs → Messages → Files Touched
 
-6. **Incremental Parsing**: Optimized parsing that only processes new content appended to log files
-   - **Performance**: 10x to 106x faster than full reparse (depending on file size and append size)
-   - **Memory**: 45x to 465x reduction in memory usage
+6. **Chunked Parsing (ADR-009)**: All ingestion uses bounded-memory chunked parsing
+   - **Protocol**: `ChunkedParser` with `parse_metadata()` + `parse_messages(offset, limit)`
+   - **Memory**: ~3 MB peak per chunk regardless of file size (vs 4-6x file size before)
+   - **Unified Path**: First-time ingestion = chunks from offset 0; appends = chunks from stored offset
    - **Change Detection**: Automatically detects file changes (APPEND, TRUNCATE, REWRITE, UNCHANGED)
    - **State Tracking**: Stores parsing state (offset, line number, hash) in `raw_logs` table
-   - **Graceful Degradation**: Falls back to full reparse if incremental parsing fails
+   - **Graceful Degradation**: Falls back to full parse for non-chunked parsers
 
-### Incremental Parsing Details
+### Chunked Parsing Details (ADR-009)
 
-Incremental parsing dramatically improves performance for log files that are actively being appended to (e.g., during live Claude Code sessions or watch daemon monitoring).
+Chunked parsing eliminates the full-parse code path. First-time ingestion becomes chunked from offset=0. Subsequent appends use the same loop from the stored offset. Peak memory is ~3 MB per chunk regardless of file size.
 
 **How It Works:**
 
-1. First parse: Full parse creates RawLog entry with state (last_processed_offset, file_size_bytes, partial_hash)
-2. Subsequent parses: Check for changes by comparing file size and partial hash
-3. If APPEND detected: Parse only new content from last_processed_offset
-4. If TRUNCATE/REWRITE detected: Full reparse required
-5. If UNCHANGED: Skip processing entirely
-
-**Performance Benchmarks:**
-
-```
-Small append (1 to 100 messages):     9.9x faster
-Medium log (10 to 1000 messages):    36.6x faster
-Large log (1 to 5000 messages):     106.0x faster
-Multiple sequential appends:         14.0x faster
-
-Memory reduction (1000 messages):     45x less memory
-Memory reduction (50k messages):     465x less memory
-```
-
-**When Used:**
-
-- Watch daemon processing existing conversations (auto-detected)
-- CLI `ingest` command on previously processed files (auto-detected)
-- Manual ingestion via API (auto-detected)
+1. `parse_metadata()` reads first 10 lines for session-level metadata (session_id, agent_type, etc.)
+2. `parse_messages(offset, limit=500)` returns bounded `MessageChunk` with cursor state
+3. Ingestion loop: metadata → create conversation → chunk loop → update raw_log state
+4. Change detection: APPEND resumes from stored offset, TRUNCATE/REWRITE reparses from 0
 
 **Key Files:**
 
-- `backend/src/catsyphon/parsers/incremental.py` - Change detection logic
-- `backend/src/catsyphon/parsers/claude_code.py` - `parse_incremental()` method
-- `backend/src/catsyphon/pipeline/ingestion.py` - Intelligent routing logic
-- `backend/src/catsyphon/watch.py` - Watch daemon integration
-- `backend/tests/test_performance.py` - Performance benchmarks
+- `backend/src/catsyphon/parsers/incremental.py` - `ChunkedParser` protocol, `MessageChunk`, change detection
+- `backend/src/catsyphon/parsers/claude_code.py` - `parse_metadata()`, `parse_messages()`
+- `backend/src/catsyphon/parsers/codex.py` - `parse_metadata()`, `parse_messages()`
+- `backend/src/catsyphon/services/ingestion_service.py` - Chunked ingestion routing
+- `backend/src/catsyphon/watch.py` - Watch daemon chunked integration
 
 ### Pipeline Metrics & Instrumentation
 

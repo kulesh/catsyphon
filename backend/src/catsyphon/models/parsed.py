@@ -88,6 +88,29 @@ class PlanInfo:
 
 
 @dataclass
+class ConversationMetadata:
+    """Session-level metadata extracted from the first few log lines.
+
+    Lightweight structure produced by parse_metadata() — reads <=10 lines,
+    never materializes the full file. Carries everything needed to create
+    or identify a conversation record before message parsing begins.
+    """
+
+    session_id: str
+    agent_type: str
+    start_time: datetime
+    agent_version: Optional[str] = None
+    end_time: Optional[datetime] = None
+    model: Optional[str] = None
+    working_directory: Optional[str] = None
+    git_branch: Optional[str] = None
+    conversation_type: str = "main"  # main/agent/metadata
+    parent_session_id: Optional[str] = None  # for agent conversations
+    slug: Optional[str] = None  # human-readable session name
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
 class ParsedMessage:
     """Single message in a conversation."""
 

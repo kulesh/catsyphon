@@ -1,6 +1,6 @@
 # ADR-009: Incremental-from-Zero (Eliminate Full Parse Path)
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-15
 
 ## Context

@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from catsyphon.models.parsed import (
     CodeChange,
+    ConversationMetadata,
     ParsedConversation,
     ParsedMessage,
     ToolCall,
@@ -23,6 +24,7 @@ from catsyphon.models.parsed import (
 from catsyphon.parsers.base import ParseDataError, ParseFormatError
 from catsyphon.parsers.incremental import (
     IncrementalParseResult,
+    MessageChunk,
     calculate_partial_hash,
 )
 from catsyphon.parsers.metadata import ParserCapability, ParserMetadata
@@ -98,7 +100,11 @@ class ClaudeCodeParser:
             name="claude-code",
             version="1.0.0",
             supported_formats=[".jsonl"],
-            capabilities={ParserCapability.INCREMENTAL, ParserCapability.BATCH},
+            capabilities={
+                ParserCapability.INCREMENTAL,
+                ParserCapability.BATCH,
+                ParserCapability.STREAMING,
+            },
             priority=50,
             description="Parser for Claude Code conversation logs (JSONL format)",
         )
@@ -228,35 +234,78 @@ class ClaudeCodeParser:
             can_parse=bool(reasons), confidence=confidence, reasons=reasons
         )
 
-    def parse(self, file_path: Path) -> ParsedConversation:
-        """
-        Parse a Claude Code log file into structured format.
+    # ------------------------------------------------------------------
+    # ADR-009: Chunked parsing (ChunkedParser protocol)
+    # ------------------------------------------------------------------
 
-        Args:
-            file_path: Path to the .jsonl log file
+    def _parse_lines_limited(
+        self,
+        file_path: Path,
+        start_offset: int,
+        start_line: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], int, int, bool]:
+        """Read up to *limit* valid JSONL lines from *start_offset*.
+
+        Uses ``readline()`` in a loop so partial trailing lines at EOF
+        are naturally deferred to the next call.
 
         Returns:
-            ParsedConversation object with extracted data
-
-        Raises:
-            ParseFormatError: If the file format is invalid
-            ParseDataError: If required data is missing
+            ``(parsed_dicts, new_offset, new_line, is_eof)``
         """
-        # Clear any issues from previous parse
-        self._clear_issues()
+        parsed: list[dict[str, Any]] = []
+        line_num = start_line
+        file_size = file_path.stat().st_size
 
-        if not self.can_parse(file_path):
-            raise ParseFormatError(f"File is not a valid Claude Code log: {file_path}")
+        try:
+            with file_path.open("r", encoding="utf-8") as f:
+                f.seek(start_offset)
+                while len(parsed) < limit:
+                    line = f.readline()
+                    if not line:
+                        # True EOF
+                        return parsed, f.tell(), line_num, True
 
-        logger.info(f"Parsing Claude Code log: {file_path}")
+                    line_num += 1
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
 
-        # Parse all lines
-        raw_messages = self._parse_all_lines(file_path)
+                    try:
+                        data = json.loads(stripped)
+                        parsed.append(data)
+                    except json.JSONDecodeError as e:
+                        # At EOF a partial write may produce invalid JSON —
+                        # defer to next pass rather than skip permanently.
+                        if f.tell() >= file_size:
+                            logger.debug(
+                                "Deferring partial trailing line at %s:%s",
+                                file_path,
+                                line_num,
+                            )
+                            # Rewind before this partial line
+                            rewind_offset = f.tell() - len(line.encode("utf-8"))
+                            return parsed, rewind_offset, line_num - 1, False
+                        self._add_warning(
+                            f"Skipping invalid JSON: {e}",
+                            line_number=line_num,
+                            context=stripped[:100] if stripped else None,
+                        )
+                        continue
 
-        if not raw_messages:
-            raise ParseDataError("Log file is empty or contains no valid messages")
+                # Reached the limit — not EOF
+                return parsed, f.tell(), line_num, False
 
-        # Extract session metadata from first message that has it
+        except (OSError, UnicodeDecodeError) as e:
+            raise ParseFormatError(f"Cannot read file {file_path}: {e}") from e
+
+    def parse_metadata(self, file_path: Path) -> ConversationMetadata:
+        """Extract session-level metadata from the first few lines.
+
+        Reads ≤10 JSONL lines. Never materializes the full file.
+        """
+        raw_lines, _, _, _ = self._parse_lines_limited(file_path, 0, 0, 10)
+
         session_id = None
         agent_version = None
         git_branch = None
@@ -264,8 +313,9 @@ class ClaudeCodeParser:
         is_sidechain = False
         agent_id = None
         slug = None
+        start_time = None
 
-        for msg in raw_messages[:10]:  # Check first 10 messages
+        for msg in raw_lines:
             if "sessionId" in msg:
                 session_id = msg.get("sessionId")
                 agent_version = msg.get("version")
@@ -276,114 +326,260 @@ class ClaudeCodeParser:
                 slug = msg.get("slug")
                 break
 
-        # For metadata-only files, extract session_id from filename if not found in content
+        # Fallback: extract session_id from filename
         if not session_id:
-            # Check if filename looks like a UUID (the session ID)
-            filename_stem = file_path.stem  # Remove .jsonl extension
-            # Basic UUID format check: 8-4-4-4-12 hex digits
+            filename_stem = file_path.stem
             if len(filename_stem) == 36 and filename_stem.count("-") == 4:
                 session_id = filename_stem
-                logger.info(
-                    f"Extracted session_id from filename for metadata-only file: {session_id}"
-                )
             else:
                 raise ParseDataError(
-                    f"Missing sessionId in file content and filename doesn't match UUID pattern: {file_path.name}"
+                    f"Missing sessionId in file content and filename doesn't "
+                    f"match UUID pattern: {file_path.name}"
                 )
 
-        # Build message thread and extract tool calls
-        parsed_messages = self._build_message_thread(raw_messages)
+        # Try to extract a timestamp from early messages
+        for msg in raw_lines:
+            ts_str = msg.get("timestamp")
+            if ts_str:
+                try:
+                    start_time = parse_iso_timestamp(ts_str)
+                    break
+                except ValueError:
+                    continue
 
-        # Extract summaries and compaction events
-        summaries, compaction_events = self._extract_metadata_records(raw_messages)
-
-        # Check if this is a metadata-only file (has sessionId but no conversation messages)
-        is_metadata_only = len(parsed_messages) == 0
-
-        # Calculate conversation timing
-        if is_metadata_only:
-            # For metadata-only files, use current time as placeholder
+        if start_time is None:
             start_time = datetime.now()
-            end_time = start_time
-        else:
-            timestamps = [msg.timestamp for msg in parsed_messages if msg.timestamp]
-            start_time = min(timestamps) if timestamps else datetime.now()
-            end_time = max(timestamps) if timestamps else start_time
 
-        # Extract code changes from tool calls
-        all_tool_calls = []
-        for msg in parsed_messages:
-            all_tool_calls.extend(msg.tool_calls)
-
-        code_changes = self._detect_code_changes(all_tool_calls)
-
-        # Extract plan information
-        plans = extract_plan_operations(parsed_messages)
-        if plans:
-            logger.info(f"Extracted {len(plans)} plan(s) from conversation")
-
-        # Determine conversation type and hierarchy (Phase 2: Epic 7u2)
-        if is_metadata_only:
-            conversation_type = "metadata"  # No messages, only metadata entries
-        else:
-            conversation_type = "agent" if is_sidechain else "main"
-
-        # For agent conversations, generate unique session_id and extract parent's session_id
-        # Agent log files store the PARENT's session ID in the sessionId field,
-        # so we need to generate a unique identifier for the agent itself
-        if is_sidechain and agent_id:
-            # Use agentId as the unique session identifier for this agent conversation
-            agent_session_id = agent_id
-            parent_session_id = session_id  # Parent's session ID from file
-            session_id_to_use = agent_session_id
-        else:
-            # Main conversations use sessionId directly
-            session_id_to_use = session_id
-            parent_session_id = None
-
-        # Context semantics for Claude Code agents (isolated context, can use tools)
-        context_semantics = {}
-        agent_metadata = {}
-
+        # Determine conversation_type and session_id resolution
         if is_sidechain:
-            context_semantics = {
-                "shares_parent_context": False,  # Agents have isolated context
-                "can_use_parent_tools": True,  # Can use tools like parent
-                "isolated_context": True,  # Explicitly isolated
-                "max_context_window": None,  # Unknown for Claude Code agents
-            }
+            conversation_type = "agent"
+            if agent_id:
+                # Modern format: agentId is the unique session identifier
+                parent_session_id: Optional[str] = session_id
+                resolved_session_id = agent_id
+            else:
+                # Legacy format: isSidechain=true but no agentId
+                parent_session_id = None
+                resolved_session_id = session_id
+        else:
+            conversation_type = "main"
+            parent_session_id = None
+            resolved_session_id = session_id
 
-            agent_metadata = {
-                "agent_id": agent_id,
-                "agent_type": "subagent",  # Could be Explore, Plan, etc.
-                "parent_session_id": parent_session_id,  # Parent's actual session ID
-            }
-
-        # Build ParsedConversation
-        return ParsedConversation(
+        return ConversationMetadata(
+            session_id=resolved_session_id,
             agent_type="claude-code",
-            agent_version=agent_version,
-            session_id=session_id_to_use,  # Unique ID (agentId for agents, sessionId for main)
-            git_branch=git_branch,
-            working_directory=cwd,
             start_time=start_time,
-            end_time=end_time,
-            messages=parsed_messages,
-            files_touched=[change.file_path for change in code_changes],
-            code_changes=code_changes,
+            agent_version=agent_version,
+            working_directory=cwd,
+            git_branch=git_branch,
             conversation_type=conversation_type,
             parent_session_id=parent_session_id,
-            context_semantics=context_semantics,
-            agent_metadata=agent_metadata,
-            plans=plans,
             slug=slug,
+        )
+
+    def parse_messages(
+        self,
+        file_path: Path,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> MessageChunk:
+        """Parse up to *limit* messages starting from byte *offset*.
+
+        Separates conversational from non-conversational records, matches
+        tool calls with results, and extracts summaries and compaction
+        events encountered in this chunk.
+        """
+        raw_lines, new_offset, new_line, is_eof = self._parse_lines_limited(
+            file_path, offset, 0, limit
+        )
+
+        file_size = file_path.stat().st_size
+
+        if not raw_lines:
+            partial_hash = calculate_partial_hash(file_path, new_offset)
+            return MessageChunk(
+                messages=[],
+                next_offset=new_offset,
+                next_line=new_line,
+                is_last=is_eof,
+                partial_hash=partial_hash,
+                file_size=file_size,
+            )
+
+        # Separate conversational from non-conversational
+        conversational_types = {"user", "assistant"}
+
+        conversation_messages = [
+            msg
+            for msg in raw_lines
+            if msg.get("type") in conversational_types
+            and msg.get("message", {}).get("role") in ("user", "assistant")
+        ]
+
+        non_conversational_messages = [
+            msg for msg in raw_lines if msg.get("type") not in conversational_types
+        ]
+
+        # Match tool calls with results (within this chunk)
+        tool_result_map = match_tool_calls_with_results(conversation_messages)
+
+        # Convert conversational messages
+        parsed_messages: list[ParsedMessage] = []
+        for msg_data in conversation_messages:
+            try:
+                parsed_msg = self._convert_to_parsed_message(msg_data, tool_result_map)
+                if parsed_msg:
+                    parsed_messages.append(parsed_msg)
+            except Exception as e:
+                self._add_warning(
+                    f"Failed to parse message {msg_data.get('uuid')}: {e}",
+                    field="message",
+                )
+                continue
+
+        # Convert non-conversational messages
+        for msg_data in non_conversational_messages:
+            try:
+                parsed_msg = self._convert_non_conversational_to_parsed_message(
+                    msg_data
+                )
+                if parsed_msg:
+                    parsed_messages.append(parsed_msg)
+            except Exception as e:
+                self._add_warning(
+                    f"Failed to parse non-conversational message {msg_data.get('uuid')}: {e}",
+                    field="message",
+                )
+                continue
+
+        parsed_messages.sort(key=lambda m: m.timestamp)
+
+        # Extract summaries and compaction events from this chunk
+        summaries, compaction_events = self._extract_metadata_records(raw_lines)
+
+        partial_hash = calculate_partial_hash(file_path, new_offset)
+        return MessageChunk(
+            messages=parsed_messages,
+            next_offset=new_offset,
+            next_line=new_line,
+            is_last=is_eof,
+            partial_hash=partial_hash,
+            file_size=file_size,
             summaries=summaries,
             compaction_events=compaction_events,
         )
 
-    def supports_incremental(self, file_path: Path) -> bool:
+    # ------------------------------------------------------------------
+    # Convenience wrapper (tests, scripts, backward compatibility)
+    # ------------------------------------------------------------------
+
+    def parse(self, file_path: Path) -> ParsedConversation:
+        """Parse a Claude Code log file into structured format.
+
+        Implemented as a convenience wrapper around ``parse_metadata()``
+        and ``parse_messages()``. Materializes all messages in memory —
+        production ingestion should use the chunked methods directly.
         """
-        Check if incremental parsing is supported for this file.
+        self._clear_issues()
+
+        if not self.can_parse(file_path):
+            raise ParseFormatError(f"File is not a valid Claude Code log: {file_path}")
+
+        logger.info(f"Parsing Claude Code log: {file_path}")
+
+        meta = self.parse_metadata(file_path)
+        all_messages: list[ParsedMessage] = []
+        all_summaries: list[dict] = []
+        all_compaction: list[dict] = []
+        offset = 0
+
+        while True:
+            chunk = self.parse_messages(file_path, offset)
+            all_messages.extend(chunk.messages)
+            all_summaries.extend(chunk.summaries)
+            all_compaction.extend(chunk.compaction_events)
+            offset = chunk.next_offset
+            if chunk.is_last:
+                break
+
+        if not all_messages:
+            # Metadata-only file — no conversation messages
+            is_metadata_only = True
+        else:
+            is_metadata_only = False
+
+        # Conversation timing
+        if is_metadata_only:
+            start_time = datetime.now()
+            end_time = start_time
+        else:
+            timestamps = [msg.timestamp for msg in all_messages if msg.timestamp]
+            start_time = min(timestamps) if timestamps else datetime.now()
+            end_time = max(timestamps) if timestamps else start_time
+
+        # Full-conversation post-processing (requires all messages)
+        all_tool_calls = []
+        for msg in all_messages:
+            all_tool_calls.extend(msg.tool_calls)
+        code_changes = self._detect_code_changes(all_tool_calls)
+
+        plans = extract_plan_operations(all_messages)
+        if plans:
+            logger.info(f"Extracted {len(plans)} plan(s) from conversation")
+
+        # Resolve conversation type for metadata-only files
+        conversation_type = meta.conversation_type
+        if is_metadata_only and conversation_type != "agent":
+            conversation_type = "metadata"
+
+        # Context semantics for agent conversations
+        context_semantics = {}
+        agent_metadata_dict: dict[str, Any] = {}
+        if conversation_type == "agent":
+            context_semantics = {
+                "shares_parent_context": False,
+                "can_use_parent_tools": True,
+                "isolated_context": True,
+                "max_context_window": None,
+            }
+            agent_metadata_dict = {
+                "agent_id": meta.session_id,
+                "agent_type": "subagent",
+                "parent_session_id": meta.parent_session_id,
+            }
+
+        return ParsedConversation(
+            agent_type="claude-code",
+            agent_version=meta.agent_version,
+            session_id=meta.session_id,
+            git_branch=meta.git_branch,
+            working_directory=meta.working_directory,
+            start_time=start_time,
+            end_time=end_time,
+            messages=all_messages,
+            files_touched=[change.file_path for change in code_changes],
+            code_changes=code_changes,
+            conversation_type=conversation_type,
+            parent_session_id=meta.parent_session_id,
+            context_semantics=context_semantics,
+            agent_metadata=agent_metadata_dict,
+            plans=plans,
+            slug=meta.slug,
+            summaries=all_summaries,
+            compaction_events=all_compaction,
+        )
+
+    # ------------------------------------------------------------------
+    # Deprecated: IncrementalParser protocol (ADR-003)
+    # Use parse_metadata() + parse_messages() instead (ADR-009).
+    # ------------------------------------------------------------------
+
+    def supports_incremental(self, file_path: Path) -> bool:
+        """Check if incremental parsing is supported for this file.
+
+        .. deprecated:: ADR-009
+            Use ``parse_messages(offset=N)`` instead.
 
         Args:
             file_path: Path to the log file
@@ -406,8 +602,10 @@ class ClaudeCodeParser:
         last_offset: int,
         last_line: int,
     ) -> IncrementalParseResult:
-        """
-        Parse only new content appended since last_offset.
+        """Parse only new content appended since last_offset.
+
+        .. deprecated:: ADR-009
+            Use ``parse_messages(offset=last_offset)`` instead.
 
         This method implements incremental parsing for Claude Code logs,
         reading only NEW lines appended to the file since the last parse.

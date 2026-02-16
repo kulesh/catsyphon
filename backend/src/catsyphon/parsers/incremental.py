@@ -1,19 +1,30 @@
 """
-Incremental parsing infrastructure for Phase 2 optimization.
+Incremental parsing infrastructure.
 
-This module provides the base types and utilities for incremental parsing
-of log files, allowing parsers to process only new content appended to files
-rather than reparsing entire files.
+Provides two protocol layers:
+
+1. **ChunkedParser** (ADR-009) — the primary interface. Two methods:
+   - ``parse_metadata()`` reads the first few lines for session-level metadata.
+   - ``parse_messages(offset, limit)`` returns a bounded ``MessageChunk``.
+   First-time ingestion is chunked from offset=0; subsequent appends
+   resume from the stored offset. Peak memory is ~3 MB per chunk regardless
+   of file size.
+
+2. **IncrementalParser** (legacy, ADR-003) — deprecated but retained until
+   all callers migrate. Will be removed after Step 6 of the ADR-009 plan.
+
+Utility helpers (``detect_file_change_type``, ``calculate_partial_hash``)
+are shared by both layers.
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Protocol, runtime_checkable
 
-from catsyphon.models.parsed import ParsedMessage
+from catsyphon.models.parsed import ConversationMetadata, ParsedMessage
 
 
 class ChangeType(str, Enum):
@@ -27,8 +38,10 @@ class ChangeType(str, Enum):
 
 @dataclass
 class IncrementalParseResult:
-    """
-    Result from incremental parsing operation.
+    """Result from incremental parsing operation.
+
+    .. deprecated:: ADR-009
+        Use ``MessageChunk`` from ``ChunkedParser.parse_messages()`` instead.
 
     Contains only the NEW messages parsed since last offset, along with
     updated state tracking information.
@@ -105,6 +118,69 @@ class IncrementalParser(Protocol):
 
         Raises:
             ValueError: If file format is invalid or offset is out of bounds
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
+# ADR-009: Chunked parsing protocol
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MessageChunk:
+    """A bounded batch of parsed messages with cursor state.
+
+    Returned by ``ChunkedParser.parse_messages()``. The ``next_offset``
+    and ``next_line`` fields form the cursor for the subsequent call;
+    ``is_last`` is True when EOF has been reached.
+
+    ``summaries`` and ``compaction_events`` live here because they appear
+    inline in the JSONL stream and are encountered during chunk parsing.
+    The ingestion loop accumulates them across chunks.
+    """
+
+    messages: list[ParsedMessage]
+    next_offset: int
+    next_line: int
+    is_last: bool
+    partial_hash: str
+    file_size: int
+    summaries: list[dict] = field(default_factory=list)
+    compaction_events: list[dict] = field(default_factory=list)
+
+
+@runtime_checkable
+class ChunkedParser(Protocol):
+    """Protocol for parsers that support chunked (bounded-memory) parsing.
+
+    Implementors provide two methods:
+    - ``parse_metadata`` — lightweight, reads first N lines.
+    - ``parse_messages`` — returns a bounded ``MessageChunk``.
+
+    First-time ingestion calls ``parse_messages(offset=0)`` in a loop.
+    Subsequent appends resume from the stored offset. Same loop, same
+    memory profile.
+    """
+
+    def parse_metadata(self, file_path: Path) -> ConversationMetadata:
+        """Extract session-level metadata from the first few lines.
+
+        Must be cheap — reads ≤10 JSONL lines. Never materializes the
+        full file.
+        """
+        ...
+
+    def parse_messages(
+        self,
+        file_path: Path,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> MessageChunk:
+        """Parse up to *limit* messages starting from byte *offset*.
+
+        Returns a ``MessageChunk`` whose ``next_offset`` is the cursor
+        for the next call and whose ``is_last`` flag signals EOF.
         """
         ...
 

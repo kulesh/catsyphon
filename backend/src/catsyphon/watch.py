@@ -23,8 +23,12 @@ from typing import TYPE_CHECKING, Any, Optional, Set
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from catsyphon.models.parsed import ParsedConversation
-    from catsyphon.parsers.incremental import IncrementalParseResult
+    from catsyphon.models.parsed import ParsedConversation, ParsedMessage
+    from catsyphon.parsers.incremental import (
+        ChunkedParser,
+        IncrementalParseResult,
+        MessageChunk,
+    )
     from catsyphon.tagging.pipeline import TaggingPipeline
 
 from sqlalchemy.exc import OperationalError
@@ -41,10 +45,11 @@ else:
     from watchdog.observers import Observer
 
 from catsyphon.config import settings
-from catsyphon.db.connection import db_session, engine as db_engine
+from catsyphon.db.connection import db_session
+from catsyphon.db.connection import engine as db_engine
 from catsyphon.db.repositories.raw_log import RawLogRepository
-from catsyphon.models.db import Conversation
 from catsyphon.exceptions import DuplicateFileError
+from catsyphon.models.db import Conversation
 from catsyphon.parsers.base import EmptyFileError
 from catsyphon.parsers.incremental import ChangeType, detect_file_change_type
 from catsyphon.parsers.registry import get_default_registry
@@ -630,48 +635,41 @@ class FileWatcher(FileSystemEventHandler):
             logger.debug(f"Could not check incremental state for {file_path.name}: {e}")
             # Continue with full parse
 
-        # Try incremental parsing if we have existing state and file was appended
-        incremental_result = None
-        incremental_parser = None
-        if existing_raw_log_state and change_type == ChangeType.APPEND:
-            try:
-                incremental_parser = self.parser_registry.find_incremental_parser(
-                    file_path
-                )
-                if incremental_parser:
-                    incremental_result = incremental_parser.parse_incremental(
-                        file_path,
-                        existing_raw_log_state["last_processed_offset"],
-                        existing_raw_log_state["last_processed_line"],
-                    )
-                    if incremental_result and incremental_result.new_messages:
-                        logger.info(
-                            f"Incremental parse: {len(incremental_result.new_messages)} new messages "
-                            f"in {file_path.name}"
-                        )
-            except Exception as e:
-                logger.warning(
-                    f"Incremental parse failed for {file_path.name}: {e}, falling back to full parse"
-                )
-                incremental_result = None
-
-        # Full parse if no incremental result
+        # ADR-009: Unified chunked parsing for both new files and appends.
+        # parse_messages(offset=0) for new files, parse_messages(offset=N) for appends.
+        # Same loop, same memory profile.
         parsed = None
-        if not incremental_result:
+        chunked_result: Optional[dict] = None  # type: ignore[assignment]
+
+        chunked_parser = self.parser_registry.find_chunked_parser(file_path)
+        if chunked_parser:
+            start_offset = 0
+            if existing_raw_log_state and change_type == ChangeType.APPEND:
+                start_offset = existing_raw_log_state["last_processed_offset"]
+            chunked_result = self._parse_chunked(
+                file_path, chunked_parser, start_offset=start_offset
+            )
+            if not chunked_result.get("accepted") and not chunked_result.get(
+                "messages"
+            ):
+                logger.debug(
+                    f"Skipping {file_path.name} (chunked parse found no new content)"
+                )
+                with self._stats_lock:
+                    self.stats.files_skipped += 1
+                    self.stats.last_activity = datetime.now()
+                return
+        else:
+            # Fallback for parsers that don't implement ChunkedParser
             parsed = self.parser_registry.parse(file_path)
-        elif not incremental_result.new_messages:
-            # Incremental parse succeeded but found no new messages - skip processing
-            logger.debug(f"Skipping {file_path.name} (incremental parse found no new content)")
-            with self._stats_lock:
-                self.stats.files_skipped += 1
-                self.stats.last_activity = datetime.now()
-            return
 
         # Resolve session_id: prefer parser-extracted, then existing conversation,
         # then file stem.  Using the original parser-extracted session_id on
         # incremental updates is critical — without it, agents like Codex whose
         # file stems differ from their parsed session_id create ghost duplicates.
-        if parsed:
+        if chunked_result:
+            session_id = chunked_result["session_id"]
+        elif parsed:
             session_id = getattr(parsed, "session_id", None)
         else:
             session_id = (existing_raw_log_state or {}).get("session_id")
@@ -685,19 +683,32 @@ class FileWatcher(FileSystemEventHandler):
         if existing_raw_log_state:
             raw_log_agent_type = existing_raw_log_state.get("agent_type")
 
-        agent_type = _resolve_agent_type(
-            parsed=parsed,
-            raw_log_agent_type=raw_log_agent_type,
-            incremental_parser=incremental_parser,
-            file_path=file_path,
-            watch_directory=self.directory,
-        )
-        if parsed:
+        if chunked_result:
+            agent_type = chunked_result["agent_type"]
+            agent_version = chunked_result.get("agent_version")
+            working_directory = chunked_result.get("working_directory")
+            git_branch = chunked_result.get("git_branch")
+            parent_session_id = chunked_result.get("parent_session_id")
+        elif parsed:
+            agent_type = _resolve_agent_type(
+                parsed=parsed,
+                raw_log_agent_type=raw_log_agent_type,
+                incremental_parser=None,
+                file_path=file_path,
+                watch_directory=self.directory,
+            )
             agent_version = parsed.agent_version
             working_directory = parsed.working_directory
             git_branch = parsed.git_branch
             parent_session_id = parsed.parent_session_id
         else:
+            agent_type = _resolve_agent_type(
+                parsed=None,
+                raw_log_agent_type=raw_log_agent_type,
+                incremental_parser=None,
+                file_path=file_path,
+                watch_directory=self.directory,
+            )
             # Incremental path: recover metadata from the existing conversation
             # so project/developer associations are preserved on updates.
             state = existing_raw_log_state or {}
@@ -707,35 +718,13 @@ class FileWatcher(FileSystemEventHandler):
             parent_session_id = state.get("parent_session_id")
 
         # Send to API
-        if incremental_result and incremental_result.new_messages:
-            # Incremental: send only new messages
-            try:
-                self._collector_client.ensure_session_started(
-                    session_id=session_id,
-                    agent_type=agent_type,
-                    agent_version=agent_version,
-                    working_directory=working_directory,
-                    git_branch=git_branch,
-                    parent_session_id=parent_session_id,
-                    emitted_at=_first_message_time(
-                        incremental_result.new_messages
-                    ),
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to ensure session_start for %s: %s",
-                    file_path.name,
-                    e,
-                )
-            result = self._collector_client.ingest_incremental_messages(
-                messages=incremental_result.new_messages,
-                session_id=session_id,
-            )
-            accepted = result.get("accepted", 0)
-            conversation_id = result.get("conversation_id")
-            messages_for_fingerprint = incremental_result.new_messages
+        if chunked_result:
+            # ADR-009: chunked parsing already sent messages via collector API
+            accepted = chunked_result.get("accepted", 0)
+            conversation_id = chunked_result.get("conversation_id")
+            messages_for_fingerprint = chunked_result.get("messages", [])
         else:
-            # Full parse: send entire conversation
+            # Full parse fallback: send entire conversation
             result = self._collector_client.ingest_conversation(
                 parsed=parsed,
                 session_id=session_id,
@@ -750,13 +739,15 @@ class FileWatcher(FileSystemEventHandler):
             messages_for_fingerprint = parsed.messages if parsed else []
 
         # Update raw_log state for future incremental parsing
-        self._update_raw_log_state(
-            file_path=file_path,
-            conversation_id=conversation_id,
-            parsed=parsed,
-            incremental_result=incremental_result,
-            has_existing_raw_log=existing_raw_log_state is not None,
-        )
+        if not chunked_result:
+            # Chunked path already updates raw_log state via _parse_chunked
+            self._update_raw_log_state(
+                file_path=file_path,
+                conversation_id=conversation_id,
+                parsed=parsed,
+                incremental_result=None,
+                has_existing_raw_log=existing_raw_log_state is not None,
+            )
 
         # Compute fingerprint for reconciliation
         fingerprint = None
@@ -767,7 +758,7 @@ class FileWatcher(FileSystemEventHandler):
             except Exception as fp_error:
                 logger.debug(f"Could not compute fingerprint: {fp_error}")
 
-        mode = "incr" if incremental_result else "full"
+        mode = "chunked" if chunked_result else "full"
         logger.info(
             f"✓ API[{mode}] {file_path.name} → conversation {conversation_id} "
             f"({accepted} events)" + (f" [fp:{fingerprint[:8]}]" if fingerprint else "")
@@ -780,6 +771,142 @@ class FileWatcher(FileSystemEventHandler):
         # Remove from retry queue if present
         if self.retry_queue:
             self.retry_queue.remove(file_path)
+
+    def _parse_chunked(
+        self,
+        file_path: Path,
+        chunked_parser: "ChunkedParser",
+        start_offset: int = 0,
+    ) -> dict:
+        """Parse a file in bounded chunks to avoid OOM (ADR-009).
+
+        Extracts metadata, then iterates ``parse_messages()`` in a loop
+        from *start_offset*, sending each chunk to the collector API.
+        Peak memory is ~3 MB per chunk regardless of file size.
+
+        For new files, ``start_offset=0``. For appends, it's the stored
+        ``last_processed_offset`` from the raw_log table.
+
+        Returns a dict with keys:
+            session_id, agent_type, agent_version, working_directory,
+            git_branch, parent_session_id, accepted, conversation_id,
+            messages (list of last chunk's messages for fingerprinting),
+            last_offset, last_line, file_size, partial_hash.
+        """
+        from catsyphon.parsers.incremental import MessageChunk  # noqa: F811
+
+        meta = chunked_parser.parse_metadata(file_path)
+
+        # Ensure session is started
+        session_metadata: dict[str, Any] = {}
+        if meta.slug:
+            session_metadata["slug"] = meta.slug
+        try:
+            self._collector_client.ensure_session_started(
+                session_id=meta.session_id,
+                agent_type=meta.agent_type,
+                agent_version=meta.agent_version,
+                working_directory=meta.working_directory,
+                git_branch=meta.git_branch,
+                parent_session_id=meta.parent_session_id,
+                emitted_at=meta.start_time,
+                metadata=session_metadata or None,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to ensure session_start for %s: %s",
+                file_path.name,
+                e,
+            )
+
+        total_accepted = 0
+        conversation_id = None
+        last_messages: list = []
+        offset = start_offset
+        last_chunk: Optional[MessageChunk] = None
+
+        while True:
+            chunk = chunked_parser.parse_messages(file_path, offset)
+            last_chunk = chunk
+
+            if chunk.messages:
+                result = self._collector_client.ingest_incremental_messages(
+                    messages=chunk.messages,
+                    session_id=meta.session_id,
+                )
+                total_accepted += result.get("accepted", 0)
+                conversation_id = result.get("conversation_id")
+                last_messages = chunk.messages
+
+            offset = chunk.next_offset
+            if chunk.is_last:
+                break
+
+        # Update raw_log state
+        if last_chunk and conversation_id:
+            self._update_raw_log_state_from_chunk(
+                file_path=file_path,
+                conversation_id=conversation_id,
+                agent_type=meta.agent_type,
+                last_chunk=last_chunk,
+            )
+
+        return {
+            "session_id": meta.session_id,
+            "agent_type": meta.agent_type,
+            "agent_version": meta.agent_version,
+            "working_directory": meta.working_directory,
+            "git_branch": meta.git_branch,
+            "parent_session_id": meta.parent_session_id,
+            "accepted": total_accepted,
+            "conversation_id": conversation_id,
+            "messages": last_messages,
+        }
+
+    def _update_raw_log_state_from_chunk(
+        self,
+        file_path: Path,
+        conversation_id: str,
+        agent_type: str,
+        last_chunk: "MessageChunk",
+    ) -> None:
+        """Update raw_log entry after chunked parsing completes."""
+        from sqlalchemy.exc import IntegrityError
+
+        try:
+            with db_session() as session:
+                raw_log_repo = RawLogRepository(session)
+                existing = raw_log_repo.get_by_file_path(str(file_path))
+
+                if existing:
+                    raw_log_repo.update_state(
+                        raw_log=existing,
+                        last_processed_offset=last_chunk.next_offset,
+                        last_processed_line=last_chunk.next_line,
+                        file_size_bytes=last_chunk.file_size,
+                        partial_hash=last_chunk.partial_hash,
+                    )
+                else:
+                    raw_log_repo.create_from_file(
+                        conversation_id=conversation_id,
+                        agent_type=agent_type,
+                        log_format="jsonl",
+                        file_path=file_path,
+                    )
+                    new_raw_log = raw_log_repo.get_by_file_path(str(file_path))
+                    if new_raw_log:
+                        raw_log_repo.update_state(
+                            raw_log=new_raw_log,
+                            last_processed_offset=last_chunk.next_offset,
+                            last_processed_line=last_chunk.next_line,
+                            file_size_bytes=last_chunk.file_size,
+                            partial_hash=last_chunk.partial_hash,
+                        )
+                session.commit()
+        except IntegrityError:
+            logger.debug("raw_log already exists for %s (race)", file_path)
+        except Exception as e:
+            logger.warning("Failed to update raw_log for %s: %s", file_path, e)
 
     def _update_raw_log_state(
         self,
@@ -927,7 +1054,8 @@ class WatcherDaemon:
         self.stats_queue = stats_queue
         self.api_config = api_config or ApiIngestionConfig()
         self.workspace_id = workspace_id  # For multi-tenancy orphan linking
-        self._scan_workers = 1  # Sequential scan to avoid OOM under Docker memory limits
+        # ADR-009: Chunked parsing keeps memory bounded — safe to use multiple workers
+        self._scan_workers = min(os.cpu_count() or 2, 4)
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
 
         # API mode is always used
@@ -1200,13 +1328,9 @@ class WatcherDaemon:
                     batch_size = self._scan_workers * 2
                     for batch_start in range(0, len(new_files), batch_size):
                         batch = new_files[batch_start : batch_start + batch_size]
-                        with ThreadPoolExecutor(
-                            max_workers=self._scan_workers
-                        ) as pool:
+                        with ThreadPoolExecutor(max_workers=self._scan_workers) as pool:
                             futures = {
-                                pool.submit(
-                                    self.event_handler._process_file, fp
-                                ): fp
+                                pool.submit(self.event_handler._process_file, fp): fp
                                 for fp in batch
                             }
                             for future in as_completed(futures):

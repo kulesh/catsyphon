@@ -16,9 +16,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from catsyphon.models.parsed import ParsedConversation, ParsedMessage
+from catsyphon.models.parsed import (
+    ConversationMetadata,
+    ParsedConversation,
+    ParsedMessage,
+)
 from catsyphon.parsers.base import ParseDataError, ParseFormatError
-from catsyphon.parsers.incremental import IncrementalParseResult, calculate_partial_hash
+from catsyphon.parsers.incremental import (
+    IncrementalParseResult,
+    MessageChunk,
+    calculate_partial_hash,
+)
 from catsyphon.parsers.metadata import ParserCapability, ParserMetadata
 from catsyphon.parsers.types import ProbeResult
 from catsyphon.parsers.utils import parse_iso_timestamp
@@ -41,7 +49,11 @@ class CodexParser:
             name="codex",
             version="1.0.0",
             supported_formats=[".jsonl"],
-            capabilities={ParserCapability.BATCH, ParserCapability.INCREMENTAL},
+            capabilities={
+                ParserCapability.BATCH,
+                ParserCapability.INCREMENTAL,
+                ParserCapability.STREAMING,
+            },
             priority=60,  # Slightly above Claude to favor explicit Codex logs
             description="Parser for OpenAI Codex session logs",
         )
@@ -101,22 +113,20 @@ class CodexParser:
             can_parse=bool(reasons), confidence=confidence, reasons=reasons
         )
 
+    # ------------------------------------------------------------------
+    # Deprecated: IncrementalParser protocol (ADR-003)
+    # Use parse_metadata() + parse_messages() instead (ADR-009).
+    # ------------------------------------------------------------------
+
     def supports_incremental(self, file_path: Path) -> bool:
-        """
-        Codex JSONL logs support clean append semantics; rely on probe to confirm.
+        """.. deprecated:: ADR-009
+        Use ``parse_messages(offset=N)`` instead.
         """
         return self.can_parse(file_path)
 
-    def _load_records(self, file_path: Path) -> list[_CodexRecord]:
-        records: list[_CodexRecord] = []
-        with file_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                rec = self._record_from_line(line, file_path=file_path)
-                if rec:
-                    records.append(rec)
-        return records
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _record_from_line(
         self, line: str, file_path: Optional[Path] = None
@@ -140,6 +150,17 @@ class CodexParser:
             type=data.get("type", ""),
             payload=data.get("payload") or {},
         )
+
+    def _load_records(self, file_path: Path) -> list[_CodexRecord]:
+        records: list[_CodexRecord] = []
+        with file_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                rec = self._record_from_line(line, file_path=file_path)
+                if rec:
+                    records.append(rec)
+        return records
 
     def _build_messages(self, records: list[_CodexRecord]) -> list[ParsedMessage]:
         messages: list[ParsedMessage] = []
@@ -218,15 +239,72 @@ class CodexParser:
 
         return messages
 
-    def parse(self, file_path: Path) -> ParsedConversation:
-        if not self.can_parse(file_path):
-            raise ParseFormatError(f"Not a Codex log: {file_path}")
+    # ------------------------------------------------------------------
+    # ADR-009: Chunked parsing (ChunkedParser protocol)
+    # ------------------------------------------------------------------
 
-        records = self._load_records(file_path)
-        if not records:
-            raise ParseDataError("Codex log is empty")
+    def _parse_lines_limited(
+        self,
+        file_path: Path,
+        start_offset: int,
+        start_line: int,
+        limit: int,
+    ) -> tuple[list[_CodexRecord], int, int, bool]:
+        """Read up to *limit* valid JSONL records from *start_offset*.
 
-        # Extract session metadata
+        Defers partial trailing lines at EOF (same as ``parse_incremental``).
+
+        Returns:
+            ``(records, new_offset, new_line, is_eof)``
+        """
+        records: list[_CodexRecord] = []
+        line_num = start_line
+        file_size = file_path.stat().st_size
+        last_good_offset = start_offset
+        last_good_line = start_line
+
+        with file_path.open("r", encoding="utf-8") as f:
+            f.seek(start_offset)
+            while len(records) < limit:
+                line = f.readline()
+                if not line:
+                    return records, last_good_offset, last_good_line, True
+
+                line_num += 1
+                if not line.strip():
+                    last_good_offset = f.tell()
+                    last_good_line = line_num
+                    continue
+
+                rec = self._record_from_line(line)
+                if rec is None:
+                    # At EOF, partial line — defer to next pass
+                    if f.tell() >= file_size:
+                        logger.debug(
+                            "Deferring partial trailing line at %s:%s",
+                            file_path,
+                            line_num,
+                        )
+                        return records, last_good_offset, last_good_line, False
+                    # Otherwise skip malformed line but advance offset
+                    last_good_offset = f.tell()
+                    last_good_line = line_num
+                    continue
+
+                records.append(rec)
+                last_good_offset = f.tell()
+                last_good_line = line_num
+
+        # Reached limit — not EOF
+        return records, last_good_offset, last_good_line, False
+
+    def parse_metadata(self, file_path: Path) -> ConversationMetadata:
+        """Extract session-level metadata from the first few Codex log lines.
+
+        Reads until ``session_meta`` is found (typically line 1).
+        """
+        records, _, _, _ = self._parse_lines_limited(file_path, 0, 0, 20)
+
         session_meta = next(
             (r for r in records if r.type == "session_meta" and r.payload), None
         )
@@ -238,26 +316,94 @@ class CodexParser:
         if not session_id:
             raise ParseDataError("Codex session_meta missing id")
 
-        cwd = payload.get("cwd")
-        cli_version = payload.get("cli_version")
-        start_time = records[0].timestamp
-        end_time = records[-1].timestamp if records else None
-
-        messages = self._build_messages(records)
-
-        return ParsedConversation(
+        return ConversationMetadata(
+            session_id=session_id,
             agent_type="codex",
-            agent_version=cli_version,
-            start_time=start_time,
-            end_time=end_time,
-            messages=messages,
+            start_time=records[0].timestamp if records else datetime.now(UTC),
+            agent_version=payload.get("cli_version"),
+            working_directory=payload.get("cwd"),
+            git_branch=None,
+            conversation_type="main",
+            parent_session_id=None,
             metadata={
                 "source": payload.get("source") or payload.get("originator"),
                 "model_provider": payload.get("model_provider"),
             },
-            session_id=session_id,
+        )
+
+    def parse_messages(
+        self,
+        file_path: Path,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> MessageChunk:
+        """Parse up to *limit* Codex messages starting from byte *offset*."""
+        records, new_offset, new_line, is_eof = self._parse_lines_limited(
+            file_path, offset, 0, limit
+        )
+
+        file_size = file_path.stat().st_size
+
+        if not records:
+            partial_hash = calculate_partial_hash(file_path, new_offset)
+            return MessageChunk(
+                messages=[],
+                next_offset=new_offset,
+                next_line=new_line,
+                is_last=is_eof,
+                partial_hash=partial_hash,
+                file_size=file_size,
+            )
+
+        messages = self._build_messages(records)
+        messages.sort(key=lambda m: m.timestamp)
+
+        partial_hash = calculate_partial_hash(file_path, new_offset)
+        return MessageChunk(
+            messages=messages,
+            next_offset=new_offset,
+            next_line=new_line,
+            is_last=is_eof,
+            partial_hash=partial_hash,
+            file_size=file_size,
+        )
+
+    # ------------------------------------------------------------------
+    # Convenience wrapper (tests, scripts, backward compatibility)
+    # ------------------------------------------------------------------
+
+    def parse(self, file_path: Path) -> ParsedConversation:
+        """Parse a Codex log via chunked methods for backward compatibility."""
+        if not self.can_parse(file_path):
+            raise ParseFormatError(f"Not a Codex log: {file_path}")
+
+        meta = self.parse_metadata(file_path)
+        all_messages: list[ParsedMessage] = []
+        offset = 0
+
+        while True:
+            chunk = self.parse_messages(file_path, offset)
+            all_messages.extend(chunk.messages)
+            offset = chunk.next_offset
+            if chunk.is_last:
+                break
+
+        if not all_messages and not meta.session_id:
+            raise ParseDataError("Codex log is empty")
+
+        start_time = meta.start_time
+        end_time = all_messages[-1].timestamp if all_messages else start_time
+
+        return ParsedConversation(
+            agent_type="codex",
+            agent_version=meta.agent_version,
+            start_time=start_time,
+            end_time=end_time,
+            messages=all_messages,
+            metadata=meta.metadata,
+            session_id=meta.session_id,
             git_branch=None,
-            working_directory=cwd,
+            working_directory=meta.working_directory,
             files_touched=[],
             code_changes=[],
             conversation_type="main",
@@ -265,6 +411,10 @@ class CodexParser:
             context_semantics={},
             agent_metadata={},
         )
+
+    # ------------------------------------------------------------------
+    # Deprecated: parse_incremental (ADR-003)
+    # ------------------------------------------------------------------
 
     def parse_incremental(
         self,

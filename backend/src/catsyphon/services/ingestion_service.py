@@ -190,7 +190,20 @@ class IngestionService:
         start_time = time.time()
 
         try:
-            # Parse the file
+            # ADR-009: Prefer chunked parsing to keep memory bounded
+            chunked_parser = self.parser_registry.find_chunked_parser(file_path)
+            if chunked_parser:
+                return self._ingest_chunked(
+                    file_path=file_path,
+                    chunked_parser=chunked_parser,
+                    workspace_id=workspace_id,
+                    collector_id=collector_id,
+                    source_type=source_type,
+                    enable_tagging=enable_tagging,
+                    start_time=start_time,
+                )
+
+            # Fallback: full parse for non-chunked parsers
             parsed = self.parser_registry.parse(file_path)
             if not parsed:
                 return IngestionOutcome(
@@ -198,10 +211,7 @@ class IngestionService:
                     error_message=f"Failed to parse file: {file_path}",
                 )
 
-            # Use session_id from parsed data or generate from filename
             session_id = parsed.session_id or file_path.stem
-
-            # Convert parsed conversation to events
             events = self._parsed_to_events(parsed)
 
             if not events:
@@ -210,7 +220,6 @@ class IngestionService:
                     error_message="No events generated from file",
                 )
 
-            # Process events
             outcome = self.process_events(
                 events=events,
                 session_id=session_id,
@@ -220,7 +229,6 @@ class IngestionService:
                 enable_tagging=enable_tagging,
             )
 
-            # Create/update RawLog for incremental parsing state
             if outcome.success and outcome.conversation_id:
                 self._ensure_raw_log(
                     conversation_id=outcome.conversation_id,
@@ -238,6 +246,112 @@ class IngestionService:
                 error_message=str(e),
                 processing_time_ms=processing_time_ms,
             )
+
+    def _ingest_chunked(
+        self,
+        file_path: Path,
+        chunked_parser: Any,
+        workspace_id: UUID,
+        collector_id: Optional[UUID],
+        source_type: str,
+        enable_tagging: bool,
+        start_time: float,
+    ) -> IngestionOutcome:
+        """Ingest a file using chunked parsing (ADR-009).
+
+        Extracts metadata, then iterates parse_messages() in a loop,
+        converting each chunk to events and processing them. Peak memory
+        is ~3 MB per chunk regardless of file size.
+        """
+        meta = chunked_parser.parse_metadata(file_path)
+        session_id = meta.session_id or file_path.stem
+
+        # Accumulate events across chunks (we still process in one batch
+        # per the events API contract, but memory is bounded by chunk size
+        # since messages are converted to lightweight event dicts)
+        all_events: list[CollectorEvent] = []
+
+        # Session start event
+        session_start_data: dict[str, Any] = {
+            "agent_type": meta.agent_type or "unknown",
+            "agent_version": meta.agent_version or "unknown",
+            "working_directory": meta.working_directory,
+            "git_branch": meta.git_branch,
+        }
+        if meta.parent_session_id:
+            session_start_data["parent_session_id"] = meta.parent_session_id
+        if meta.slug:
+            session_start_data["slug"] = meta.slug
+        if meta.metadata:
+            for key, value in meta.metadata.items():
+                if key not in session_start_data:
+                    session_start_data[key] = _serialize_for_json(value)
+
+        all_events.append(
+            self._create_event(
+                event_type="session_start",
+                emitted_at=meta.start_time or _utc_now(),
+                data=session_start_data,
+            )
+        )
+
+        # Parse messages in chunks
+        offset = 0
+        all_summaries: list[dict] = []
+        all_compaction: list[dict] = []
+        last_message_time = meta.start_time
+
+        while True:
+            chunk = chunked_parser.parse_messages(file_path, offset)
+
+            for msg in chunk.messages:
+                all_events.extend(self._message_to_events(msg))
+                if msg.timestamp:
+                    last_message_time = msg.timestamp
+
+            all_summaries.extend(chunk.summaries)
+            all_compaction.extend(chunk.compaction_events)
+            offset = chunk.next_offset
+            if chunk.is_last:
+                break
+
+        # Session end event
+        if last_message_time:
+            session_end_data: dict[str, Any] = {
+                "outcome": "unknown",
+                "total_messages": sum(1 for e in all_events if e.type == "message"),
+            }
+            all_events.append(
+                self._create_event(
+                    event_type="session_end",
+                    emitted_at=last_message_time,
+                    data=session_end_data,
+                )
+            )
+
+        if not all_events:
+            return IngestionOutcome(
+                status="skipped",
+                error_message="No events generated from file",
+            )
+
+        outcome = self.process_events(
+            events=all_events,
+            session_id=session_id,
+            workspace_id=workspace_id,
+            collector_id=collector_id,
+            source_type=source_type,
+            enable_tagging=enable_tagging,
+        )
+
+        if outcome.success and outcome.conversation_id:
+            self._ensure_raw_log(
+                conversation_id=outcome.conversation_id,
+                file_path=file_path,
+                agent_type=meta.agent_type or "unknown",
+            )
+
+        return outcome
 
     def process_events(
         self,

@@ -12,7 +12,7 @@ from typing import Optional
 
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.base import ConversationParser, EmptyFileError, ParseFormatError
-from catsyphon.parsers.incremental import IncrementalParser
+from catsyphon.parsers.incremental import ChunkedParser, IncrementalParser
 from catsyphon.parsers.metadata import ParserMetadata
 from catsyphon.parsers.types import ParseResult, ProbeResult
 
@@ -285,6 +285,37 @@ class ParserRegistry:
             except Exception as e:
                 logger.debug(
                     f"Parser {type(parser).__name__} incremental check failed: {e}"
+                )
+                continue
+
+        return None
+
+    def find_chunked_parser(self, file_path: Path) -> Optional[ChunkedParser]:
+        """Find a parser that implements ChunkedParser for the given file.
+
+        Returns the first matching parser, or None if no parser supports
+        chunked parsing for this file.
+        """
+        if not file_path.exists():
+            return None
+
+        for parser in self._sorted_parsers(file_path):
+            try:
+                probe_fn = getattr(parser, "probe", None)
+                if callable(probe_fn):
+                    probe: ProbeResult = probe_fn(file_path)
+                    if not probe.can_parse:
+                        continue
+                else:
+                    if not parser.can_parse(file_path):
+                        continue
+
+                if isinstance(parser, ChunkedParser):
+                    return parser
+
+            except Exception as e:
+                logger.debug(
+                    f"Parser {type(parser).__name__} chunked check failed: {e}"
                 )
                 continue
 
