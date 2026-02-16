@@ -432,16 +432,23 @@ class IngestionService:
 
                 ingestion_job.conversation_id = conversation.id
 
-                # Content-based deduplication
-                existing_hashes = self.session_repo.get_event_hashes(conversation.id)
+                # Content-based deduplication: send only candidate hashes
+                # to DB instead of loading all existing hashes into Python
+                candidate_hashes = {e.event_hash for e in sorted_events}
+                existing_hashes = self.session_repo.filter_existing_event_hashes(
+                    conversation.id, candidate_hashes
+                )
                 new_events = [
                     e for e in sorted_events if e.event_hash not in existing_hashes
                 ]
 
                 # Process events
                 messages_added = 0
-                files_touched = 0
+                files_touched_count = 0
                 session_completed = False
+
+                # Accumulate file touches for batch insert
+                pending_file_touches: list[tuple[str, str, datetime]] = []
 
                 # Tools for file tracking
                 file_modifying_tools = {
@@ -481,7 +488,7 @@ class IngestionService:
                         )
                         messages_added += 1
 
-                        # Track file touches from tool_call events
+                        # Accumulate file touches from tool_call events
                         if event.type == "tool_call":
                             tool_name = event.data.get("tool_name")
                             params = event.data.get("parameters", {})
@@ -489,21 +496,17 @@ class IngestionService:
 
                             if file_path:
                                 if tool_name in file_modifying_tools:
-                                    self.session_repo.add_file_touched(
-                                        conversation=conversation,
-                                        file_path=file_path,
-                                        change_type=file_modifying_tools[tool_name],
-                                        timestamp=event.emitted_at,
+                                    pending_file_touches.append(
+                                        (
+                                            file_path,
+                                            file_modifying_tools[tool_name],
+                                            event.emitted_at,
+                                        )
                                     )
-                                    files_touched += 1
                                 elif tool_name in file_reading_tools:
-                                    self.session_repo.add_file_touched(
-                                        conversation=conversation,
-                                        file_path=file_path,
-                                        change_type="read",
-                                        timestamp=event.emitted_at,
+                                    pending_file_touches.append(
+                                        (file_path, "read", event.emitted_at)
                                     )
-                                    files_touched += 1
 
                     # Handle session_end
                     if event.type == "session_end":
@@ -517,6 +520,13 @@ class IngestionService:
                             files_touched=event.data.get("files_touched"),
                         )
                         session_completed = True
+
+                # Batch-insert accumulated file touches
+                if pending_file_touches:
+                    files_touched_count = self.session_repo.add_file_touches_batch(
+                        conversation=conversation,
+                        touches=pending_file_touches,
+                    )
 
                 # Update counts
                 if new_events:
@@ -534,10 +544,17 @@ class IngestionService:
                         event_timestamp=last_event.emitted_at,
                     )
 
-                # Link orphaned sessions
-                linked = self.session_repo.link_orphaned_collectors(workspace_id)
-                if linked > 0:
-                    logger.info(f"Linked {linked} orphaned collector sessions")
+                # Link orphaned sessions only when needed:
+                # - A new conversation was created (potential parent for existing orphans)
+                # - Batch contains a session_start with parent_session_id (potential orphan)
+                has_parent_ref = any(
+                    e.type == "session_start" and e.data.get("parent_session_id")
+                    for e in new_events
+                )
+                if created or has_parent_ref:
+                    linked = self.session_repo.link_orphaned_collectors(workspace_id)
+                    if linked > 0:
+                        logger.info(f"Linked {linked} orphaned collector sessions")
 
                 # Calculate processing time
                 processing_time_ms = int((time.time() - start_time) * 1000)
@@ -551,7 +568,7 @@ class IngestionService:
                     "events_received": len(sorted_events),
                     "events_accepted": len(new_events),
                     "events_deduplicated": len(sorted_events) - len(new_events),
-                    "files_touched": files_touched,
+                    "files_touched": files_touched_count,
                     "session_created": created,
                     "total_ms": processing_time_ms,
                 }

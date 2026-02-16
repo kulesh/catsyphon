@@ -106,6 +106,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
 
     def __init__(self, session: Session):
         super().__init__(Conversation, session)
+        self._epoch_cache: dict[uuid.UUID, Epoch] = {}
 
     def get_by_collector_session_id(
         self, collector_session_id: str
@@ -597,7 +598,15 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         return linked_count
 
     def _get_default_epoch(self, conversation: Conversation) -> Epoch:
-        """Get or create the default epoch for a conversation."""
+        """Get or create the default epoch for a conversation.
+
+        Results are cached per conversation_id to avoid repeated identical
+        queries within the same batch (e.g., 100 add_message calls).
+        """
+        cached = self._epoch_cache.get(conversation.id)
+        if cached is not None:
+            return cached
+
         epoch = (
             self.session.query(Epoch)
             .filter(Epoch.conversation_id == conversation.id)
@@ -614,6 +623,8 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             )
             self.session.add(epoch)
             self.session.flush()
+
+        self._epoch_cache[conversation.id] = epoch
         return epoch
 
     def get_event_hashes(self, conversation_id: uuid.UUID) -> set[str]:
@@ -637,6 +648,46 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             .all()
         )
         return {row[0] for row in result}
+
+    def filter_existing_event_hashes(
+        self, conversation_id: uuid.UUID, candidate_hashes: set[str]
+    ) -> set[str]:
+        """
+        Return the subset of candidate_hashes that already exist in the DB.
+
+        Sends only the candidate hashes to the database via an IN clause
+        instead of loading all existing hashes into Python. For a conversation
+        with 1000 messages receiving 50 new events, this transfers 50 hashes
+        to the DB instead of loading 1000 back.
+
+        Args:
+            conversation_id: Conversation ID
+            candidate_hashes: Set of hashes to check
+
+        Returns:
+            Subset of candidate_hashes that already exist
+        """
+        if not candidate_hashes:
+            return set()
+
+        hash_list = list(candidate_hashes)
+
+        # Process in batches of 500 to avoid overly large IN clauses
+        existing: set[str] = set()
+        batch_size = 500
+        for i in range(0, len(hash_list), batch_size):
+            batch = hash_list[i : i + batch_size]
+            result = (
+                self.session.query(Message.event_hash)
+                .filter(
+                    Message.conversation_id == conversation_id,
+                    Message.event_hash.in_(batch),
+                )
+                .all()
+            )
+            existing.update(row[0] for row in result)
+
+        return existing
 
     def add_message(
         self,
@@ -780,6 +831,47 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         conversation.files_count = (conversation.files_count or 0) + 1
 
         return file_touched
+
+    def add_file_touches_batch(
+        self,
+        conversation: Conversation,
+        touches: list[tuple[str, str, datetime]],
+    ) -> int:
+        """
+        Batch-insert multiple file touched records in a single operation.
+
+        More efficient than calling add_file_touched() individually for each
+        tool_call event. For 30 file-touching tool_calls, this performs one
+        epoch lookup + one bulk add instead of 30 individual ORM operations.
+
+        Args:
+            conversation: Parent conversation
+            touches: List of (file_path, change_type, timestamp) tuples
+
+        Returns:
+            Number of records added
+        """
+        if not touches:
+            return 0
+
+        epoch = self._get_default_epoch(conversation)
+
+        records = [
+            FileTouched(
+                conversation_id=conversation.id,
+                epoch_id=epoch.id,
+                file_path=file_path,
+                change_type=change_type,
+                timestamp=_to_naive_utc(timestamp),
+            )
+            for file_path, change_type, timestamp in touches
+        ]
+        self.session.add_all(records)
+
+        # Update denormalized count
+        conversation.files_count = (conversation.files_count or 0) + len(records)
+
+        return len(records)
 
     def _add_batch_files_touched(
         self,
