@@ -8,7 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles, Loader2 } from 'lucide-react';
 import { ApiError, generateWeeklyDigest, getBenchmarkAvailability, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest, hasBenchmarkToken } from '@/lib/api';
 import { Sparkline } from '@/components/Sparkline';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function Dashboard() {
   const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
@@ -102,6 +102,13 @@ export default function Dashboard() {
       setDigestPollEnabled(true);
     },
   });
+
+  // Auto-generate digest when missing (no manual click needed)
+  useEffect(() => {
+    if (digestMissing && !digestMutation.isPending) {
+      digestMutation.mutate({ force: false });
+    }
+  }, [digestMissing]);
 
   if (isLoading) {
     return (
@@ -398,10 +405,11 @@ export default function Dashboard() {
           </p>
         )}
 
-        {digestMissing && (
-          <p className="text-sm font-mono text-muted-foreground">
-            No digest yet for this week. Generate one to get a summary.
-          </p>
+        {digestMissing && !digest && (
+          <div className="flex items-center gap-2 text-sm font-mono text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Generating weekly digest...
+          </div>
         )}
 
         {digestQuery.isError && !digestMissing && (
