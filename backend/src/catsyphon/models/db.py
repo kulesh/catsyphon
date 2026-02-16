@@ -723,16 +723,19 @@ class FileTouched(Base):
         UUID(as_uuid=True),
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     epoch_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("epochs.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     message_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("messages.id", ondelete="CASCADE"),
         nullable=True,
+        index=True,
     )
 
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
