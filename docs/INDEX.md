@@ -47,8 +47,16 @@ New to CatSyphon? Read these in order:
 | [Architecture](collectors/architecture.md) | Collector subsystem design |
 | [Protocol](collectors/protocol.md) | Event streaming specification |
 | [SDK](collectors/sdk.md) | Client SDK for collectors |
+| [Edge Sensors (macOS)](collectors/edge-sensors-macos.md) | Multi-Mac edge sensor deployment to central collector |
 | [Log Collection](collectors/log-collection.md) | Log collection architecture |
 | [Implementation Plan](collectors/implementation-plan.md) | Collector implementation roadmap |
+
+## Strategy
+
+| Document | Description |
+|----------|-------------|
+| [Preceptor Platform Analysis](strategy/preceptor-platform-analysis.md) | Gap analysis: CatSyphon + AIObscura as AI mentoring platform |
+| [Preceptor Platform Roadmap](strategy/preceptor-platform-roadmap.md) | Phased roadmap to close gaps across both tools |
 
 ## Decision Records
 

@@ -142,6 +142,7 @@ pnpm tsc --noEmit               # Type check
 |-------------|------------|
 | **Analyze my own logs locally** | [Getting Started](docs/guides/getting-started.md) |
 | **Deploy for my team/company** | [Enterprise Deployment](docs/guides/enterprise-deployment.md) |
+| **Run multi-Mac edge sensors into one central collector** | [Edge Sensors (macOS)](docs/collectors/edge-sensors-macos.md) |
 | **Build a parser plugin** | [Parser SDK](docs/guides/plugin-sdk.md) |
 | **Build a collector client** | [Collector SDK](docs/collectors/sdk.md) |
 | **Contribute to CatSyphon** | [Contributing](CONTRIBUTING.md) |
@@ -160,6 +161,7 @@ See the [Documentation Index](docs/INDEX.md) for the full navigation hub.
 - [Parser SDK](docs/guides/plugin-sdk.md) - Add support for other AI assistants
 - [Collector SDK](docs/collectors/sdk.md) - Build HTTP clients for CatSyphon
 - [Collector Protocol](docs/collectors/protocol.md) - Event streaming API specification
+- [Edge Sensors (macOS)](docs/collectors/edge-sensors-macos.md) - 24/7 multi-machine setup to central collector
 - [OTEL Ingestion](docs/reference/otel-ingestion.md) - Ingest Codex OTLP events
 - [API Reference](docs/reference/api-reference.md) - REST API documentation
 
