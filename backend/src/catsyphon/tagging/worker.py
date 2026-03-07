@@ -9,12 +9,14 @@ ingestion.
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.exc import OperationalError
 
 from catsyphon.config import settings
 from catsyphon.db.connection import db_session
+from catsyphon.db.repositories.analysis_run import AnalysisRunRepository
 from catsyphon.db.repositories.conversation import ConversationRepository
 
 from .job_queue import TaggingJobQueue
@@ -62,15 +64,16 @@ class TaggingWorker:
     def _get_pipeline(self) -> Optional[TaggingPipeline]:
         """Get or create the tagging pipeline (lazy initialization)."""
         if self._pipeline is None:
-            if not settings.openai_api_key:
+            if not settings.llm_configured:
                 logger.warning(
-                    "OpenAI API key not configured - tagging worker disabled"
+                    "LLM provider not configured - tagging worker disabled"
                 )
                 return None
 
             self._pipeline = TaggingPipeline(
-                openai_api_key=settings.openai_api_key,
-                openai_model=settings.openai_model,
+                openai_api_key=settings.get_llm_api_key(),
+                openai_model=settings.active_llm_model,
+                llm_provider=settings.active_llm_provider,
                 cache_ttl_days=settings.tagging_cache_ttl_days,
                 enable_cache=settings.tagging_enable_cache,
             )
@@ -167,14 +170,46 @@ class TaggingWorker:
                     raise ValueError(f"Conversation {conversation_id} not found")
 
                 # Run tagging pipeline
+                tag_started_at = time.time()
                 tags, metrics = pipeline.tag_from_canonical(
                     conversation=conversation,
                     session=session,
                     children=[],
                 )
+                tag_completed_at = time.time()
+
+                run_repo = AnalysisRunRepository(session)
+                run = run_repo.create_run(
+                    capability="tagging",
+                    artifact_type="conversation_tagging",
+                    artifact_id=conversation.id,
+                    conversation_id=conversation.id,
+                    provider=str(metrics.get("llm_provider", settings.active_llm_provider)),
+                    model_id=str(metrics.get("llm_model", settings.active_llm_model)),
+                    prompt_version="tagging-v1",
+                    temperature=settings.llm_temperature,
+                    max_tokens=settings.active_llm_max_tokens,
+                    prompt_tokens=int(metrics.get("llm_prompt_tokens", 0)),
+                    completion_tokens=int(metrics.get("llm_completion_tokens", 0)),
+                    total_tokens=int(metrics.get("llm_total_tokens", 0)),
+                    cost_usd=float(metrics.get("llm_cost_usd", 0.0) or 0.0),
+                    latency_ms=float(metrics.get("llm_tagging_ms", 0.0) or 0.0),
+                    finish_reason=str(metrics.get("llm_finish_reason", "unknown")),
+                    status=(
+                        "failed" if metrics.get("llm_error") else "succeeded"
+                    ),
+                    error_message=(
+                        str(metrics.get("llm_error")) if metrics.get("llm_error") else None
+                    ),
+                    started_at=datetime.fromtimestamp(tag_started_at, tz=timezone.utc),
+                    completed_at=datetime.fromtimestamp(
+                        tag_completed_at, tz=timezone.utc
+                    ),
+                )
 
                 # Update conversation with tags
                 conversation.tags = tags
+                conversation.last_tagging_run_id = run.id
                 session.flush()
 
                 # Mark job complete

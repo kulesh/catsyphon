@@ -4,10 +4,10 @@ import json
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from catsyphon.advisor.models import (
@@ -17,8 +17,10 @@ from catsyphon.advisor.models import (
 )
 from catsyphon.advisor.prompts import MCP_DETECTION_PROMPT, MCP_SYSTEM_PROMPT
 from catsyphon.canonicalization import Canonicalizer, CanonicalType
+from catsyphon.db.repositories.analysis_run import AnalysisRunRepository
 from catsyphon.db.repositories.canonical import CanonicalRepository
 from catsyphon.db.repositories.recommendation import RecommendationRepository
+from catsyphon.llm import create_llm_client_for
 
 logger = logging.getLogger(__name__)
 
@@ -40,19 +42,25 @@ class MCPDetector:
         model: str = "gpt-4o-mini",
         max_tokens: int = 2000,
         min_confidence: float = 0.4,
+        provider: str = "openai",
+        temperature: float = 0.3,
     ):
         """Initialize the detector.
 
         Args:
-            api_key: OpenAI API key
-            model: OpenAI model to use (default: gpt-4o-mini)
+            api_key: Provider API key
+            model: LLM model to use
             max_tokens: Maximum tokens for response (default: 2000)
             min_confidence: Minimum confidence threshold (default: 0.4)
+            provider: LLM provider (openai, anthropic, google)
+            temperature: Sampling temperature
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = create_llm_client_for(provider=provider, api_key=api_key)
+        self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
         self.min_confidence = min_confidence
+        self.temperature = temperature
 
     async def detect(
         self,
@@ -102,6 +110,7 @@ class MCPDetector:
                     conversation_id=str(conversation.id),
                     tokens_analyzed=canonical.token_count,
                     detection_model=self.model,
+                    detection_provider=self.provider,
                     categories_detected=[],
                 )
 
@@ -111,7 +120,7 @@ class MCPDetector:
             )
 
             # Phase 2: LLM analysis
-            recommendations = self._detect_with_llm(
+            recommendations, llm_metrics = self._detect_with_llm(
                 canonical.narrative, detected_categories
             )
 
@@ -120,12 +129,38 @@ class MCPDetector:
                 r for r in recommendations if r.confidence >= self.min_confidence
             ]
 
+            run_repo = AnalysisRunRepository(session)
+            run = run_repo.create_run(
+                capability="recommendation_mcp",
+                artifact_type="automation_recommendation",
+                artifact_id=None,
+                conversation_id=conversation.id,
+                provider=str(llm_metrics.get("provider", self.provider)),
+                model_id=str(llm_metrics.get("model", self.model)),
+                prompt_version="recommendation-mcp-v1",
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                prompt_tokens=int(llm_metrics.get("prompt_tokens", 0)),
+                completion_tokens=int(llm_metrics.get("completion_tokens", 0)),
+                total_tokens=int(llm_metrics.get("total_tokens", 0)),
+                cost_usd=float(llm_metrics.get("cost_usd", 0.0) or 0.0),
+                latency_ms=float(llm_metrics.get("duration_ms", 0.0) or 0.0),
+                finish_reason=str(llm_metrics.get("finish_reason", "unknown")),
+                status="failed" if llm_metrics.get("error") else "succeeded",
+                error_message=(
+                    str(llm_metrics.get("error")) if llm_metrics.get("error") else None
+                ),
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+            )
+
             # Save to database if requested
             if save_to_db and recommendations:
                 self._save_recommendations(
                     session=session,
                     conversation_id=conversation.id,
                     recommendations=recommendations,
+                    run_id=run.id,
                 )
 
             result = MCPDetectionResult(
@@ -133,6 +168,8 @@ class MCPDetector:
                 conversation_id=str(conversation.id),
                 tokens_analyzed=canonical.token_count,
                 detection_model=self.model,
+                detection_provider=self.provider,
+                run_id=str(run.id),
                 categories_detected=list(detected_categories.keys()),
             )
 
@@ -150,6 +187,7 @@ class MCPDetector:
                 conversation_id=str(conversation.id) if conversation else None,
                 tokens_analyzed=0,
                 detection_model=self.model,
+                detection_provider=self.provider,
                 categories_detected=[],
             )
 
@@ -212,7 +250,7 @@ class MCPDetector:
 
     def _detect_with_llm(
         self, narrative: str, detected_categories: dict[str, dict[str, Any]]
-    ) -> list[MCPRecommendation]:
+    ) -> tuple[list[MCPRecommendation], dict[str, object]]:
         """Run LLM detection on the narrative.
 
         Args:
@@ -231,24 +269,32 @@ class MCPDetector:
             )
 
             start_time = time.time()
-            response = self.client.chat.completions.create(
+            response = self.client.generate_json(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": MCP_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
+                system_prompt=MCP_SYSTEM_PROMPT,
+                user_prompt=prompt,
                 max_tokens=self.max_tokens,
-                temperature=0.3,
-                response_format={"type": "json_object"},
+                temperature=self.temperature,
             )
             duration_ms = (time.time() - start_time) * 1000
 
             logger.debug(f"LLM MCP detection took {duration_ms:.0f}ms")
 
-            content = response.choices[0].message.content
+            llm_metrics: dict[str, object] = {
+                "provider": response.provider,
+                "model": response.model,
+                "duration_ms": duration_ms,
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+                "cost_usd": response.usage.cost_usd,
+                "finish_reason": response.finish_reason,
+            }
+
+            content = response.content
             if not content:
-                logger.warning("Empty response from OpenAI")
-                return []
+                logger.warning("Empty response from provider")
+                return [], llm_metrics
 
             data = json.loads(content)
             recommendations_data = data.get("recommendations", [])
@@ -281,11 +327,21 @@ class MCPDetector:
                 key=lambda r: r.friction_score * r.confidence, reverse=True
             )
 
-            return recommendations[:5]  # Max 5 recommendations
+            return recommendations[:5], llm_metrics  # Max 5 recommendations
 
         except Exception as e:
             logger.error(f"LLM MCP detection failed: {e}")
-            return []
+            return [], {
+                "provider": self.provider,
+                "model": self.model,
+                "duration_ms": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "cost_usd": 0.0,
+                "finish_reason": "error",
+                "error": str(e),
+            }
 
     def _format_detected_categories(
         self, detected_categories: dict[str, dict[str, Any]]
@@ -340,6 +396,7 @@ class MCPDetector:
         session: Session,
         conversation_id: UUID,
         recommendations: list[MCPRecommendation],
+        run_id: UUID | None = None,
     ) -> None:
         """Save recommendations to the database.
 
@@ -378,7 +435,7 @@ class MCPDetector:
                 }
             )
 
-        repo.bulk_create(conversation_id, db_recommendations)
+        repo.bulk_create(conversation_id, db_recommendations, run_id=run_id)
 
         logger.info(
             f"Saved {len(recommendations)} MCP recommendations "

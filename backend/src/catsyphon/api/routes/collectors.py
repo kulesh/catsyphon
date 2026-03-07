@@ -82,7 +82,7 @@ def _queue_tagging(conversation_id: uuid.UUID, db: Session) -> None:
         conversation_id: UUID of the conversation to tag
         db: Database session for queue operations
     """
-    if not settings.openai_api_key:
+    if not settings.llm_configured:
         return  # Tagging not configured
 
     from catsyphon.tagging import TaggingJobQueue
@@ -438,7 +438,7 @@ def complete_session(
     message_count = conversation.message_count
 
     # Queue tagging job BEFORE commit so it's part of the same transaction
-    if settings.openai_api_key:
+    if settings.llm_configured:
         _queue_tagging(conversation_id, db)
 
     db.commit()

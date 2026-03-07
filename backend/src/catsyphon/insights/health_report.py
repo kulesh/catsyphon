@@ -16,10 +16,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from catsyphon.db.repositories import ConversationRepository
+from catsyphon.llm import create_llm_client_for
 from catsyphon.models.db import Conversation
 
 logger = logging.getLogger(__name__)
@@ -129,17 +129,27 @@ class HealthReportGenerator:
         api_key: str,
         model: str = "gpt-4o-mini",
         max_tokens: int = 500,
+        provider: str = "openai",
+        temperature: float = 0.3,
     ):
         """Initialize the health report generator.
 
         Args:
-            api_key: OpenAI API key
-            model: OpenAI model to use
+            api_key: Provider API key
+            model: LLM model to use
             max_tokens: Maximum tokens for response
+            provider: LLM provider (openai, anthropic, google)
+            temperature: Sampling temperature
         """
-        self.client = OpenAI(api_key=api_key) if api_key else None
+        self.client = (
+            create_llm_client_for(provider=provider, api_key=api_key)
+            if api_key
+            else None
+        )
+        self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
+        self.temperature = temperature
 
     def generate(
         self,
@@ -671,20 +681,18 @@ class HealthReportGenerator:
             pattern_summary=pattern_summary,
         )
 
-        response = self.client.chat.completions.create(
+        response = self.client.generate_json(
             model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert at analyzing developer-AI collaboration sessions. Return only valid JSON.",
-                },
-                {"role": "user", "content": prompt},
-            ],
+            system_prompt=(
+                "You are an expert at analyzing developer-AI collaboration sessions. "
+                "Return only valid JSON."
+            ),
+            user_prompt=prompt,
             max_tokens=self.max_tokens,
-            temperature=0.3,
+            temperature=self.temperature,
         )
 
-        content = response.choices[0].message.content
+        content = response.content
         if content:
             return json.loads(content)
         return {}
@@ -915,20 +923,18 @@ class HealthReportGenerator:
                 failure_preview=failure_preview,
             )
 
-            response = self.client.chat.completions.create(
+            response = self.client.generate_json(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing developer-AI collaboration. Return only valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                system_prompt=(
+                    "You are an expert at analyzing developer-AI collaboration. "
+                    "Return only valid JSON."
+                ),
+                user_prompt=prompt,
                 max_tokens=self.max_tokens,
-                temperature=0.3,
+                temperature=self.temperature,
             )
 
-            content = response.choices[0].message.content
+            content = response.content
             if content:
                 # Parse JSON response
                 result = json.loads(content)

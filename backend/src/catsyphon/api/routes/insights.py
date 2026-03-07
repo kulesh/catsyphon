@@ -1,10 +1,7 @@
-"""
-Insights API routes.
-
-Endpoints for generating and retrieving canonical-powered insights.
-"""
+"""Insights API routes."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -16,10 +13,13 @@ from catsyphon.api.schemas import InsightsResponse
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
+    AnalysisRunRepository,
     ConversationRepository,
     InsightsRepository,
 )
 from catsyphon.insights import InsightsGenerator
+from catsyphon.llm import run_to_provenance_dict
+from catsyphon.models.db import AnalysisRun
 
 logger = logging.getLogger(__name__)
 
@@ -105,20 +105,29 @@ def get_conversation_insights(
     cached = insights_repo.get_cached(conversation_id)
     if cached:
         logger.info(f"Cache hit for conversation {conversation_id}")
-        return InsightsResponse(**cached.to_response_dict())
+        payload = cached.to_response_dict()
+        if cached.latest_run_id:
+            run = session.get(AnalysisRun, cached.latest_run_id)
+            if run:
+                payload["provenance"] = run_to_provenance_dict(run)
+        return InsightsResponse(**payload)
 
     # Cache miss - generate insights
     logger.info(f"Cache miss for conversation {conversation_id}, generating...")
 
-    if not settings.openai_api_key:
+    if not settings.llm_configured:
         raise HTTPException(
             status_code=500,
-            detail="OpenAI API key not configured. Insights require AI analysis.",
+            detail=(
+                f"{settings.required_llm_api_key_env()} not configured. "
+                "Insights require AI analysis."
+            ),
         )
 
     insights_generator = InsightsGenerator(
-        api_key=settings.openai_api_key,
-        model="gpt-4o-mini",
+        api_key=settings.get_llm_api_key(),
+        model=settings.active_llm_model,
+        provider=settings.active_llm_provider,
         max_tokens=1000,
     )
 
@@ -127,6 +136,33 @@ def get_conversation_insights(
         conversation=conversation,
         session=session,
         children=children,
+    )
+
+    llm_metrics = insights.get("llm_metrics", {})
+    run_repo = AnalysisRunRepository(session)
+    run = run_repo.create_run(
+        capability="insights",
+        artifact_type="conversation_insight",
+        artifact_id=conversation_id,
+        conversation_id=conversation_id,
+        provider=str(llm_metrics.get("provider", settings.active_llm_provider)),
+        model_id=str(llm_metrics.get("model", settings.active_llm_model)),
+        prompt_version="insights-v1",
+        input_canonical_version=int(insights.get("canonical_version", 1)),
+        temperature=settings.llm_temperature,
+        max_tokens=insights_generator.max_tokens,
+        prompt_tokens=int(llm_metrics.get("prompt_tokens", 0)),
+        completion_tokens=int(llm_metrics.get("completion_tokens", 0)),
+        total_tokens=int(llm_metrics.get("total_tokens", 0)),
+        cost_usd=float(llm_metrics.get("cost_usd", 0.0) or 0.0),
+        latency_ms=float(llm_metrics.get("duration_ms", 0.0) or 0.0),
+        finish_reason=None,
+        status="failed" if llm_metrics.get("error") else "succeeded",
+        error_message=(
+            str(llm_metrics.get("error")) if llm_metrics.get("error") else None
+        ),
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
     )
 
     # Get project last activity for TTL calculation
@@ -140,10 +176,15 @@ def get_conversation_insights(
         insights=insights,
         canonical_version=insights.get("canonical_version", 1),
         project_last_activity=project_last_activity,
+        latest_run_id=run.id,
     )
     session.commit()
 
-    return InsightsResponse(conversation_id=conversation_id, **insights)
+    return InsightsResponse(
+        conversation_id=conversation_id,
+        provenance=run_to_provenance_dict(run),
+        **insights,
+    )
 
 
 @router.get("/batch-insights", response_model=dict[str, Any])
@@ -207,21 +248,31 @@ def get_batch_insights(
         # Check batch cache lookup
         cached = cached_insights.get(conv.id)
         if cached:
-            all_insights.append(cached.to_response_dict())
+            cached_payload = cached.to_response_dict()
+            if cached.latest_run_id:
+                run = session.get(AnalysisRun, cached.latest_run_id)
+                if run:
+                    cached_payload["provenance"] = run_to_provenance_dict(run)
+            all_insights.append(cached_payload)
             continue
 
         # Cache miss - need to generate
         cache_misses += 1
 
-        if not settings.openai_api_key:
+        if not settings.llm_configured:
             # Skip this conversation if no API key
-            logger.warning(f"Skipping insights for {conv.id} - no OpenAI API key")
+            logger.warning(
+                "Skipping insights for %s - %s missing",
+                conv.id,
+                settings.required_llm_api_key_env(),
+            )
             continue
 
         if insights_generator is None:
             insights_generator = InsightsGenerator(
-                api_key=settings.openai_api_key,
-                model="gpt-4o-mini",
+                api_key=settings.get_llm_api_key(),
+                model=settings.active_llm_model,
+                provider=settings.active_llm_provider,
             )
 
         children = conv.children if hasattr(conv, "children") else []
@@ -229,6 +280,33 @@ def get_batch_insights(
             conversation=conv,
             session=session,
             children=children,
+        )
+
+        llm_metrics = insights.get("llm_metrics", {})
+        run_repo = AnalysisRunRepository(session)
+        run = run_repo.create_run(
+            capability="insights",
+            artifact_type="conversation_insight",
+            artifact_id=conv.id,
+            conversation_id=conv.id,
+            provider=str(llm_metrics.get("provider", settings.active_llm_provider)),
+            model_id=str(llm_metrics.get("model", settings.active_llm_model)),
+            prompt_version="insights-v1",
+            input_canonical_version=int(insights.get("canonical_version", 1)),
+            temperature=settings.llm_temperature,
+            max_tokens=insights_generator.max_tokens,
+            prompt_tokens=int(llm_metrics.get("prompt_tokens", 0)),
+            completion_tokens=int(llm_metrics.get("completion_tokens", 0)),
+            total_tokens=int(llm_metrics.get("total_tokens", 0)),
+            cost_usd=float(llm_metrics.get("cost_usd", 0.0) or 0.0),
+            latency_ms=float(llm_metrics.get("duration_ms", 0.0) or 0.0),
+            finish_reason=None,
+            status="failed" if llm_metrics.get("error") else "succeeded",
+            error_message=(
+                str(llm_metrics.get("error")) if llm_metrics.get("error") else None
+            ),
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
         )
 
         # Save to cache
@@ -241,9 +319,15 @@ def get_batch_insights(
             insights=insights,
             canonical_version=insights.get("canonical_version", 1),
             project_last_activity=project_last_activity,
+            latest_run_id=run.id,
         )
 
-        all_insights.append(insights)
+        all_insights.append(
+            {
+                **insights,
+                "provenance": run_to_provenance_dict(run),
+            }
+        )
 
     session.commit()
     logger.info(f"Batch insights: {cache_hits} cache hits, {cache_misses} cache misses")

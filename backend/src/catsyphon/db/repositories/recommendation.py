@@ -71,6 +71,7 @@ class RecommendationRepository(BaseRepository[AutomationRecommendation]):
         evidence: dict[str, Any],
         suggested_implementation: Optional[dict[str, Any]] = None,
         priority: int = 2,
+        run_id: Optional[UUID] = None,
     ) -> AutomationRecommendation:
         """Create a new recommendation.
 
@@ -97,6 +98,7 @@ class RecommendationRepository(BaseRepository[AutomationRecommendation]):
             evidence=evidence,
             suggested_implementation=suggested_implementation,
             status="pending",
+            run_id=run_id,
         )
 
         self.session.add(recommendation)
@@ -114,6 +116,7 @@ class RecommendationRepository(BaseRepository[AutomationRecommendation]):
         self,
         conversation_id: UUID,
         recommendations: list[dict[str, Any]],
+        run_id: Optional[UUID] = None,
     ) -> list[AutomationRecommendation]:
         """Create multiple recommendations for a conversation.
 
@@ -136,6 +139,7 @@ class RecommendationRepository(BaseRepository[AutomationRecommendation]):
                     evidence=rec.get("evidence", {}),
                     suggested_implementation=rec.get("suggested_implementation"),
                     priority=rec.get("priority", 2),
+                    run_id=run_id,
                 )
             )
 

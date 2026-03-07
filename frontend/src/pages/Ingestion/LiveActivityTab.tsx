@@ -311,7 +311,7 @@ export default function LiveActivityTab() {
           {stats ? (
             <div className="mt-4 space-y-3">
               <div className="flex items-center justify-between">
-                <Tooltip content="Total cumulative cost of all OpenAI API calls for tagging">
+                <Tooltip content="Total cumulative cost of all LLM API calls for tagging">
                   <span className="text-sm text-muted-foreground">Total Cost</span>
                 </Tooltip>
                 <span className="text-2xl font-bold">
@@ -322,7 +322,7 @@ export default function LiveActivityTab() {
               </div>
               <div className="space-y-2 pt-2 border-t border-border/50">
                 <div className="flex items-center justify-between text-sm">
-                  <Tooltip content="Average OpenAI API cost per ingestion job (gpt-4o-mini)">
+                  <Tooltip content="Average LLM API cost per ingestion job">
                     <span className="text-muted-foreground">Avg Cost/Job</span>
                   </Tooltip>
                   <span className="font-semibold">
@@ -352,7 +352,7 @@ export default function LiveActivityTab() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <Tooltip content="Average time spent on OpenAI API call (excludes cache hits)">
+                  <Tooltip content="Average time spent on LLM API call (excludes cache hits)">
                     <span className="text-muted-foreground">Avg Duration</span>
                   </Tooltip>
                   <span className="font-semibold">

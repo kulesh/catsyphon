@@ -370,7 +370,7 @@ export default function WatchDirectoriesTab() {
                 className="w-4 h-4 rounded border-border"
               />
               <label htmlFor="enableTagging" className="text-sm">
-                Enable AI tagging (uses OpenAI API)
+                Enable AI tagging (uses configured LLM provider)
               </label>
             </div>
             <div className="flex items-center gap-2">

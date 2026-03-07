@@ -230,6 +230,12 @@ class DetectionResult(BaseModel):
     detection_model: str = Field(
         default="gpt-4o-mini", description="Model used for detection"
     )
+    detection_provider: str = Field(
+        default="openai", description="Provider used for detection"
+    )
+    run_id: Optional[str] = Field(
+        default=None, description="Provenance run ID for this detection"
+    )
 
 
 class MCPRecommendation(BaseModel):
@@ -280,6 +286,12 @@ class MCPDetectionResult(BaseModel):
     )
     detection_model: str = Field(
         default="gpt-4o-mini", description="Model used for detection"
+    )
+    detection_provider: str = Field(
+        default="openai", description="Provider used for detection"
+    )
+    run_id: Optional[str] = Field(
+        default=None, description="Provenance run ID for this detection"
     )
     categories_detected: list[str] = Field(
         default_factory=list, description="Categories that were detected via signals"

@@ -27,7 +27,11 @@ import {
 } from 'lucide-react';
 import { SentimentTimelineChart } from '@/components/SentimentTimelineChart';
 import { ToolUsageChart } from '@/components/ToolUsageChart';
-import type { PairingEffectivenessPair, RoleDynamicsSummary } from '@/types/api';
+import type {
+  AnalysisProvenance,
+  PairingEffectivenessPair,
+  RoleDynamicsSummary,
+} from '@/types/api';
 
 // ===== Helper Components =====
 
@@ -36,6 +40,19 @@ function getScoreQuality(score: number): { label: string; colorClass: string } {
   if (score >= 0.6) return { label: 'GOOD', colorClass: 'text-cyan-400' };
   if (score >= 0.4) return { label: 'FAIR', colorClass: 'text-amber-400' };
   return { label: 'NEEDS WORK', colorClass: 'text-red-400' };
+}
+
+function AnalysisBadge({ provenance }: { provenance?: AnalysisProvenance }) {
+  if (!provenance?.provider || !provenance?.model) {
+    return null;
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground mt-2 font-mono">
+      Analysis model: {provenance.provider}/{provenance.model}
+      {provenance.run_id ? ` · run ${provenance.run_id.slice(0, 8)}` : ''}
+    </p>
+  );
 }
 
 function PairingHighlights({
@@ -302,6 +319,7 @@ function HealthReport({
         <p className="text-xs text-muted-foreground mt-2">
           Based on {report.sessions_analyzed} sessions
         </p>
+        <AnalysisBadge provenance={report.provenance} />
       </div>
 
       {/* Diagnosis Section */}

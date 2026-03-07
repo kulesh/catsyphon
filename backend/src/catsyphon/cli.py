@@ -36,7 +36,9 @@ def ingest(
         help="[DEPRECATED] Use --force instead. Skip files that have already been processed",
     ),
     enable_tagging: bool = typer.Option(
-        False, "--enable-tagging", help="Enable LLM-based tagging (uses OpenAI API)"
+        False,
+        "--enable-tagging",
+        help="Enable LLM-based tagging (uses configured LLM provider)",
     ),
 ) -> None:
     """
@@ -88,9 +90,10 @@ def ingest(
 
     # Validate tagging configuration if enabled
     if enable_tagging:
-        if not settings.openai_api_key:
+        if not settings.llm_configured:
             console.print(
-                "[bold red]Error:[/bold red] OPENAI_API_KEY not set in environment"
+                "[bold red]Error:[/bold red] "
+                f"{settings.required_llm_api_key_env()} not set in environment"
             )
             raise typer.Exit(1)
         console.print("[green]✓ LLM tagging will be queued after ingestion[/green]\n")

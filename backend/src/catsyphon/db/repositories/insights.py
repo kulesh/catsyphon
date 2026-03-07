@@ -135,6 +135,7 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
         insights: dict[str, Any],
         canonical_version: int,
         project_last_activity: Optional[datetime] = None,
+        latest_run_id: Optional[UUID] = None,
     ) -> ConversationInsights:
         """Save insights to cache.
 
@@ -170,6 +171,7 @@ class InsightsRepository(BaseRepository[ConversationInsights]):
             summary=insights.get("summary", ""),
             quantitative_metrics=insights.get("quantitative_metrics", {}),
             canonical_version=canonical_version,
+            latest_run_id=latest_run_id,
             generated_at=datetime.now().astimezone(),
             expires_at=expires_at,
         )

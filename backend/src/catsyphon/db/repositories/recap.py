@@ -32,6 +32,7 @@ class RecapRepository(BaseRepository[ConversationRecap]):
         conversation_id: UUID,
         recap: dict[str, Any],
         canonical_version: int,
+        latest_run_id: UUID | None = None,
     ) -> ConversationRecap:
         self.invalidate(conversation_id)
         db_recap = ConversationRecap(
@@ -43,6 +44,7 @@ class RecapRepository(BaseRepository[ConversationRecap]):
             next_steps=recap.get("next_steps") or [],
             recap_metadata=recap.get("metadata") or {},
             canonical_version=canonical_version,
+            latest_run_id=latest_run_id,
             generated_at=datetime.now().astimezone(),
         )
         self.session.add(db_recap)

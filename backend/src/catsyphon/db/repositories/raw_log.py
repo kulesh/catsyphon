@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from catsyphon.db.repositories.base import BaseRepository
 from catsyphon.models.db import RawLog
@@ -123,6 +123,16 @@ class RawLogRepository(BaseRepository[RawLog]):
         search_pattern = directory.rstrip("/") + "/%"
         query = (
             self.session.query(RawLog)
+            .options(
+                load_only(
+                    RawLog.id,
+                    RawLog.file_path,
+                    RawLog.last_processed_offset,
+                    RawLog.file_size_bytes,
+                    RawLog.partial_hash,
+                    RawLog.imported_at,
+                )
+            )
             .filter(RawLog.file_path.like(search_pattern))
             .order_by(RawLog.imported_at.desc())
             .offset(offset)
@@ -152,6 +162,7 @@ class RawLogRepository(BaseRepository[RawLog]):
         agent_type: str,
         log_format: str,
         file_path: Path,
+        store_raw_content: bool = True,
         **kwargs,
     ) -> RawLog:
         """
@@ -162,6 +173,8 @@ class RawLogRepository(BaseRepository[RawLog]):
             agent_type: Agent type (e.g., 'claude-code')
             log_format: Log format (e.g., 'jsonl')
             file_path: Path to original log file
+            store_raw_content: Persist full raw file content when True. Set to
+                False for large watch files to avoid high memory usage.
             **kwargs: Additional fields (e.g., extra_data)
 
         Returns:
@@ -170,8 +183,11 @@ class RawLogRepository(BaseRepository[RawLog]):
         # Calculate file hash for deduplication
         file_hash = calculate_file_hash(file_path)
 
-        # Read file content
-        raw_content = file_path.read_text(encoding="utf-8")
+        # Read file content only when requested. Watch daemons can disable this
+        # to avoid loading very large logs fully into memory.
+        raw_content = ""
+        if store_raw_content:
+            raw_content = file_path.read_text(encoding="utf-8")
 
         # Get file size
         file_size = file_path.stat().st_size

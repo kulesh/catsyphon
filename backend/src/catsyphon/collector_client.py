@@ -501,6 +501,9 @@ class CollectorClient:
         """
         Ingest only new messages for an existing session (incremental update).
 
+        Streams events in bounded batches to avoid materializing the full
+        events list.  Peak memory is O(batch_size) instead of O(all_events).
+
         Unlike ingest_conversation, this method:
         - Does NOT send session_start event (session already exists)
         - Does NOT send session_end event (session may still be active)
@@ -516,23 +519,40 @@ class CollectorClient:
         if not messages:
             return {"accepted": 0, "conversation_id": None, "total_events": 0}
 
-        events: list[dict[str, Any]] = []
+        batch_size = self.config.batch_size or 20
+        total_accepted = 0
+        total_events = 0
+        conversation_id = None
+        batch: list[dict[str, Any]] = []
 
-        # Convert only new messages to events
         for msg in messages:
-            events.extend(self._message_to_events(msg))
+            for event in self._message_to_events(msg):
+                batch.append(event)
+                if len(batch) >= batch_size:
+                    result = self._send_batch_with_retry(session_id, batch)
+                    total_accepted += result.get("accepted", 0)
+                    if result.get("conversation_id"):
+                        conversation_id = result["conversation_id"]
+                    total_events += len(batch)
+                    batch = []
 
-        if not events:
-            return {"accepted": 0, "conversation_id": None, "total_events": 0}
-
-        # Send events in batches (no session completion for incremental)
-        result = self._send_events(session_id, events)
+        # Flush remaining events
+        if batch:
+            result = self._send_batch_with_retry(session_id, batch)
+            total_accepted += result.get("accepted", 0)
+            if result.get("conversation_id"):
+                conversation_id = result["conversation_id"]
+            total_events += len(batch)
 
         logger.debug(
-            f"Incremental ingest: {len(messages)} messages → {result.get('accepted', 0)} events"
+            f"Incremental ingest: {len(messages)} messages → {total_accepted} events"
         )
 
-        return result
+        return {
+            "accepted": total_accepted,
+            "conversation_id": conversation_id,
+            "total_events": total_events,
+        }
 
 
 def compute_ingestion_fingerprint(

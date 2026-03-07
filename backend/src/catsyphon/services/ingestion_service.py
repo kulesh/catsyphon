@@ -574,7 +574,7 @@ class IngestionService:
                 }
 
                 # Queue tagging if enabled
-                if enable_tagging and session_completed and settings.openai_api_key:
+                if enable_tagging and session_completed and settings.llm_configured:
                     self._queue_tagging(conversation.id)
 
                 # Extract values before potential session expiry

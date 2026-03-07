@@ -638,6 +638,20 @@ export interface QuantitativeMetrics {
   duration_seconds: number | null;
 }
 
+export interface AnalysisProvenance {
+  run_id: string;
+  provider: string;
+  model: string;
+  generated_at: string;
+  prompt_version: string;
+  cost_usd: number | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  latency_ms: number | null;
+  status: string;
+}
+
 export interface InsightsResponse {
   conversation_id: string;
 
@@ -659,6 +673,7 @@ export interface InsightsResponse {
   // Metadata
   canonical_version: number;
   analysis_timestamp: number;
+  provenance: AnalysisProvenance;
 }
 
 // ===== Project Insights Types =====
@@ -707,6 +722,7 @@ export interface ProjectInsightsResponse {
 
   // Metadata
   generated_at: number;
+  provenance?: AnalysisProvenance;
 
   // Cache metadata (for freshness indicators)
   insights_cached: number;
@@ -763,6 +779,7 @@ export interface HealthReportResponse {
   sessions_analyzed: number;
   generated_at: number;
   cached: boolean;
+  provenance: AnalysisProvenance;
 }
 
 // ===== Automation Recommendation Types =====
@@ -808,6 +825,9 @@ export interface RecommendationListResponse {
   items: RecommendationResponse[];
   total: number;
   conversation_id: string;
+  detection_model?: string | null;
+  detection_provider?: string | null;
+  run_id?: string | null;
 }
 
 export interface RecommendationUpdate {
@@ -820,6 +840,8 @@ export interface DetectionResponse {
   recommendations_count: number;
   tokens_analyzed: number;
   detection_model: string;
+  detection_provider: string;
+  run_id?: string | null;
   recommendations: RecommendationResponse[];
 }
 
@@ -868,6 +890,7 @@ export interface ConversationRecapResponse {
   metadata: Record<string, any>;
   canonical_version: number;
   generated_at: string;
+  provenance: AnalysisProvenance;
 }
 
 export interface WeeklyDigestResponse {

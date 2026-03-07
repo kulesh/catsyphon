@@ -82,6 +82,37 @@ class TestFileHashTracking:
         expected_hash = calculate_file_hash(test_file)
         assert raw_log.file_hash == expected_hash
 
+    def test_create_from_file_can_skip_raw_content(
+        self,
+        db_session: Session,
+        sample_parsed_conversation: ParsedConversation,
+        tmp_path: Path,
+    ):
+        """Test create_from_file can avoid loading full raw content."""
+        conv = ingest_conversation(
+            session=db_session,
+            parsed=sample_parsed_conversation,
+            project_name="test-project",
+        )
+        db_session.commit()
+
+        test_file = tmp_path / "large.jsonl"
+        content = '{"message": "hello"}\n{"message": "world"}\n'
+        test_file.write_text(content)
+
+        raw_log_repo = RawLogRepository(db_session)
+        raw_log = raw_log_repo.create_from_file(
+            conversation_id=conv.id,
+            agent_type="claude-code",
+            log_format="jsonl",
+            file_path=test_file,
+            store_raw_content=False,
+        )
+        db_session.commit()
+
+        assert raw_log.raw_content == ""
+        assert raw_log.file_hash == calculate_file_hash(test_file)
+
     def test_create_from_content_calculates_hash(
         self, db_session: Session, sample_parsed_conversation: ParsedConversation
     ):
@@ -141,6 +172,39 @@ class TestFileHashTracking:
 
         assert found_raw_log is not None
         assert found_raw_log.id == raw_log.id
+
+    def test_get_files_in_directory_uses_lightweight_fields(
+        self,
+        db_session: Session,
+        sample_parsed_conversation: ParsedConversation,
+        tmp_path: Path,
+    ):
+        """Test startup-scan query does not eagerly load raw_content blobs."""
+        conv = ingest_conversation(
+            session=db_session,
+            parsed=sample_parsed_conversation,
+            project_name="test-project",
+        )
+        db_session.commit()
+
+        test_file = tmp_path / "state-only.jsonl"
+        test_file.write_text('{"test": "content"}')
+
+        raw_log_repo = RawLogRepository(db_session)
+        raw_log_repo.create_from_file(
+            conversation_id=conv.id,
+            agent_type="claude-code",
+            log_format="jsonl",
+            file_path=test_file,
+        )
+        db_session.commit()
+        db_session.expunge_all()
+
+        rows = raw_log_repo.get_files_in_directory(str(tmp_path))
+        assert len(rows) == 1
+
+        # raw_content should remain deferred until explicitly accessed.
+        assert "raw_content" not in rows[0].__dict__
 
     def test_exists_by_file_hash(
         self,

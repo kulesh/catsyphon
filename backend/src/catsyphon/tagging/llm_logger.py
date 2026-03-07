@@ -1,5 +1,5 @@
 """
-LLM interaction logging for OpenAI API calls.
+LLM interaction logging for analytics provider API calls.
 
 Provides detailed logging of LLM requests and responses for debugging,
 cost tracking, and auditing purposes.
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class LLMLogger:
     """
-    Logger for LLM (OpenAI) API interactions.
+    Logger for analytics LLM API interactions.
 
     Logs requests, responses, token usage, and errors to a separate log file
     when LLM logging is enabled in configuration.
@@ -73,11 +73,11 @@ class LLMLogger:
         temperature: float,
     ) -> str:
         """
-        Log OpenAI API request details.
+        Log LLM API request details.
 
         Args:
             conversation: Parsed conversation being tagged
-            model: OpenAI model name
+            model: Model name
             prompt: Full prompt sent to API
             max_tokens: Maximum tokens requested
             temperature: Temperature parameter
@@ -118,44 +118,55 @@ class LLMLogger:
         duration_ms: float,
     ) -> None:
         """
-        Log OpenAI API response details.
+        Log LLM API response details.
 
         Args:
             request_id: Request ID from log_request()
-            response: OpenAI API response object
+            response: Provider response object or normalized LLMResponse
             duration_ms: Request duration in milliseconds
         """
         if not self.enabled or not settings.llm_log_responses:
             return
 
         try:
-            # Extract response details
-            content = response.choices[0].message.content if response.choices else ""
-            finish_reason = (
-                response.choices[0].finish_reason if response.choices else "unknown"
-            )
+            # Extract response details for normalized response or provider SDK object
+            content = ""
+            finish_reason = "unknown"
+            model = getattr(response, "model", "unknown")
+
+            if hasattr(response, "usage") and hasattr(response, "finish_reason"):
+                content = getattr(response, "content", "")
+                finish_reason = getattr(response, "finish_reason", "unknown")
+            elif hasattr(response, "choices"):
+                choices = getattr(response, "choices", [])
+                if choices:
+                    message = getattr(choices[0], "message", None)
+                    content = getattr(message, "content", "") if message else ""
+                    finish_reason = getattr(choices[0], "finish_reason", "unknown")
 
             log_entry = {
                 "type": "response",
                 "request_id": request_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "model": response.model,
+                "model": model,
                 "finish_reason": finish_reason,
                 "content_length": len(content),
                 "duration_ms": round(duration_ms, 2),
             }
 
             # Add token usage if available and enabled
-            if (
-                settings.llm_log_tokens
-                and hasattr(response, "usage")
-                and response.usage
-            ):
-                log_entry["tokens"] = {
-                    "prompt": response.usage.prompt_tokens,
-                    "completion": response.usage.completion_tokens,
-                    "total": response.usage.total_tokens,
-                }
+            if settings.llm_log_tokens and hasattr(response, "usage"):
+                usage = getattr(response, "usage", None)
+                if usage:
+                    prompt_tokens = getattr(usage, "prompt_tokens", None)
+                    completion_tokens = getattr(usage, "completion_tokens", None)
+                    total_tokens = getattr(usage, "total_tokens", None)
+                    if prompt_tokens is not None:
+                        log_entry["tokens"] = {
+                            "prompt": prompt_tokens,
+                            "completion": completion_tokens,
+                            "total": total_tokens,
+                        }
 
             # Include sanitized content preview
             if content:
@@ -176,7 +187,7 @@ class LLMLogger:
         conversation: Optional[ParsedConversation] = None,
     ) -> None:
         """
-        Log OpenAI API error.
+        Log LLM API error.
 
         Args:
             request_id: Request ID from log_request()

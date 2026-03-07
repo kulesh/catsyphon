@@ -34,6 +34,7 @@ class TaggingPipeline:
         self,
         openai_api_key: str,
         openai_model: str = "gpt-4o-mini",
+        llm_provider: str = "openai",
         cache_dir: Optional[Path] = None,
         cache_ttl_days: int = 30,
         enable_cache: bool = True,
@@ -41,14 +42,19 @@ class TaggingPipeline:
         """Initialize the tagging pipeline.
 
         Args:
-            openai_api_key: OpenAI API key for LLM tagger
-            openai_model: OpenAI model to use (default: gpt-4o-mini)
+            openai_api_key: LLM provider API key
+            openai_model: LLM model to use
+            llm_provider: LLM provider (openai, anthropic, google)
             cache_dir: Directory for cache (default: .catsyphon_cache/tags)
             cache_ttl_days: Cache time-to-live in days (default: 30)
             enable_cache: Whether to use caching (default: True)
         """
         self.rule_tagger = RuleTagger()
-        self.llm_tagger = LLMTagger(api_key=openai_api_key, model=openai_model)
+        self.llm_tagger = LLMTagger(
+            api_key=openai_api_key,
+            model=openai_model,
+            provider=llm_provider,
+        )
 
         # Setup cache
         if cache_dir is None:

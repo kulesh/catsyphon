@@ -1067,6 +1067,9 @@ class InsightsResponse(BaseModel):
     # Metadata
     canonical_version: int = Field(..., description="Canonical algorithm version")
     analysis_timestamp: float = Field(..., description="Unix timestamp of analysis")
+    provenance: dict[str, Any] = Field(
+        default_factory=dict, description="Provider/model provenance metadata"
+    )
 
 
 # ===== Health Report Schemas =====
@@ -1234,6 +1237,9 @@ class HealthReportResponse(BaseModel):
     generated_at: float = Field(..., description="Unix timestamp of generation")
     cached: bool = Field(
         default=False, description="Whether this was served from cache"
+    )
+    provenance: dict[str, Any] = Field(
+        default_factory=dict, description="Provider/model provenance metadata"
     )
 
 
@@ -1545,6 +1551,15 @@ class RecommendationListResponse(BaseModel):
     items: list[RecommendationResponse]
     total: int
     conversation_id: UUID
+    detection_model: Optional[str] = Field(
+        default=None, description="Model used for latest recommendation analysis"
+    )
+    detection_provider: Optional[str] = Field(
+        default=None, description="Provider used for latest recommendation analysis"
+    )
+    run_id: Optional[UUID] = Field(
+        default=None, description="Provenance run ID for recommendations"
+    )
 
 
 class RecommendationSummaryStats(BaseModel):
@@ -1578,6 +1593,10 @@ class DetectionResponse(BaseModel):
     )
     tokens_analyzed: int = Field(..., description="Tokens in the analyzed narrative")
     detection_model: str = Field(..., description="Model used for detection")
+    detection_provider: str = Field(..., description="Provider used for detection")
+    run_id: Optional[UUID] = Field(
+        default=None, description="Provenance run ID for this detection"
+    )
     recommendations: list[RecommendationResponse] = Field(
         default_factory=list, description="Detected recommendations"
     )
@@ -1645,6 +1664,7 @@ class ConversationRecapResponse(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
     canonical_version: int
     generated_at: datetime
 

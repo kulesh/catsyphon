@@ -5,11 +5,11 @@ import logging
 import time
 from typing import Any, Optional
 
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from catsyphon.canonicalization import Canonicalizer, CanonicalType
 from catsyphon.db.repositories.canonical import CanonicalRepository
+from catsyphon.llm import create_llm_client_for
 
 logger = logging.getLogger(__name__)
 
@@ -77,17 +77,23 @@ class InsightsGenerator:
         api_key: str,
         model: str = "gpt-4o-mini",
         max_tokens: int = 1000,
+        provider: str = "openai",
+        temperature: float = 0.3,
     ):
         """Initialize the insights generator.
 
         Args:
-            api_key: OpenAI API key
-            model: OpenAI model to use (default: gpt-4o-mini)
+            api_key: LLM provider API key
+            model: LLM model to use
             max_tokens: Maximum tokens for response (default: 1000)
+            provider: LLM provider (openai, anthropic, google)
+            temperature: Sampling temperature
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = create_llm_client_for(provider=provider, api_key=api_key)
+        self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
+        self.temperature = temperature
 
     def generate_insights(
         self,
@@ -130,7 +136,7 @@ class InsightsGenerator:
             )
 
             # Extract qualitative insights using LLM
-            llm_insights = self._extract_llm_insights(canonical.narrative)
+            llm_insights, llm_metrics = self._extract_llm_insights(canonical.narrative)
 
             # Extract quantitative metrics from canonical metadata
             quantitative_insights = self._extract_quantitative_insights(
@@ -141,6 +147,7 @@ class InsightsGenerator:
             combined_insights = {
                 **llm_insights,
                 **quantitative_insights,
+                "llm_metrics": llm_metrics,
                 "canonical_version": canonical.canonical_version,
                 "analysis_timestamp": time.time(),
             }
@@ -155,47 +162,68 @@ class InsightsGenerator:
             logger.error(f"Failed to generate insights: {e}")
             return self._fallback_insights()
 
-    def _extract_llm_insights(self, narrative: str) -> dict[str, Any]:
+    def _extract_llm_insights(
+        self, narrative: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Extract qualitative insights using LLM analysis.
 
         Args:
             narrative: Canonical narrative text
 
         Returns:
-            Dictionary of LLM-extracted insights
+            Tuple of (insights_dict, llm_metrics)
         """
         try:
             prompt = INSIGHTS_PROMPT.format(narrative=narrative)
 
             start_time = time.time()
-            response = self.client.chat.completions.create(
+            response = self.client.generate_json(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing developer-AI collaboration patterns. Return only valid JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                system_prompt=(
+                    "You are an expert at analyzing developer-AI collaboration "
+                    "patterns. Return only valid JSON."
+                ),
+                user_prompt=prompt,
                 max_tokens=self.max_tokens,
-                temperature=0.3,
-                response_format={"type": "json_object"},
+                temperature=self.temperature,
             )
             duration_ms = (time.time() - start_time) * 1000
 
             logger.debug(f"LLM insights extraction took {duration_ms:.0f}ms")
 
-            content = response.choices[0].message.content
+            llm_metrics = {
+                "provider": response.provider,
+                "model": response.model,
+                "duration_ms": duration_ms,
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+                "cost_usd": response.usage.cost_usd,
+            }
+
+            content = response.content
             if not content:
-                logger.warning("Empty response from OpenAI")
-                return {}
+                logger.warning("Empty response from provider")
+                return {}, llm_metrics
 
             insights = json.loads(content)
-            return insights
+            return insights, llm_metrics
 
         except Exception as e:
             logger.error(f"LLM insights extraction failed: {e}")
-            return {}
+            return (
+                {},
+                {
+                    "provider": self.provider,
+                    "model": self.model,
+                    "duration_ms": 0.0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "cost_usd": 0.0,
+                    "error": str(e),
+                },
+            )
 
     def _extract_quantitative_insights(self, canonical, conversation) -> dict[str, Any]:
         """Extract quantitative metrics from canonical metadata.
@@ -244,6 +272,15 @@ class InsightsGenerator:
             "technical_debt_indicators": [],
             "testing_behavior": "unknown",
             "summary": "Insights generation failed. Please try again.",
+            "llm_metrics": {
+                "provider": self.provider,
+                "model": self.model,
+                "duration_ms": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "cost_usd": 0.0,
+            },
             "quantitative_metrics": {
                 "message_count": 0,
                 "epoch_count": 0,

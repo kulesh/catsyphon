@@ -202,68 +202,37 @@ def check_required_environment() -> None:
 
 
 def check_openai_configuration() -> None:
-    """
-    Validate OpenAI API key and model availability (optional check).
-
-    Only validates if OPENAI_API_KEY is set. Skips silently if not configured.
-
-    Raises:
-        StartupCheckError: If API key is invalid or model is unavailable
-    """
-    # Skip if OpenAI is not configured (tagging is optional)
-    if (
-        not settings.openai_api_key
-        or settings.openai_api_key == "your_openai_api_key_here"
-    ):
-        print("  ⚠️  SKIP (OpenAI not configured - tagging features disabled)")
+    """Validate configured analytics LLM provider and model availability."""
+    if not settings.llm_configured:
+        print(
+            "  ⚠️  SKIP (LLM provider not configured - analytics features disabled)"
+        )
         return
 
     try:
-        from openai import APIError, AuthenticationError, OpenAI
+        from catsyphon.llm import create_llm_client
 
-        client = OpenAI(api_key=settings.openai_api_key)
-
-        # Test API key validity with minimal token usage
-        # Use a simple completion request with max_tokens=1
-        response = client.chat.completions.create(
-            model=settings.openai_model,
-            messages=[{"role": "user", "content": "test"}],
-            max_tokens=1,
-        )
-
-        # If we get here, both API key and model are valid
-        if not response.choices:
+        client = create_llm_client(settings)
+        model = settings.active_llm_model
+        if not model:
             raise StartupCheckError(
-                "OpenAI API returned empty response",
-                "API key may be valid but something is wrong with the API",
+                f"LLM model is required for provider '{settings.active_llm_provider}'",
+                "Set LLM_MODEL in .env",
             )
 
-    except AuthenticationError as e:
-        raise StartupCheckError(
-            f"OpenAI API authentication failed: {str(e)}",
-            "Check that OPENAI_API_KEY is set correctly in .env file",
-        ) from e
-    except APIError as e:
-        error_str = str(e).lower()
-        if "model" in error_str and "not found" in error_str:
-            raise StartupCheckError(
-                f"OpenAI model '{settings.openai_model}' not found or not accessible",
-                f"Update OPENAI_MODEL in .env or verify your API key has access to {settings.openai_model}",
-            ) from e
-        else:
-            raise StartupCheckError(
-                f"OpenAI API error: {str(e)}",
-                "Check your OpenAI API status at https://status.openai.com",
-            ) from e
-    except ImportError:
-        raise StartupCheckError(
-            "OpenAI Python package not installed",
-            "Install with: uv add openai",
-        )
+        client.health_check(model=model)
+    except StartupCheckError:
+        raise
     except Exception as e:
         raise StartupCheckError(
-            f"Unexpected error validating OpenAI configuration: {str(e)}",
-            "Verify OPENAI_API_KEY and OPENAI_MODEL settings",
+            (
+                "LLM provider validation failed "
+                f"({settings.active_llm_provider}/{settings.active_llm_model}): {e}"
+            ),
+            (
+                f"Verify {settings.required_llm_api_key_env()} and LLM_MODEL "
+                "settings"
+            ),
         ) from e
 
 
@@ -326,7 +295,7 @@ def run_all_startup_checks() -> None:
     2. Database connection
     3. Database migrations
     4. Cache directory (XDG-compliant)
-    5. OpenAI configuration (optional)
+    5. LLM provider configuration (optional)
 
     Tracks timing metrics for each check.
 
@@ -342,7 +311,7 @@ def run_all_startup_checks() -> None:
         ("Database Connection", check_database_connection, "database_check_ms"),
         ("Database Migrations", check_database_migrations, "migrations_check_ms"),
         ("Cache Directory", check_cache_directory, "cache_check_ms"),
-        ("OpenAI Configuration", check_openai_configuration, "openai_check_ms"),
+        ("LLM Provider Configuration", check_openai_configuration, "openai_check_ms"),
     ]
 
     print("\n" + "=" * 70)

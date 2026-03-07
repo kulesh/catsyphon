@@ -1,10 +1,13 @@
 """Tests for WatcherDaemon lifecycle and integration."""
 
 import signal
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import pytest
 
+from catsyphon.models.parsed import ConversationMetadata
+from catsyphon.parsers.incremental import MessageChunk
 from catsyphon.watch import ApiIngestionConfig, RetryEntry, WatcherDaemon
 
 
@@ -306,3 +309,52 @@ class TestRetryLoop:
 
             # Should only process first file before shutdown
             assert daemon.event_handler._process_file.call_count <= 1
+
+
+class TestChunkedParsingGuards:
+    """Tests for chunked parsing loop safety guards."""
+
+    @patch("catsyphon.collector_client.CollectorClient")
+    def test_parse_chunked_stops_on_no_progress(
+        self, mock_collector_client, temp_watch_dir, mock_api_config
+    ):
+        """Chunked parser stalls (same offset, not EOF) should not spin forever."""
+        mock_collector = Mock()
+        mock_collector_client.return_value = mock_collector
+        daemon = WatcherDaemon(directory=temp_watch_dir, api_config=mock_api_config)
+
+        log_file = temp_watch_dir / "partial.jsonl"
+        log_file.write_text('{"partial":')
+
+        class NoProgressParser:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def parse_metadata(self, file_path):
+                return ConversationMetadata(
+                    session_id="stall-session",
+                    agent_type="codex",
+                    start_time=datetime.now(timezone.utc),
+                )
+
+            def parse_messages(self, file_path, offset=0, limit=500):
+                self.calls += 1
+                return MessageChunk(
+                    messages=[],
+                    next_offset=offset,  # no forward progress
+                    next_line=0,
+                    is_last=False,  # would loop forever without guard
+                    partial_hash="deadbeef",
+                    file_size=file_path.stat().st_size,
+                )
+
+        parser = NoProgressParser()
+
+        result = daemon.event_handler._parse_chunked(log_file, parser, start_offset=0)
+
+        assert parser.calls == 1
+        assert result["accepted"] == 0
+        assert result["conversation_id"] is None
+        assert result["messages"] == []
+        mock_collector.ensure_session_started.assert_called_once()
+        mock_collector.ingest_incremental_messages.assert_not_called()

@@ -861,8 +861,9 @@ async def get_project_insights(
         HTTPException 500: Insights generation failed
     """
     from catsyphon.config import settings
-    from catsyphon.db.repositories import ProjectRepository
+    from catsyphon.db.repositories import AnalysisRunRepository, ProjectRepository
     from catsyphon.insights import ProjectInsightsGenerator
+    from catsyphon.llm import run_to_provenance_dict
 
     # Get project with workspace validation
     project_repo = ProjectRepository(session)
@@ -872,13 +873,14 @@ async def get_project_insights(
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
 
     # Generate insights
-    if not settings.openai_api_key and include_summary:
+    if not settings.llm_configured and include_summary:
         # Fall back to no summary if no API key
         include_summary = False
 
     generator = ProjectInsightsGenerator(
-        api_key=settings.openai_api_key or "",
-        model="gpt-4o-mini",
+        api_key=settings.get_llm_api_key() or "",
+        model=settings.active_llm_model or "gpt-4o-mini",
+        provider=settings.active_llm_provider,
         max_tokens=500,
     )
 
@@ -891,6 +893,22 @@ async def get_project_insights(
         workspace_id=auth.workspace_id,
         force_regenerate=force_regenerate,
     )
+
+    if include_summary and settings.llm_configured and insights.get("summary"):
+        run_repo = AnalysisRunRepository(session)
+        run = run_repo.create_run(
+            capability="project_insights_summary",
+            artifact_type="project_insights",
+            artifact_id=project_id,
+            conversation_id=None,
+            provider=settings.active_llm_provider,
+            model_id=settings.active_llm_model,
+            prompt_version="project-insights-summary-v1",
+            temperature=settings.llm_temperature,
+            max_tokens=generator.max_tokens,
+            status="succeeded",
+        )
+        insights["provenance"] = run_to_provenance_dict(run)
 
     return insights
 
@@ -929,8 +947,9 @@ async def get_project_health_report(
         HealthReportResponse with score, diagnosis, evidence, and recommendations
     """
     from catsyphon.config import settings
-    from catsyphon.db.repositories import ProjectRepository
+    from catsyphon.db.repositories import AnalysisRunRepository, ProjectRepository
     from catsyphon.insights import HealthReportGenerator
+    from catsyphon.llm import run_to_provenance_dict
 
     # Verify project exists and belongs to workspace
     project_repo = ProjectRepository(session)
@@ -941,8 +960,9 @@ async def get_project_health_report(
 
     # Generate health report
     generator = HealthReportGenerator(
-        api_key=settings.openai_api_key or "",
-        model="gpt-4o-mini",
+        api_key=settings.get_llm_api_key() or "",
+        model=settings.active_llm_model or "gpt-4o-mini",
+        provider=settings.active_llm_provider,
         max_tokens=500,
     )
 
@@ -953,6 +973,22 @@ async def get_project_health_report(
         date_range=date_range,
         developer_filter=developer,
     )
+
+    if settings.llm_configured:
+        run_repo = AnalysisRunRepository(session)
+        run = run_repo.create_run(
+            capability="health_report",
+            artifact_type="project_health_report",
+            artifact_id=project_id,
+            conversation_id=None,
+            provider=settings.active_llm_provider,
+            model_id=settings.active_llm_model,
+            prompt_version="health-report-v1",
+            temperature=settings.llm_temperature,
+            max_tokens=generator.max_tokens,
+            status="succeeded",
+        )
+        report["provenance"] = run_to_provenance_dict(run)
 
     return report
 

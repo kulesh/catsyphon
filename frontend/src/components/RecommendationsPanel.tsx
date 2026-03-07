@@ -89,6 +89,16 @@ export function RecommendationsPanel({ conversationId }: RecommendationsPanelPro
   const detectMutation =
     activeTab === 'slash_command' ? detectSlashMutation : detectMCPMutation;
   const isDetecting = detectMutation.isPending;
+  const latestDetection = detectMutation.data;
+  const detectionInfo = latestDetection ?? recommendationsData;
+  const showDetectionInfo = Boolean(
+    detectionInfo?.detection_provider &&
+      detectionInfo?.detection_model &&
+      (
+        detectionInfo.detection_provider !== 'unknown' ||
+        detectionInfo.detection_model !== 'unknown'
+      )
+  );
 
   const getConfidenceBadge = (confidence: number) => {
     if (confidence >= 0.8) {
@@ -212,6 +222,12 @@ export function RecommendationsPanel({ conversationId }: RecommendationsPanelPro
               ? 'AI-detected patterns that could become reusable commands'
               : 'External tool integrations that would reduce friction'}
           </p>
+          {showDetectionInfo && detectionInfo && (
+            <p className="text-xs text-muted-foreground mt-2 font-mono">
+              Analysis model: {detectionInfo.detection_provider}/{detectionInfo.detection_model}
+              {detectionInfo.run_id ? ` · run ${detectionInfo.run_id.slice(0, 8)}` : ''}
+            </p>
+          )}
         </div>
         <button
           onClick={() => detectMutation.mutate(hasCurrentRecommendations)}

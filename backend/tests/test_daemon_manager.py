@@ -1,6 +1,7 @@
 """Tests for DaemonManager multi-directory watch daemon management."""
 
 import time
+from datetime import datetime, timedelta
 from threading import Thread
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -119,6 +120,21 @@ class TestRestartPolicy:
         policy.record_crash()
         # Exceeded max attempts (3 crashes = 2 restart attempts)
         assert policy.should_restart() is False
+
+    def test_record_crash_deduplicates_same_pid(self):
+        """Test the same crashed PID is counted only once."""
+        policy = RestartPolicy(backoff_intervals=[0, 0, 0])
+
+        assert policy.record_crash(pid=12345) is True
+        assert policy.restart_attempts == 1
+
+        # Same dead PID should not increment attempts repeatedly.
+        assert policy.record_crash(pid=12345) is False
+        assert policy.restart_attempts == 1
+
+        # New PID crash counts as a new attempt.
+        assert policy.record_crash(pid=23456) is True
+        assert policy.restart_attempts == 2
 
     def test_reset(self):
         """Test reset clears restart attempts."""
@@ -717,6 +733,86 @@ class TestDaemonManager:
             assert manager._daemons[config_id].restart_policy.restart_attempts == 1
 
         mock_repo.deactivate.assert_not_called()
+
+    @patch("catsyphon.daemon_manager.psutil.pid_exists", return_value=True)
+    def test_check_daemon_health_resets_policy_after_stable_runtime(
+        self, _mock_pid_exists
+    ):
+        """Test healthy daemons clear crash backoff after stability window."""
+        config_id = uuid4()
+        manager = DaemonManager()
+
+        healthy_process = Mock()
+        healthy_process.is_alive.return_value = True
+        healthy_process.pid = 12345
+
+        policy = RestartPolicy(backoff_intervals=[5, 15, 45])
+        policy.restart_attempts = 2
+        policy.next_restart_at = datetime.now()
+
+        entry = DaemonEntry(
+            process=healthy_process,
+            config_id=config_id,
+            pid=12345,
+            started_at=datetime.now() - timedelta(seconds=301),
+            restart_policy=policy,
+        )
+
+        with manager._lock:
+            manager._daemons[config_id] = entry
+
+        manager._check_daemon_health(config_id)
+
+        assert entry.restart_policy.restart_attempts == 0
+        assert entry.restart_policy.next_restart_at is None
+
+    @patch("catsyphon.daemon_manager.psutil.pid_exists", return_value=False)
+    @patch.object(DaemonManager, "start_daemon")
+    @patch("catsyphon.daemon_manager.WatchConfigurationRepository")
+    @patch("catsyphon.daemon_manager.db_session")
+    def test_check_daemon_health_reuses_restart_policy_on_restart(
+        self,
+        mock_db_session,
+        mock_watch_repo,
+        mock_start_daemon,
+        _mock_pid_exists,
+    ):
+        """Test restarts carry forward existing restart policy state."""
+        config_id = uuid4()
+
+        mock_session = Mock()
+        mock_repo = Mock()
+        mock_config = Mock(is_active=True)
+        mock_repo.get.return_value = mock_config
+        mock_watch_repo.return_value = mock_repo
+        mock_db_session.return_value.__enter__.return_value = mock_session
+
+        manager = DaemonManager()
+
+        dead_process = Mock()
+        dead_process.is_alive.return_value = False
+        dead_process.exitcode = -9
+        dead_process.pid = 99999
+
+        policy = RestartPolicy(backoff_intervals=[0, 0, 0])
+        policy.record_crash(pid=99999)  # Seed prior attempt
+        policy.next_restart_at = datetime.now() - timedelta(seconds=1)
+
+        entry = DaemonEntry(
+            process=dead_process,
+            config_id=config_id,
+            pid=99999,
+            restart_policy=policy,
+        )
+
+        with manager._lock:
+            manager._daemons[config_id] = entry
+
+        manager._check_daemon_health(config_id)
+
+        mock_start_daemon.assert_called_once_with(
+            mock_config, restart_policy=policy
+        )
 
 
 @pytest.mark.slow

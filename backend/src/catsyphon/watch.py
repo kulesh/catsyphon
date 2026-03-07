@@ -13,7 +13,6 @@ import signal
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from multiprocessing import Queue
@@ -378,6 +377,19 @@ class FileWatcher(FileSystemEventHandler):
             f"✓ Collector client initialized (server: {self.api_config.server_url})"
         )
 
+    def _cleanup_stale_events(self, current_time: float) -> None:
+        """Prune debounce entries older than 5 minutes.
+
+        Called when the dict exceeds 100 entries to bound memory
+        without adding overhead on every event.
+        """
+        cutoff = current_time - 300  # 5 minutes
+        stale = [k for k, v in self.last_events.items() if v < cutoff]
+        for k in stale:
+            del self.last_events[k]
+        if stale:
+            logger.debug(f"Pruned {len(stale)} stale debounce entries")
+
     def _handle_file_event(self, file_path: Path) -> None:
         """
         Handle a file event with debouncing.
@@ -387,6 +399,10 @@ class FileWatcher(FileSystemEventHandler):
         """
         path_str = str(file_path)
         current_time = time.time()
+
+        # Prune stale debounce entries to prevent unbounded memory growth
+        if len(self.last_events) > 100:
+            self._cleanup_stale_events(current_time)
 
         # Check if we recently processed an event for this file
         last_event_time = self.last_events.get(path_str, 0)
@@ -838,6 +854,20 @@ class FileWatcher(FileSystemEventHandler):
                 conversation_id = result.get("conversation_id")
                 last_messages = chunk.messages
 
+            # Guard against parser stalls (no cursor advancement). A trailing
+            # partial line may legitimately return is_last=False, but if
+            # next_offset does not move we must stop to avoid an infinite loop.
+            if not chunk.is_last and chunk.next_offset <= offset:
+                logger.warning(
+                    "Chunk parser made no forward progress for %s "
+                    "(offset=%s, next_offset=%s, is_last=%s); stopping parse loop",
+                    file_path.name,
+                    offset,
+                    chunk.next_offset,
+                    chunk.is_last,
+                )
+                break
+
             offset = chunk.next_offset
             if chunk.is_last:
                 break
@@ -892,6 +922,7 @@ class FileWatcher(FileSystemEventHandler):
                         agent_type=agent_type,
                         log_format="jsonl",
                         file_path=file_path,
+                        store_raw_content=False,
                     )
                     new_raw_log = raw_log_repo.get_by_file_path(str(file_path))
                     if new_raw_log:
@@ -981,6 +1012,7 @@ class FileWatcher(FileSystemEventHandler):
                             agent_type=parsed.agent_type or "claude-code",
                             log_format="jsonl",
                             file_path=file_path,
+                            store_raw_content=False,
                         )
                         # Immediately update state (create_from_file reads entire file)
                         new_raw_log = raw_log_repo.get_by_file_path(str(file_path))
@@ -1054,8 +1086,12 @@ class WatcherDaemon:
         self.stats_queue = stats_queue
         self.api_config = api_config or ApiIngestionConfig()
         self.workspace_id = workspace_id  # For multi-tenancy orphan linking
-        # ADR-009: Chunked parsing keeps memory bounded — safe to use multiple workers
-        self._scan_workers = min(os.cpu_count() or 2, 4)
+        # Sequential scanning: chunked parsing bounds per-chunk memory, but the
+        # collector client buffers all events for a chunk before batching.
+        # With N workers on N large files, peak memory = N × chunk_events
+        # which can exceed the container limit.  One-at-a-time is safe and
+        # fast enough for startup scans.
+        self._scan_workers = 1
         self._stats_lock = threading.Lock()  # Protects stats from concurrent updates
 
         # API mode is always used
@@ -1069,8 +1105,9 @@ class WatcherDaemon:
             from catsyphon.tagging import TaggingPipeline
 
             tagging_pipeline = TaggingPipeline(
-                openai_api_key=settings.openai_api_key,
-                openai_model=settings.openai_model,
+                openai_api_key=settings.get_llm_api_key(),
+                openai_model=settings.active_llm_model,
+                llm_provider=settings.active_llm_provider,
                 cache_dir=Path(settings.tagging_cache_dir),
                 cache_ttl_days=settings.tagging_cache_ttl_days,
                 enable_cache=settings.tagging_enable_cache,
@@ -1280,13 +1317,31 @@ class WatcherDaemon:
         """
         lock_path = Path("/tmp/catsyphon-startup-scan.lock")
         lock_fd = open(lock_path, "w")
+        acquired = False
         try:
             logger.info(f"Acquiring scan lock for {self.directory}...")
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            logger.info(f"Scan lock acquired, scanning {self.directory}...")
+            deadline = time.monotonic() + 120  # 120-second timeout
+            while time.monotonic() < deadline:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError:
+                    if self.shutdown_event.is_set():
+                        logger.info("Shutdown requested while waiting for scan lock")
+                        return
+                    time.sleep(1)
+            if not acquired:
+                logger.warning(
+                    "Scan lock timeout after 120s — proceeding without lock "
+                    "(deduplication provides safety)"
+                )
+            else:
+                logger.info(f"Scan lock acquired, scanning {self.directory}...")
             self._do_scan()
         finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            if acquired:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
             logger.info("Scan lock released")
 
@@ -1307,44 +1362,34 @@ class WatcherDaemon:
 
                 logger.info(f"Found {len(tracked_files)} tracked files in database")
 
-                # PHASE 2: Scan filesystem for all .jsonl files
-                all_jsonl_files = list(resolved_dir.rglob("*.jsonl"))
-                logger.info(f"Found {len(all_jsonl_files)} .jsonl files on disk")
+                # PHASE 2: Stream filesystem scan to avoid materializing the
+                # full file list in memory on large log directories.
+                disk_file_count = 0
+                new_file_count = 0
+                import gc
 
-                # PHASE 3: Identify new files not yet tracked
-                new_files = [f for f in all_jsonl_files if f not in tracked_paths]
+                for fp in resolved_dir.rglob("*.jsonl"):
+                    disk_file_count += 1
+                    if fp in tracked_paths:
+                        continue
 
-                if new_files:
-                    logger.info(
-                        f"Found {len(new_files)} new files to ingest "
-                        f"(workers: {self._scan_workers})"
-                    )
-                    # Process new files sequentially in small batches to prevent OOM.
-                    # Large Codex logs can consume hundreds of MB each during parsing
-                    # (raw JSON → ParsedMessage → events triple-buffered in memory).
-                    # GC between batches reclaims memory from completed parses.
-                    import gc
+                    new_file_count += 1
+                    if self.shutdown_event.is_set():
+                        logger.info("Shutdown requested, aborting startup scan")
+                        break
+                    try:
+                        self.event_handler._process_file(fp)
+                    except Exception as e:
+                        logger.error(
+                            f"Startup scan failed for {fp.name}: {e}"
+                        )
+                    gc.collect()
 
-                    batch_size = self._scan_workers * 2
-                    for batch_start in range(0, len(new_files), batch_size):
-                        batch = new_files[batch_start : batch_start + batch_size]
-                        with ThreadPoolExecutor(max_workers=self._scan_workers) as pool:
-                            futures = {
-                                pool.submit(self.event_handler._process_file, fp): fp
-                                for fp in batch
-                            }
-                            for future in as_completed(futures):
-                                fp = futures[future]
-                                try:
-                                    future.result()
-                                except Exception as e:
-                                    logger.error(
-                                        f"Startup scan failed for {fp.name}: {e}"
-                                    )
-                        gc.collect()
-                        if self.shutdown_event.is_set():
-                            logger.info("Shutdown requested, aborting startup scan")
-                            break
+                logger.info(
+                    "Found %d .jsonl files on disk (%d new files)",
+                    disk_file_count,
+                    new_file_count,
+                )
 
                 # PHASE 4: Check tracked files for changes
                 changed_count = 0
@@ -1383,7 +1428,7 @@ class WatcherDaemon:
 
                 logger.info(
                     f"Startup scan complete: "
-                    f"{len(new_files)} new files ingested, "
+                    f"{new_file_count} new files ingested, "
                     f"{changed_count}/{len(tracked_files)} tracked files changed"
                 )
 

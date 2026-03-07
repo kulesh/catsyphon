@@ -713,34 +713,44 @@ def mock_observer():
 @pytest.fixture
 def mock_openai_api_key(monkeypatch):
     """
-    Mock OpenAI API key for tagging tests.
+    Mock LLM provider configuration for tagging tests.
 
-    Sets a fake API key and mocks the OpenAI client to avoid actual API calls.
-    This allows testing the tagging endpoint without making real OpenAI requests.
+    Sets fake provider credentials and mocks the provider client factory to avoid
+    actual API calls. This allows testing the tagging endpoint without making
+    real network requests.
     """
     from unittest.mock import Mock
 
     from catsyphon.config import settings
+    from catsyphon.llm.types import LLMResponse, LLMUsage
 
-    # Set fake API key
+    # Set fake provider configuration
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "llm_model", "gpt-4o-mini")
     monkeypatch.setattr(settings, "openai_api_key", "sk-fake-test-key-12345")
 
-    # Mock the OpenAI client to avoid real API calls
+    # Mock provider client to avoid real API calls
     mock_client = Mock()
-    mock_completion = Mock()
-    mock_completion.choices = [
-        Mock(
-            message=Mock(
-                content='{"intent": "bug_fix", "outcome": "success", '
-                '"sentiment": "positive", "sentiment_score": 0.8, '
-                '"features": ["debugging"], "problems": []}'
-            )
-        )
-    ]
-    mock_client.chat.completions.create.return_value = mock_completion
+    mock_client.generate_json.return_value = LLMResponse(
+        content='{"intent": "bug_fix", "outcome": "success", '
+        '"sentiment": "positive", "sentiment_score": 0.8, '
+        '"features": ["debugging"], "problems": []}',
+        provider="openai",
+        model="gpt-4o-mini",
+        finish_reason="stop",
+        usage=LLMUsage(
+            prompt_tokens=120,
+            completion_tokens=45,
+            total_tokens=165,
+            cost_usd=0.001,
+        ),
+    )
 
-    # Patch the OpenAI class to return our mock
+    # Patch client factory to return our mock client
     from unittest.mock import patch
 
-    with patch("catsyphon.tagging.llm_tagger.OpenAI", return_value=mock_client):
+    with patch(
+        "catsyphon.tagging.llm_tagger.create_llm_client_for",
+        return_value=mock_client,
+    ):
         yield

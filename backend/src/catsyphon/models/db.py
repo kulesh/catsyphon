@@ -414,6 +414,12 @@ class Conversation(Base):
         nullable=True,
         index=True,
     )
+    last_tagging_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("analysis_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     start_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -884,6 +890,93 @@ class BackingModel(Base):
         )
 
 
+class AnalysisRun(Base):
+    """Immutable provenance record for analytics model executions."""
+
+    __tablename__ = "analysis_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
+    # What capability produced this run
+    capability: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    artifact_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    artifact_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
+    )
+    conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Model provenance
+    backing_model_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("backing_models.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    model_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+
+    # Prompt/input lineage
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    input_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    input_canonical_version: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+
+    # Runtime parameters
+    temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Usage and performance
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    finish_reason: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+
+    # Outcome
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="live", index=True
+    )
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    extra_data: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    backing_model: Mapped[Optional["BackingModel"]] = relationship()
+    conversation: Mapped[Optional["Conversation"]] = relationship(
+        foreign_keys=[conversation_id]
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<AnalysisRun(id={self.id}, capability={self.capability!r}, "
+            f"provider={self.provider!r}, model_id={self.model_id!r}, "
+            f"status={self.status!r})>"
+        )
+
+
 class RawLog(Base):
     """Raw logs (preserve originals for reprocessing)."""
 
@@ -1287,6 +1380,12 @@ class ConversationInsights(Base):
     canonical_version: Mapped[int] = mapped_column(
         Integer, nullable=False
     )  # Track which canonical version was used
+    latest_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("analysis_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
@@ -1357,6 +1456,12 @@ class ConversationRecap(Base):
         "metadata", JSONB, nullable=False, server_default="{}"
     )
     canonical_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    latest_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("analysis_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
@@ -1470,6 +1575,12 @@ class AutomationRecommendation(Base):
     suggested_implementation: Mapped[Optional[dict]] = mapped_column(
         JSONB, nullable=True
     )  # Command name, template, etc.
+    run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("analysis_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # User feedback tracking
     status: Mapped[str] = mapped_column(

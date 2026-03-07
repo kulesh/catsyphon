@@ -1,5 +1,6 @@
 """Repository for conversation canonical representations."""
 
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -30,14 +31,25 @@ def _build_postgres_upsert_stmt(data: dict):
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     table = ConversationCanonical.__table__
+
+    # Pre-serialize dict values to JSON strings.  The on_conflict_do_update
+    # set_ clause doesn't propagate JSONB column type to psycopg2 bound
+    # parameters, causing "can't adapt type 'dict'" errors.
+    metadata_val = data["canonical_metadata"]
+    config_val = data["config"]
+    if isinstance(metadata_val, dict):
+        metadata_val = json.dumps(metadata_val)
+    if isinstance(config_val, dict):
+        config_val = json.dumps(config_val)
+
     insert_values = {
         "conversation_id": data["conversation_id"],
         "version": data["version"],
         "canonical_type": data["canonical_type"],
         "narrative": data["narrative"],
         "token_count": data["token_count"],
-        "metadata": data["canonical_metadata"],
-        "config": data["config"],
+        "metadata": metadata_val,
+        "config": config_val,
         "source_message_count": data["source_message_count"],
         "source_token_estimate": data["source_token_estimate"],
         "generated_at": data["generated_at"],

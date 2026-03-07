@@ -4,7 +4,7 @@ Conversation API routes.
 Endpoints for querying and retrieving conversation data.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
@@ -25,6 +25,7 @@ from catsyphon.api.schemas import (
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import (
+    AnalysisRunRepository,
     ConversationRepository,
     MessageRepository,
 )
@@ -481,15 +482,19 @@ async def tag_conversation(
     )
 
     # Run tagging pipeline
-    if not settings.openai_api_key:
+    if not settings.llm_configured:
         raise HTTPException(
             status_code=503,
-            detail="Tagging service unavailable. OpenAI API key not configured.",
+            detail=(
+                "Tagging service unavailable. "
+                f"{settings.required_llm_api_key_env()} not configured."
+            ),
         )
 
     pipeline = TaggingPipeline(
-        openai_api_key=settings.openai_api_key,
-        openai_model=settings.openai_model,
+        openai_api_key=settings.get_llm_api_key(),
+        openai_model=settings.active_llm_model,
+        llm_provider=settings.active_llm_provider,
         cache_dir=Path(settings.tagging_cache_dir),
         cache_ttl_days=settings.tagging_cache_ttl_days,
         enable_cache=settings.tagging_enable_cache
@@ -505,7 +510,33 @@ async def tag_conversation(
         )
 
     # Update conversation with tags
+    run_repo = AnalysisRunRepository(session)
+    run = run_repo.create_run(
+        capability="tagging",
+        artifact_type="conversation_tagging",
+        artifact_id=conversation.id,
+        conversation_id=conversation.id,
+        provider=str(llm_metrics.get("llm_provider", settings.active_llm_provider)),
+        model_id=str(llm_metrics.get("llm_model", settings.active_llm_model)),
+        prompt_version="tagging-v1",
+        temperature=settings.llm_temperature,
+        max_tokens=settings.active_llm_max_tokens,
+        prompt_tokens=int(llm_metrics.get("llm_prompt_tokens", 0)),
+        completion_tokens=int(llm_metrics.get("llm_completion_tokens", 0)),
+        total_tokens=int(llm_metrics.get("llm_total_tokens", 0)),
+        cost_usd=float(llm_metrics.get("llm_cost_usd", 0.0) or 0.0),
+        latency_ms=float(llm_metrics.get("llm_tagging_ms", 0.0) or 0.0),
+        finish_reason=str(llm_metrics.get("llm_finish_reason", "unknown")),
+        status="failed" if llm_metrics.get("llm_error") else "succeeded",
+        error_message=(
+            str(llm_metrics.get("llm_error")) if llm_metrics.get("llm_error") else None
+        ),
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
+    )
+
     conversation.tags = tags
+    conversation.last_tagging_run_id = run.id
     session.commit()
     session.refresh(conversation)
 

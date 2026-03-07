@@ -36,6 +36,7 @@ class RestartPolicy:
 
     crash_count: int = 0
     last_crash_at: Optional[datetime] = None
+    last_crashed_pid: Optional[int] = None
     restart_attempts: int = 0
     next_restart_at: Optional[datetime] = None
     backoff_intervals: list[int] = field(default_factory=lambda: [5, 15, 45])  # seconds
@@ -50,10 +51,19 @@ class RestartPolicy:
 
         return datetime.now() >= self.next_restart_at
 
-    def record_crash(self) -> None:
-        """Record a daemon crash and calculate next restart time."""
+    def record_crash(self, pid: Optional[int] = None) -> bool:
+        """Record a daemon crash and calculate next restart time.
+
+        Returns:
+            True when this crash was newly recorded, False when the same PID
+            crash was already recorded in an earlier health-check cycle.
+        """
+        if pid is not None and pid == self.last_crashed_pid:
+            return False
+
         self.crash_count += 1
         self.last_crash_at = datetime.now()
+        self.last_crashed_pid = pid
 
         # Calculate backoff delay
         interval_index = min(self.restart_attempts, len(self.backoff_intervals) - 1)
@@ -66,10 +76,13 @@ class RestartPolicy:
             f"Daemon crash recorded. Next restart attempt in {backoff_seconds}s "
             f"(attempt {self.restart_attempts}/{len(self.backoff_intervals)})"
         )
+        return True
 
     def reset(self) -> None:
         """Reset restart policy after successful restart."""
         self.restart_attempts = 0
+        self.last_crash_at = None
+        self.last_crashed_pid = None
         self.next_restart_at = None
 
 
@@ -302,7 +315,11 @@ class DaemonManager:
                     except Exception:
                         pass
 
-    def start_daemon(self, config: WatchConfiguration) -> None:
+    def start_daemon(
+        self,
+        config: WatchConfiguration,
+        restart_policy: Optional[RestartPolicy] = None,
+    ) -> None:
         """
         Start a watch daemon for the given configuration.
 
@@ -354,6 +371,16 @@ class DaemonManager:
             except Exception as e:
                 logger.error(f"Failed to fetch builtin credentials: {e}")
                 raise ValueError(f"Watch daemon requires API credentials: {e}") from e
+
+        # Validate credentials before spawning a process.  Empty strings cause
+        # ValueError inside the child process, wasting all restart attempts.
+        if not api_key or not collector_id:
+            raise ValueError(
+                f"API credentials are empty after fetch "
+                f"(api_key={'set' if api_key else 'empty'}, "
+                f"collector_id={'set' if collector_id else 'empty'}). "
+                f"Cannot start watch daemon for {config.directory}."
+            )
 
         # Create stats queue for IPC
         stats_queue: "Queue[dict[str, Any]]" = Queue()
@@ -416,6 +443,7 @@ class DaemonManager:
                 process=process,
                 config_id=config_id,
                 pid=pid,
+                restart_policy=restart_policy or RestartPolicy(),
             )
             self._stats_queues[config_id] = stats_queue
 
@@ -708,6 +736,21 @@ class DaemonManager:
             process_alive = entry.process.is_alive()
             pid_exists = psutil.pid_exists(entry.pid) if entry.pid else False
 
+            if process_alive and pid_exists:
+                # Clear crash backoff after a stable run window.
+                uptime_seconds = (datetime.now() - entry.started_at).total_seconds()
+                if (
+                    entry.restart_policy.restart_attempts > 0
+                    and uptime_seconds >= settings.daemon_restart_reset_after
+                ):
+                    logger.info(
+                        "Daemon for config %s has been healthy for %.0fs; resetting restart policy",
+                        config_id,
+                        uptime_seconds,
+                    )
+                    entry.restart_policy.reset()
+                return
+
             if not process_alive or not pid_exists:
                 if not process_alive:
                     exit_code = entry.process.exitcode
@@ -721,9 +764,8 @@ class DaemonManager:
                         f"Daemon process killed externally for config {config_id} (PID {entry.pid} not found)"
                     )
 
-                # Record crash once, then wait for backoff before retrying.
-                if entry.restart_policy.last_crash_at is None:
-                    entry.restart_policy.record_crash()
+                # Record each dead PID once, then wait for backoff before retrying.
+                entry.restart_policy.record_crash(entry.pid)
 
                 if (
                     entry.restart_policy.restart_attempts
@@ -751,6 +793,8 @@ class DaemonManager:
                     with self._lock:
                         if config_id in self._daemons:
                             del self._daemons[config_id]
+                        if config_id in self._stats_queues:
+                            del self._stats_queues[config_id]
                     return
 
                 if not entry.restart_policy.should_restart():
@@ -764,6 +808,8 @@ class DaemonManager:
                 logger.info(f"Attempting to restart daemon for config {config_id}...")
 
                 try:
+                    restart_policy = entry.restart_policy
+
                     # Clear PID and remove dead daemon before restart
                     with db_session() as session:
                         repo = WatchConfigurationRepository(session)
@@ -780,7 +826,7 @@ class DaemonManager:
                         config = repo.get(config_id)
 
                         if config and config.is_active:
-                            self.start_daemon(config)
+                            self.start_daemon(config, restart_policy=restart_policy)
                             logger.info(f"✓ Restarted daemon for config {config_id}")
                         else:
                             logger.warning(
@@ -792,7 +838,7 @@ class DaemonManager:
                         exc_info=True,
                     )
                     # Keep the dead entry so health checks can retry with backoff.
-                    entry.restart_policy.record_crash()
+                    entry.restart_policy.record_crash(entry.pid)
                     with self._lock:
                         self._daemons[config_id] = entry
 

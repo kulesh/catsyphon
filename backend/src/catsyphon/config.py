@@ -136,7 +136,17 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # OpenAI
+    # Provider-agnostic analytics LLM settings
+    llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
+    llm_model: str = Field(default="", alias="LLM_MODEL")
+    llm_max_tokens: int = Field(default=0, alias="LLM_MAX_TOKENS")
+    llm_timeout_s: float = Field(default=60.0, alias="LLM_TIMEOUT_S")
+
+    # Provider API keys
+    anthropic_api_key: str = ""
+    google_api_key: str = ""
+
+    # OpenAI (legacy + provider-specific)
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_max_tokens: int = 2000
@@ -193,6 +203,9 @@ class Settings(BaseSettings):
     daemon_termination_timeout: int = Field(
         default=10, alias="CATSYPHON_DAEMON_TERMINATION_TIMEOUT"
     )  # Timeout for graceful daemon shutdown
+    daemon_restart_reset_after: int = Field(
+        default=300, alias="CATSYPHON_DAEMON_RESTART_RESET_AFTER"
+    )  # Seconds of healthy runtime before clearing crash backoff state
 
     # Collector/API Ingestion Settings
     collector_batch_size: int = Field(
@@ -246,6 +259,56 @@ class Settings(BaseSettings):
     llm_log_requests: bool = True  # Log OpenAI API requests
     llm_log_responses: bool = True  # Log OpenAI API responses
     llm_log_tokens: bool = True  # Log token usage statistics
+
+    @property
+    def active_llm_provider(self) -> str:
+        """Configured provider for analytics workloads."""
+        return (self.llm_provider or "openai").strip().lower()
+
+    @property
+    def active_llm_model(self) -> str:
+        """Configured model for analytics workloads."""
+        if self.llm_model:
+            return self.llm_model
+        if self.active_llm_provider == "openai":
+            return self.openai_model
+        return ""
+
+    @property
+    def active_llm_max_tokens(self) -> int:
+        """Configured token limit for analytics workloads."""
+        if self.llm_max_tokens > 0:
+            return self.llm_max_tokens
+        if self.active_llm_provider == "openai":
+            return self.openai_max_tokens
+        return 2000
+
+    def get_llm_api_key(self, provider: str | None = None) -> str:
+        """Return provider API key for analytics workloads."""
+        resolved = (provider or self.active_llm_provider).strip().lower()
+        if resolved == "openai":
+            return self.openai_api_key
+        if resolved == "anthropic":
+            return self.anthropic_api_key
+        if resolved == "google":
+            return self.google_api_key
+        return ""
+
+    def required_llm_api_key_env(self, provider: str | None = None) -> str:
+        """Return required environment variable name for provider key."""
+        resolved = (provider or self.active_llm_provider).strip().lower()
+        if resolved == "openai":
+            return "OPENAI_API_KEY"
+        if resolved == "anthropic":
+            return "ANTHROPIC_API_KEY"
+        if resolved == "google":
+            return "GOOGLE_API_KEY"
+        return "LLM_PROVIDER"
+
+    @property
+    def llm_configured(self) -> bool:
+        """Whether the selected analytics provider has credentials."""
+        return bool(self.get_llm_api_key(self.active_llm_provider))
 
     @property
     def log_directory(self) -> Path:

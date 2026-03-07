@@ -24,6 +24,7 @@ from catsyphon.api.schemas import (
 from catsyphon.config import settings
 from catsyphon.db.connection import get_db
 from catsyphon.db.repositories import ConversationRepository, RecommendationRepository
+from catsyphon.models.db import AnalysisRun
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,50 @@ def _db_to_response(rec) -> RecommendationResponse:
     )
 
 
+def _cached_detection_metadata(
+    session: Session, recommendations: list
+) -> tuple[str, str, UUID | None]:
+    """Infer provider/model provenance for cached recommendations."""
+    run_ids = {
+        rec.run_id
+        for rec in recommendations
+        if getattr(rec, "run_id", None) is not None
+    }
+    if not run_ids:
+        return "unknown", "unknown", None
+
+    runs = (
+        session.query(AnalysisRun)
+        .filter(AnalysisRun.id.in_(run_ids))
+        .all()
+    )
+    run_by_id = {run.id: run for run in runs}
+
+    providers: set[str] = set()
+    models: set[str] = set()
+    first_run_id: UUID | None = None
+
+    for rec in recommendations:
+        run_id = getattr(rec, "run_id", None)
+        if run_id is None:
+            continue
+        run = run_by_id.get(run_id)
+        if run is None:
+            continue
+        providers.add(run.provider)
+        models.add(run.model_id)
+        if first_run_id is None:
+            first_run_id = run.id
+
+    provider = next(iter(providers)) if len(providers) == 1 else "mixed"
+    model = next(iter(models)) if len(models) == 1 else "mixed"
+    if not providers:
+        provider = "unknown"
+    if not models:
+        model = "unknown"
+    return provider, model, first_run_id
+
+
 @router.get(
     "/conversations/{conversation_id}/recommendations",
     response_model=RecommendationListResponse,
@@ -124,11 +169,15 @@ def get_conversation_recommendations(
         status=status,
         recommendation_type=recommendation_type,
     )
+    provider, model, run_id = _cached_detection_metadata(session, recommendations)
 
     return RecommendationListResponse(
         items=[_db_to_response(r) for r in recommendations],
         total=len(recommendations),
         conversation_id=conversation_id,
+        detection_model=model,
+        detection_provider=provider,
+        run_id=run_id,
     )
 
 
@@ -158,7 +207,7 @@ def detect_recommendations(
 
     Raises:
         HTTPException 404: Conversation not found
-        HTTPException 500: Detection failed or OpenAI not configured
+        HTTPException 500: Detection failed or LLM not configured
 
     Requires X-Workspace-Id header.
     """
@@ -180,6 +229,7 @@ def detect_recommendations(
         rec_repo = RecommendationRepository(session)
         existing = rec_repo.get_by_conversation(conversation_id)
         if existing:
+            provider, model, run_id = _cached_detection_metadata(session, existing)
             logger.info(
                 "Returning %s existing recommendations for %s",
                 len(existing),
@@ -189,16 +239,19 @@ def detect_recommendations(
                 conversation_id=conversation_id,
                 recommendations_count=len(existing),
                 tokens_analyzed=0,  # Not re-analyzed
-                detection_model="cached",
+                detection_model=model,
+                detection_provider=provider,
+                run_id=run_id,
                 recommendations=[_db_to_response(r) for r in existing],
             )
 
-    # Check OpenAI configuration
-    if not settings.openai_api_key:
+    # Check provider configuration
+    if not settings.llm_configured:
         raise HTTPException(
             status_code=500,
             detail=(
-                "OpenAI API key not configured. Recommendation detection "
+                f"{settings.required_llm_api_key_env()} not configured. "
+                "Recommendation detection "
                 "requires AI analysis."
             ),
         )
@@ -207,8 +260,9 @@ def detect_recommendations(
     from catsyphon.advisor import SlashCommandDetector
 
     detector = SlashCommandDetector(
-        api_key=settings.openai_api_key,
-        model="gpt-4o-mini",
+        api_key=settings.get_llm_api_key(),
+        model=settings.active_llm_model,
+        provider=settings.active_llm_provider,
     )
 
     children = conversation.children if hasattr(conversation, "children") else []
@@ -230,6 +284,8 @@ def detect_recommendations(
         recommendations_count=len(result.recommendations),
         tokens_analyzed=result.tokens_analyzed,
         detection_model=result.detection_model,
+        detection_provider=result.detection_provider,
+        run_id=UUID(result.run_id) if result.run_id else None,
         recommendations=[_db_to_response(r) for r in saved],
     )
 
@@ -261,7 +317,7 @@ def detect_mcp_recommendations(
 
     Raises:
         HTTPException 404: Conversation not found
-        HTTPException 500: Detection failed or OpenAI not configured
+        HTTPException 500: Detection failed or LLM not configured
 
     Requires X-Workspace-Id header.
     """
@@ -285,6 +341,7 @@ def detect_mcp_recommendations(
             conversation_id, recommendation_type="mcp_server"
         )
         if existing:
+            provider, model, run_id = _cached_detection_metadata(session, existing)
             logger.info(
                 "Returning %s existing MCP recommendations for %s",
                 len(existing),
@@ -294,16 +351,19 @@ def detect_mcp_recommendations(
                 conversation_id=conversation_id,
                 recommendations_count=len(existing),
                 tokens_analyzed=0,  # Not re-analyzed
-                detection_model="cached",
+                detection_model=model,
+                detection_provider=provider,
+                run_id=run_id,
                 recommendations=[_db_to_response(r) for r in existing],
             )
 
-    # Check OpenAI configuration
-    if not settings.openai_api_key:
+    # Check provider configuration
+    if not settings.llm_configured:
         raise HTTPException(
             status_code=500,
             detail=(
-                "OpenAI API key not configured. MCP detection " "requires AI analysis."
+                f"{settings.required_llm_api_key_env()} not configured. "
+                "MCP detection requires AI analysis."
             ),
         )
 
@@ -311,8 +371,9 @@ def detect_mcp_recommendations(
     from catsyphon.advisor import MCPDetector
 
     detector = MCPDetector(
-        api_key=settings.openai_api_key,
-        model="gpt-4o-mini",
+        api_key=settings.get_llm_api_key(),
+        model=settings.active_llm_model,
+        provider=settings.active_llm_provider,
     )
 
     children = conversation.children if hasattr(conversation, "children") else []
@@ -336,6 +397,8 @@ def detect_mcp_recommendations(
         recommendations_count=len(result.recommendations),
         tokens_analyzed=result.tokens_analyzed,
         detection_model=result.detection_model,
+        detection_provider=result.detection_provider,
+        run_id=UUID(result.run_id) if result.run_id else None,
         recommendations=[_db_to_response(r) for r in saved],
     )
 

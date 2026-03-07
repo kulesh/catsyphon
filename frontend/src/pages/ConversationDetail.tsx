@@ -7,12 +7,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { Loader2, Sparkles, Info, MessageSquare, FileText, Lightbulb, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2, Target, Users, Zap, ClipboardList, ChevronRight, Terminal, ClipboardCopy } from 'lucide-react';
 import { ApiError, generateConversationRecap, getCanonicalNarrative, getConversation, getConversationInsights, getConversationRecap, tagConversation } from '@/lib/api';
+import type { AnalysisProvenance } from '@/types/api';
 import { groupFilesByPath } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useRefreshCountdown } from '@/hooks/useRefreshCountdown';
 import { PlanViewer, PlanMarker, type PlanMarkerType, RecommendationsPanel, TabNavigation, type TabDefinition } from '@/components';
 
 type Tab = 'overview' | 'insights' | 'recommendations' | 'messages' | 'canonical' | 'plan';
+
+function AnalysisBadge({ provenance }: { provenance?: AnalysisProvenance | null }) {
+  if (!provenance?.provider || !provenance?.model) {
+    return null;
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground font-mono">
+      Analysis model: {provenance.provider}/{provenance.model}
+      {provenance.run_id ? ` · run ${provenance.run_id.slice(0, 8)}` : ''}
+    </p>
+  );
+}
 
 export default function ConversationDetail() {
   const { id } = useParams<{ id: string }>();
@@ -727,7 +741,7 @@ export default function ConversationDetail() {
 
         {recapUnavailable && (
           <p className="text-sm text-muted-foreground">
-            Recaps require an OpenAI API key.
+            Recaps require a configured LLM provider API key.
           </p>
         )}
 
@@ -745,6 +759,7 @@ export default function ConversationDetail() {
 
         {recap && (
           <div className="space-y-4">
+            <AnalysisBadge provenance={recap.provenance} />
             <p className="text-sm text-foreground">{recap.summary}</p>
             {recap.key_files.length > 0 && (
               <div>
@@ -943,6 +958,7 @@ export default function ConversationDetail() {
                     </div>
                     <div className="flex-1">
                       <h2 className="text-lg font-semibold mb-2">Summary</h2>
+                      <AnalysisBadge provenance={insights.provenance} />
                       <p className="text-foreground/90 leading-relaxed">{insights.summary}</p>
                     </div>
                   </div>

@@ -21,7 +21,7 @@ import {
   Sparkles,
   RefreshCw,
 } from 'lucide-react';
-import type { PatternFrequency, TrendPoint } from '@/types/api';
+import type { AnalysisProvenance, PatternFrequency, TrendPoint } from '@/types/api';
 
 // ===== Helper Components =====
 
@@ -178,6 +178,19 @@ function TrendMiniChart({
         <span className="text-xs text-muted-foreground">{data[data.length - 1]?.date?.slice(5)}</span>
       </div>
     </div>
+  );
+}
+
+function AnalysisBadge({ provenance }: { provenance?: AnalysisProvenance }) {
+  if (!provenance?.provider || !provenance?.model) {
+    return null;
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground font-mono">
+      Analysis model: {provenance.provider}/{provenance.model}
+      {provenance.run_id ? ` · run ${provenance.run_id.slice(0, 8)}` : ''}
+    </p>
   );
 }
 
@@ -429,6 +442,7 @@ export default function InsightsTab({ projectId }: { projectId: string }) {
             <Sparkles className="w-5 h-5 text-cyan-400" />
             <h3 className="text-lg font-semibold">AI Summary</h3>
           </div>
+          <AnalysisBadge provenance={insights.provenance} />
           <div className="prose prose-sm prose-invert max-w-none">
             <p className="text-foreground/90 leading-relaxed whitespace-pre-wrap">
               {insights.summary}

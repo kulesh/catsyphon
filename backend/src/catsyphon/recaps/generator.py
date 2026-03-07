@@ -6,10 +6,9 @@ import json
 import time
 from typing import Any
 
-from openai import OpenAI
-
 from catsyphon.canonicalization import CanonicalType
 from catsyphon.db.repositories.canonical import CanonicalRepository
+from catsyphon.llm import create_llm_client_for
 from catsyphon.models.db import Conversation
 from catsyphon.tagging.llm_logger import llm_logger
 
@@ -47,10 +46,15 @@ class RecapGenerator:
         model: str = "gpt-4o-mini",
         max_tokens: int = 600,
         timeout_s: float = 60.0,
+        provider: str = "openai",
+        temperature: float = 0.2,
     ):
-        self.client = OpenAI(api_key=api_key, timeout=timeout_s)
+        _ = timeout_s  # Provider SDKs currently use default timeout handling.
+        self.client = create_llm_client_for(provider=provider, api_key=api_key)
+        self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
+        self.temperature = temperature
 
     def generate(
         self,
@@ -83,22 +87,16 @@ class RecapGenerator:
             model=self.model,
             prompt=prompt,
             max_tokens=self.max_tokens,
-            temperature=0.2,
+            temperature=self.temperature,
         )
 
         start_time = time.time()
-        response = self.client.chat.completions.create(
+        response = self.client.generate_json(
             model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You produce concise developer recaps. Return only JSON.",
-                },
-                {"role": "user", "content": prompt},
-            ],
+            system_prompt="You produce concise developer recaps. Return only JSON.",
+            user_prompt=prompt,
             max_tokens=self.max_tokens,
-            temperature=0.2,
-            response_format={"type": "json_object"},
+            temperature=self.temperature,
         )
         duration_ms = (time.time() - start_time) * 1000
 
@@ -108,19 +106,19 @@ class RecapGenerator:
             duration_ms=duration_ms,
         )
 
-        content = response.choices[0].message.content
+        content = response.content
         if not content:
-            raise ValueError("Empty recap response from OpenAI")
+            raise ValueError("Empty recap response from provider")
 
         recap = json.loads(content)
         llm_metrics = {
             "llm_recap_ms": duration_ms,
+            "llm_provider": response.provider,
             "llm_model": response.model,
-            "llm_prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-            "llm_completion_tokens": (
-                response.usage.completion_tokens if response.usage else 0
-            ),
-            "llm_total_tokens": response.usage.total_tokens if response.usage else 0,
+            "llm_prompt_tokens": response.usage.prompt_tokens,
+            "llm_completion_tokens": response.usage.completion_tokens,
+            "llm_total_tokens": response.usage.total_tokens,
+            "llm_cost_usd": response.usage.cost_usd,
             "canonical_version": canonical.canonical_version,
         }
 

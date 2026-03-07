@@ -13,11 +13,15 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from catsyphon.db.repositories import ConversationRepository, InsightsRepository
+from catsyphon.db.repositories import (
+    AnalysisRunRepository,
+    ConversationRepository,
+    InsightsRepository,
+)
 from catsyphon.insights import InsightsGenerator
+from catsyphon.llm import create_llm_client_for
 
 logger = logging.getLogger(__name__)
 
@@ -69,17 +73,24 @@ class ProjectInsightsGenerator:
         api_key: str,
         model: str = "gpt-4o-mini",
         max_tokens: int = 500,
+        provider: str = "openai",
+        temperature: float = 0.3,
     ):
         """Initialize the project insights generator.
 
         Args:
-            api_key: OpenAI API key
-            model: OpenAI model to use for summary generation
+            api_key: Provider API key
+            model: LLM model to use for summary generation
             max_tokens: Maximum tokens for summary response
+            provider: LLM provider (openai, anthropic, google)
+            temperature: Sampling temperature
         """
-        self.client = OpenAI(api_key=api_key)
+        self.client = create_llm_client_for(provider=provider, api_key=api_key)
+        self.api_key = api_key
+        self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
+        self.temperature = temperature
 
     def generate(
         self,
@@ -177,8 +188,9 @@ class ProjectInsightsGenerator:
                 # Generate insights on-demand
                 if conv_insights_generator is None:
                     conv_insights_generator = InsightsGenerator(
-                        api_key=self.client.api_key,
+                        api_key=self.api_key,
                         model=self.model,
+                        provider=self.provider,
                     )
 
                 logger.info(
@@ -188,12 +200,42 @@ class ProjectInsightsGenerator:
 
                 try:
                     generated = conv_insights_generator.generate_insights(conv, session)
+                    llm_metrics = generated.get("llm_metrics", {})
+                    run_repo = AnalysisRunRepository(session)
+                    run = run_repo.create_run(
+                        capability="insights",
+                        artifact_type="conversation_insight",
+                        artifact_id=conv.id,
+                        conversation_id=conv.id,
+                        provider=str(llm_metrics.get("provider", self.provider)),
+                        model_id=str(llm_metrics.get("model", self.model)),
+                        prompt_version="insights-v1",
+                        input_canonical_version=int(
+                            generated.get("canonical_version", 1)
+                        ),
+                        temperature=self.temperature,
+                        max_tokens=conv_insights_generator.max_tokens,
+                        prompt_tokens=int(llm_metrics.get("prompt_tokens", 0)),
+                        completion_tokens=int(llm_metrics.get("completion_tokens", 0)),
+                        total_tokens=int(llm_metrics.get("total_tokens", 0)),
+                        cost_usd=float(llm_metrics.get("cost_usd", 0.0) or 0.0),
+                        latency_ms=float(llm_metrics.get("duration_ms", 0.0) or 0.0),
+                        finish_reason=None,
+                        status="failed" if llm_metrics.get("error") else "succeeded",
+                        error_message=(
+                            str(llm_metrics.get("error"))
+                            if llm_metrics.get("error")
+                            else None
+                        ),
+                    )
+
                     # Save to cache
                     saved = insights_repo.save(
                         conversation_id=conv.id,
                         insights=generated,
                         canonical_version=generated.get("canonical_version", 1),
                         project_last_activity=latest_conversation_at,
+                        latest_run_id=run.id,
                     )
                     insights_generated += 1
 
@@ -542,20 +584,18 @@ class ProjectInsightsGenerator:
                 ),
             )
 
-            response = self.client.chat.completions.create(
+            response = self.client.generate_text(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing developer-AI collaboration patterns. Provide actionable, specific insights.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                system_prompt=(
+                    "You are an expert at analyzing developer-AI collaboration "
+                    "patterns. Provide actionable, specific insights."
+                ),
+                user_prompt=prompt,
                 max_tokens=self.max_tokens,
-                temperature=0.3,
+                temperature=self.temperature,
             )
 
-            return response.choices[0].message.content
+            return response.content
 
         except Exception as e:
             logger.error(f"Failed to generate project summary: {e}")

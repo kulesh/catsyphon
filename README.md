@@ -28,7 +28,7 @@ Open **http://localhost:5173** and start ingesting your Claude Code logs.
 >
 > Use [mise](https://mise.jdx.dev/) to install tools automatically: `mise install`
 >
-> **Optional**: Add `OPENAI_API_KEY` to `.env` for AI-powered tagging.
+> **Optional**: Configure `LLM_PROVIDER`, `LLM_MODEL`, and the matching provider API key in `.env` for AI-powered analytics/tagging.
 
 ---
 
@@ -100,7 +100,7 @@ See which files changed most, lines added/deleted across all sessions.
 
 ## Tech Stack
 
-**Backend**: Python 3.11, FastAPI, PostgreSQL, SQLAlchemy, OpenAI
+**Backend**: Python 3.11, FastAPI, PostgreSQL, SQLAlchemy, provider-agnostic LLM adapters (OpenAI/Anthropic/Google)
 **Frontend**: React 19, TypeScript, Vite, Tailwind, shadcn/ui
 
 ---

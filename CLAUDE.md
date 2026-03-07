@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this project.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## First Things First
 
@@ -8,794 +8,167 @@ BEFORE ANYTHING ELSE: run 'bd ready' and review available work
 
 ## Assistant's Role
 
-You are a world-class software engineer, product manager, and designer rolled into one skillful AI Assistant. Your human pairing buddy is Kulesh.
+See [AGENTS.md](AGENTS.md) for philosophy, development guidelines, and communication style. Those rules apply here — do not duplicate them.
 
-## Philosophy
-
-You design bicycles not Ruby Goldberg machines. Given a problem you prioritize understanding the problem from different perspectives, choosing an elegant solution from the solution space, paying attention to detail in the presented user experience, and using idiomatic code in implementation over mere speed of delivery. Don't just tell me how you'll solve it. _Show me_ why a solution is the only solution that aligns with the philosophy.
-
-To put this philosophy to practice:
-
-1. **You Are the Owner** - You own this codebase. You evolve this codebase over many years. Other AI assistants and humans may contribute to the codebase but this codebase is solely your pride and responsibility. You are shaping the future of this project. The patterns you establish will be copied. The corners you cut will be cut again. Fight entropy. Leave the codebase better than you found it.
-2. **Simple is Always Better** - Remember: you are making bicycles. Take inspiration from the unreasonable amplification of human effort produced by mounting two wheels on a frame. Find ways to remove complexity without losing leverage.
-3. **Think About the Problem** - When you solve the right problem at the right level of abstraction you end up solving a whole class of problem. Ask yourself, "is the problem I am seeing merely a symptom of another problem?" Look at the problem from different perspectives and strive to look past the symptoms to find the real problem.
-4. **Choose a Solution from Many** - Don't commit to the first solution. Come up with a set of solutions. Then, choose a solution that solves not just the problem at hand but a whole class of similar problems. That's the most effective solution.
-5. **Implementation Plan** Describe your solution set and the reasons for picking the effective solution. Come up with a plan to implement the effective solution. Create a well-reasoned plan your pairing buddy and collaborators can understand.
-6. **Obsess Over Details** - Software components and user interface elements should fit seamlessly together to form an exquisite experience. Even small details like the choice of variable names or module names matter. Take your time and obsess over details because they compound.
-7. **Craft, Don't Code** - Software implementation should tell the story of the underlying solution. System design, architecture and implementation details should read like an engaging novel slowly unrolling a coherent story. Every layer of abstraction should feel necessary and natural. Every edge case should feel like a smooth corner not a knee breaker.
-8. **Iterate Relentlessly** - Perfection is a journey not a destination. Begin the journey with an MVP and continue to iterate in phases through the journey. Ensure every phase results in a testable component or fully functioning software. Take screenshots. Run tests. Compare results. Solicit opinions and criticisms. Refine until you are proud of the result.
-
-## Development Guidelines
-
-Use Domain Driven Development methods to **create a ubiquitous language** that describes the solution with precision in human language. Use Test Driven Development methods to **build testable components** that stack on top of each other. Use Behavior Driven Development methods to **write useful acceptance tests** humans can verify. Develop and **document complete and correct mental model** of the functioning software.
-
-### Composition and Code Quality
-
-- Breakup the solution into components with clear boundaries that stack up on each other
-- Structure the components in congruent with the idioms of chosen frameworks
-- Implement the components using idiomatic code in the chosen language
-- Use the latest versions of reusable open source components
-- Don't reinvent the wheel unless it simplifies
-- Document Architecture Decision Records (ADRS) in docs/adrs/ and keep them updated
-
-### Tests and Testability
-
-- Write tests to **verify the intent of the code under test**
-- Using Behavior Driven Development methods, write useful acceptance tests
-- Changes to implementation and changes to tests MUST BE separated by a test suite run
-- Test coverage is not a measure of success
-
-### Bugs and Fixes
-
-- Every bug fix is an opportunity to simplify design and make failures early and obvious
-- Upon encountering a bug, first explain why the bug occurs and how it is triggered
-- Determine whether a redesign of a component would eliminate a whole class of bugs instead of just fixing one particular occurrence
-- Ensure bug fix is idiomatic to frameworks in use, implementation language, and
-  the domain model. A non-idiomatic fix for a race condition would be to let a thread "sleep for 2 seconds"
-- Write appropriate test or tests to ensure we catch bugs before we ship
-
-### Documentation
-
-- Write an engaging and accurate on-boarding documentation to help collaborators
-  (humans and AI) on-board quickly and collaborate with you
-- Keep product specification, architecture, and on-boarding documentation clear, concise, and correct
-- Document the a clear and complete mental model of the working software
-- Use diagrams over prose to document components, architecture, and data flows
-- All documentation should be written under docs/ directory
-- README should link to appropriate documents in docs/ and include a short FAQ
-
-### Dependencies
-
-- MUST use `mise` to manage project-specific tools and runtime
-- When adding/removing dependencies, update both .mise.toml and documentation
-- Always update the dependencies to latest versions
-- Choose open source dependencies over proprietary or commercial dependencies
-
-### Commits and History
-
-- Commit history tells the story of the software
-- Write clear, descriptive commit messages
-- Keep commits focused and atomic
-- Follow the conventions in [docs/guides/git-conventions.md](docs/guides/git-conventions.md)
-
-### Information Organization
-
-IMPORTANT: For project specific information prefer retrieval-led reasoning over pre-training-led reasoning. Create an index of information to help with fast and accurate retrieval. Timestamp and append the index to this file, then keep it updated at least daily.
-
-Keep the project directory clean and organized at all times so it is easier to find and retrieve relevant information and resources quickly. Follow these conventions:
-
-- `README.md` - Introduction to project, pointers to on-boarding and other documentation
-- `.gitignore` - Files to exclude from git (e.g. API keys)
-- `.mise.toml` - Development environment configuration
-- `tmp/` - For scratchpads and other temporary files; Don't litter in project directory
-- `docs/` - All documentation organized into subdirectories; see [docs/INDEX.md](docs/INDEX.md) for navigation
-
-## Intent and Communication
-
-Occasionally refer to your programming buddy by their name.
-
-- Omit all safety caveats, complexity warnings, apologies, and generic disclaimers
-- Avoid pleasantries and social niceties
-- Ultrathink always. Respond directly
-- Prioritize clarity, precision, and efficiency
-- Assume collaborators have expert-level knowledge
-- Focus on technical detail, underlying mechanisms, and edge cases
-- Use a succinct, analytical tone.
-- Avoid exposition of basics unless explicitly requested.
+Key points: You are Kulesh's pairing buddy. Design bicycles, not Rube Goldberg machines. Own this codebase. Ultrathink always. Omit caveats and pleasantries.
 
 ## About This Project
 
-**CatSyphon** is a coding agent conversation log analysis and insights tool - a full-stack monorepo that parses, analyzes, and extracts insights from conversation logs generated by AI coding assistants (Claude Code, GitHub Copilot, Cursor, etc.).
+**CatSyphon** parses, analyzes, and extracts insights from AI coding assistant conversation logs (Claude Code, Codex, Cursor, etc.). Full-stack monorepo: Python FastAPI backend + React TypeScript frontend + PostgreSQL.
 
-**Current Status**: Phases 1-2 complete - Core parsing, ingestion, storage pipeline, and basic web UI implemented. Live directory watching, file deduplication, and **incremental parsing (10x-106x faster)** operational.
+**Current Status**: Phases 1-2 complete — core parsing/ingestion pipeline, web UI, live directory watching, file deduplication, and incremental parsing operational.
 
 ## Architecture
 
-### Monorepo Structure
-
 ```
-catsyphon/
-├── backend/              # Python FastAPI backend
-│   ├── src/catsyphon/
-│   │   ├── api/          # FastAPI REST endpoints
-│   │   ├── parsers/      # Plugin-based log parsers (registry pattern)
-│   │   ├── pipeline/     # ETL ingestion workflow
-│   │   ├── db/           # SQLAlchemy ORM + repositories
-│   │   ├── models/       # Data models (DB + Pydantic)
-│   │   ├── tagging/      # AI metadata enrichment (OpenAI)
-│   │   ├── cli.py        # Typer CLI commands
-│   │   └── watch.py      # Live directory monitoring daemon
-│   └── tests/            # Pytest test suite
-│
-├── frontend/             # React + TypeScript frontend
-│   └── src/
-│       ├── pages/        # Dashboard, ConversationList, ConversationDetail, Upload
-│       ├── types/        # TypeScript API interfaces
-│       └── lib/          # API client, TanStack Query setup
-│
-└── docs/                 # Technical documentation
+backend/src/catsyphon/
+├── api/              # FastAPI REST endpoints
+├── parsers/          # Plugin-based log parsers (registry pattern)
+├── pipeline/         # ETL ingestion workflow
+├── db/               # SQLAlchemy ORM + repositories
+├── models/           # Data models (DB + Pydantic)
+├── services/         # Ingestion service (chunked parsing orchestration)
+├── tagging/          # AI metadata enrichment (OpenAI, optional)
+├── cli.py            # Typer CLI
+└── watch.py          # Live directory monitoring daemon
+
+frontend/src/
+├── pages/            # Dashboard, ConversationList, ConversationDetail, Upload, Ingestion
+├── components/       # shadcn/ui based components
+├── types/            # TypeScript API interfaces
+└── lib/              # API client, TanStack Query setup
 ```
 
-### Technology Stack
+### Key Patterns
 
-**Backend:**
+1. **Plugin-Based Parsers**: `ParserRegistry` dynamically routes log files to parsers. Parsers implement `ChunkedParser` protocol with `parse_metadata()` + `parse_messages(offset, limit)`.
 
-- Python 3.11+ with FastAPI (async REST API)
-- PostgreSQL 15+ with SQLAlchemy 2.0 ORM
-- Alembic for database migrations
-- OpenAI gpt-4o-mini for AI-powered metadata tagging
-- Typer CLI with Rich formatting
-- Watchdog + python-daemon for live file monitoring
-- uv for dependency management
+2. **Chunked Parsing (ADR-009)**: All ingestion uses bounded-memory chunks (~3 MB peak). First-time = chunks from offset 0; appends = chunks from stored offset. Change detection (APPEND/TRUNCATE/REWRITE/UNCHANGED) via `raw_logs` table state tracking.
 
-**Frontend:**
+3. **Repository Pattern**: Data access through repository classes in `db/repositories/`.
 
-- React 19 with TypeScript 5.9
-- Vite 7 for build tooling
-- Tailwind CSS 4 with shadcn/ui components
-- TanStack React Query 5 for data fetching/caching with 15s auto-refresh polling
-- React Router DOM 7
-- pnpm for package management
+4. **Async Throughout**: Backend uses async SQLAlchemy — always use `async with get_db()`.
 
-**Code Quality:**
+5. **Frontend**: React 19 + shadcn/ui (not Tremor) + TanStack Query v5 with 15s polling auto-refresh.
 
-- Black (formatter), Ruff (linter), MyPy (strict type checking)
-- Pytest + pytest-asyncio for testing
+6. **Database**: Normalized schema: Projects → Developers → Conversations → Epochs → Messages → Files Touched. JSONB columns for extensible metadata.
 
-### Key Architectural Patterns
+### Key Files for Chunked Parsing
 
-1. **Plugin-Based Parser System**: `ParserRegistry` dynamically discovers and routes log files to appropriate parsers (Claude Code implemented, extensible for other agents)
+- `parsers/incremental.py` — `ChunkedParser` protocol, `MessageChunk`, change detection
+- `parsers/claude_code.py` — Claude Code parser implementation
+- `parsers/codex.py` — OpenAI Codex parser implementation
+- `services/ingestion_service.py` — Chunked ingestion orchestration
+- `pipeline/ingestion.py` — `StageMetrics` class for pipeline instrumentation
 
-2. **Data Pipeline (ETL)**:
+## Running the App
 
-   ```
-   Raw Logs → Parser → Deduplication → AI Tagging → PostgreSQL → REST API → Web UI
-   ```
-
-3. **Repository Pattern**: Data access abstracted through repository classes for type-safe queries
-
-4. **Live Directory Watching**: Daemon monitors folders for new logs with automatic deduplication using content hashing
-
-5. **Database Schema**: Highly normalized with Projects → Developers → Conversations → Epochs → Messages → Files Touched
-
-6. **Chunked Parsing (ADR-009)**: All ingestion uses bounded-memory chunked parsing
-   - **Protocol**: `ChunkedParser` with `parse_metadata()` + `parse_messages(offset, limit)`
-   - **Memory**: ~3 MB peak per chunk regardless of file size (vs 4-6x file size before)
-   - **Unified Path**: First-time ingestion = chunks from offset 0; appends = chunks from stored offset
-   - **Change Detection**: Automatically detects file changes (APPEND, TRUNCATE, REWRITE, UNCHANGED)
-   - **State Tracking**: Stores parsing state (offset, line number, hash) in `raw_logs` table
-   - **Graceful Degradation**: Falls back to full parse for non-chunked parsers
-
-### Chunked Parsing Details (ADR-009)
-
-Chunked parsing eliminates the full-parse code path. First-time ingestion becomes chunked from offset=0. Subsequent appends use the same loop from the stored offset. Peak memory is ~3 MB per chunk regardless of file size.
-
-**How It Works:**
-
-1. `parse_metadata()` reads first 10 lines for session-level metadata (session_id, agent_type, etc.)
-2. `parse_messages(offset, limit=500)` returns bounded `MessageChunk` with cursor state
-3. Ingestion loop: metadata → create conversation → chunk loop → update raw_log state
-4. Change detection: APPEND resumes from stored offset, TRUNCATE/REWRITE reparses from 0
-
-**Key Files:**
-
-- `backend/src/catsyphon/parsers/incremental.py` - `ChunkedParser` protocol, `MessageChunk`, change detection
-- `backend/src/catsyphon/parsers/claude_code.py` - `parse_metadata()`, `parse_messages()`
-- `backend/src/catsyphon/parsers/codex.py` - `parse_metadata()`, `parse_messages()`
-- `backend/src/catsyphon/services/ingestion_service.py` - Chunked ingestion routing
-- `backend/src/catsyphon/watch.py` - Watch daemon chunked integration
-
-### Pipeline Metrics & Instrumentation
-
-CatSyphon instruments every stage of the ingestion pipeline to measure latency and identify bottlenecks. Stage-level metrics are stored in the `ingestion_jobs` table and displayed in real-time on the Live Activity UI.
-
-**Metrics Schema:**
-
-Each ingestion job tracks the following metrics in a JSONB column:
-
-```json
-{
-  "deduplication_check_ms": 45.2, // File hash + DB lookup time
-  "database_operations_ms": 234.8, // Inserts, updates, queries
-  "total_ms": 280.0 // Sum of all stages
-}
-```
-
-**How Metrics Work:**
-
-1. **StageMetrics Helper** (`backend/src/catsyphon/pipeline/ingestion.py:40-64`):
-   - Lightweight timing tracker that records start/end timestamps for each pipeline stage
-   - Automatically calculates duration in milliseconds
-   - Converts to dict for JSONB storage
-
-2. **Ingestion Pipeline Instrumentation**:
-   - `deduplication_check_ms`: Time to hash file and check for duplicates in database
-   - `database_operations_ms`: Time for all SQLAlchemy operations (conversation insert, message bulk insert, file touched records)
-   - `total_ms`: Sum of all stage timings
-
-3. **Database Storage**:
-   - Metrics stored in `ingestion_jobs.metrics` JSONB column
-   - Allows flexible schema evolution without migrations
-   - Efficient querying via PostgreSQL JSONB operators
-
-4. **API Aggregation**:
-   - `/api/ingestion/stats` returns aggregate metrics:
-     - `avg_deduplication_check_ms`: Average dedup time across successful jobs
-     - `avg_database_operations_ms`: Average DB time across successful jobs
-     - `error_rates_by_stage`: Count of errors per stage (future)
-   - Only includes successful jobs for meaningful averages
-   - Failed jobs excluded to avoid skewing metrics
-
-5. **Live Activity UI** (`frontend/src/pages/Ingestion.tsx`):
-   - Real-time display of pipeline performance metrics
-   - 3x2 grid of metric cards:
-     - **Top Row**: Watch Directories, Total Jobs, Incremental Parsing
-     - **Bottom Row**: Pipeline Performance, Error Breakdown, LLM Usage (placeholder)
-   - Auto-refreshes every 10 seconds via TanStack Query polling
-   - Individual job cards show stage-level breakdown when metrics available
-
-**Interpreting Metrics:**
-
-Common patterns and their meanings:
-
-| Pattern                                | Meaning                                               | Action                                                               |
-| -------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
-| High `deduplication_check_ms` (>100ms) | Large number of existing files in DB or slow file I/O | Consider indexing `raw_logs.content_hash` or optimizing file reading |
-| High `database_operations_ms` (>500ms) | Large conversation with many messages or slow DB      | Check database performance, consider batching optimizations          |
-| `total_ms` >> sum of stages            | Unmeasured overhead or missing instrumentation        | Add more stage tracking if needed                                    |
-| Empty metrics on duplicates            | Duplicate detected before metrics initialized         | Expected behavior for early-stage duplicates                         |
-
-**Performance Impact:**
-
-- Metrics tracking adds <5% overhead to ingestion
-- StageMetrics uses <1KB memory per job
-- Minimal impact on production performance
-- Can be extended with more stages without code changes (just update StageMetrics calls)
-
-**Extending Metrics:**
-
-To add a new stage:
-
-1. Add timing calls in `ingest_conversation()`:
-
-   ```python
-   metrics.start_stage("new_stage_name_ms")
-   # ... stage logic ...
-   metrics.end_stage("new_stage_name_ms")
-   ```
-
-2. Update documentation (this file)
-
-3. Add frontend display in `Ingestion.tsx` (optional)
-
-4. No database migration required (JSONB is schema-less)
-
-**Testing:**
-
-Comprehensive test coverage in `backend/tests/test_pipeline_metrics.py`:
-
-- 9 unit tests for StageMetrics helper
-- 6 integration tests for metrics population
-- 7 API tests for endpoint responses
-- 4 performance tests for overhead validation
-
-**Key Files:**
-
-- `backend/src/catsyphon/pipeline/ingestion.py` - StageMetrics class and instrumentation
-- `backend/src/catsyphon/db/models.py:826-828` - metrics JSONB column
-- `backend/src/catsyphon/db/repositories/ingestion_job.py:224-285` - get_stats() aggregation
-- `backend/src/catsyphon/api/routes/ingestion.py:92-116` - /ingestion/stats endpoint
-- `backend/src/catsyphon/api/schemas.py:387-390, 422-433` - Response schemas
-- `frontend/src/pages/Ingestion.tsx` - Live Activity UI
-- `backend/tests/test_pipeline_metrics.py` - Comprehensive test suite
-
-## Spinning Up the App
-
-The full stack runs entirely in Docker — **no native Python, Node, uv, or pnpm required**. A working `docker` and `docker compose` is the only prerequisite.
+### Docker (recommended)
 
 ```bash
-./catsyphon up        # Detect AI tools, build, and start all services
-```
-
-That's it. The launcher script detects installed AI tools (Claude Code, Codex), mounts their log directories read-only, generates a `docker-compose.override.yml`, auto-creates the organization/workspace/watch configs on first boot, and starts all services. The app is available at `http://localhost:3000`.
-
-Other launcher commands:
-```bash
-./catsyphon down      # Stop all containers
-./catsyphon status    # Show container status and detected tools
+./catsyphon up        # Detect AI tools, build, start all services → http://localhost:3000
+./catsyphon down      # Stop
+./catsyphon status    # Show status
 ./catsyphon logs      # Stream backend logs
 ./catsyphon reset     # Destroy all data and start fresh
 ```
 
-### Docker Runtime Detection (for AI assistants)
-
-When asked to "spin up the app", run `./catsyphon up`. The launcher handles all Docker detection, port conflict resolution, and auto-bootstrap. If the user doesn't have Docker running, it will tell them.
-
-For manual control or debugging, the raw `docker compose` commands still work:
+### Native Development
 
 ```bash
-docker compose up --build -d     # Manual start (no auto-bootstrap)
-docker compose down -v           # Full reset
+./scripts/dev.sh start     # Full stack (Colima, PostgreSQL, API, Frontend)
+./scripts/dev.sh backend   # Backend only
+./scripts/dev.sh frontend  # Frontend only
+./scripts/dev.sh status    # Service status
+./scripts/dev.sh reset     # Reset DB (destructive)
 ```
-
-### Docker Architecture
-
-```
-              :3000 (host)
-┌──────────────────────────┐
-│    Frontend (Nginx)      │  Static React build + reverse proxy
-│    /api/* → backend:8000 │
-└───────────┬──────────────┘
-            │
-┌───────────▼──────────────┐
-│    Backend (FastAPI)     │  uvicorn, 4 workers
-│    :8000 (internal)      │
-└───────────┬──────────────┘
-            │
-┌───────────▼──────────────┐
-│    PostgreSQL 15         │  :5432 (internal)
-└──────────────────────────┘
-```
-
-- Nginx serves the built React SPA and reverse-proxies `/api/*` to the backend (stripping the `/api` prefix). Same-origin — no CORS.
-- Backend runs migrations automatically on startup via `entrypoint.sh`.
-- Postgres is internal only — not exposed to the host by default.
-
-### Environment Variables (Docker)
-
-Override via `.env` file or inline:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `FRONTEND_PORT` | `3000` | Host port for the frontend |
-| `API_WORKERS` | `4` | Uvicorn worker count |
-| `POSTGRES_DB` | `catsyphon` | Database name |
-| `POSTGRES_USER` | `catsyphon` | Database user |
-| `POSTGRES_PASSWORD` | `catsyphon_dev_password` | Database password |
-| `OPENAI_API_KEY` | (empty) | For AI tagging (optional) |
-| `LOG_LEVEL` | `INFO` | Backend log level |
 
 ## Development Commands
 
-### Native Development (optional)
-
-For active development with hot-reload, you can run services natively instead of Docker. This requires `mise`, `uv`, and `npm`.
-
-Use the development script for easy management:
-
-```bash
-# Start full stack (Colima, PostgreSQL, API server, Frontend)
-./scripts/dev.sh start
-
-# Stop everything
-./scripts/dev.sh stop
-
-# Restart everything
-./scripts/dev.sh restart
-
-# Start backend only (Colima, PostgreSQL, API)
-./scripts/dev.sh backend
-
-# Start frontend only (assumes backend is running)
-./scripts/dev.sh frontend
-
-# Reset database (WARNING: deletes all data)
-./scripts/dev.sh reset
-
-# Check status of all services
-./scripts/dev.sh status
-
-# Stream logs
-./scripts/dev.sh logs          # All logs
-./scripts/dev.sh logs error    # Error logs only
-./scripts/dev.sh logs app      # Application logs only
-./scripts/dev.sh logs watch    # Watch daemon logs
-```
-
-The script handles:
-
-- Colima/Docker startup and health verification
-- PostgreSQL container and port forwarding (required for Colima with vz driver)
-- Database migrations
-- File descriptor limits (increases from macOS default of 256 to 4096)
-- API server with optimal worker count and health check
-- Frontend dev server (Vite with HMR)
-
-### Manual Environment Setup
-
-```bash
-# Install tools (Python 3.11, Node 20, uv, npm)
-mise install
-
-# Start Colima (Docker runtime)
-colima start
-
-# Start PostgreSQL
-docker-compose up -d
-
-# Set up port forwarding (required for Colima with vz driver)
-ssh -F ~/.config/colima/_lima/colima/ssh.config -L 5432:localhost:5432 -N -f lima-colima
-
-# Backend setup
-cd backend
-uv sync --all-extras              # Install dependencies
-uv run alembic upgrade head       # Run migrations
-
-# Frontend setup
-cd frontend
-npm install                       # Install dependencies
-```
-
-### Known Issues
-
-**Colima Resource Requirements**: Colima requires adequate CPU and memory to run stably. The dev script automatically checks and upgrades resources if needed. Minimum recommended: **4 CPUs, 4GB RAM**.
-
-If Colima becomes unresponsive (common after macOS sleep/wake), the dev script will detect and auto-recover. To manually adjust resources:
-
-```bash
-colima stop --force
-colima delete --force
-colima start --cpu 4 --memory 4
-```
-
-**Colima Port Forwarding**: Colima with `vz` (macOS Virtualization Framework) doesn't automatically forward Docker container ports to the host. The dev script handles this automatically, or manually run:
-
-```bash
-ssh -F ~/.config/colima/_lima/colima/ssh.config -L 5432:localhost:5432 -N -f lima-colima
-```
-
-**File Descriptor Limits**: macOS has a default soft limit of 256 file descriptors, which is too low for multi-worker setups. Increase with:
-
-```bash
-ulimit -n 4096
-```
-
-### Backend Development
+### Backend
 
 ```bash
 cd backend
 
-# Run API server
-uv run catsyphon serve                          # Production server on :8000
+# Run
+uv run catsyphon serve                          # Production server :8000
 uv run uvicorn catsyphon.api.app:app --reload   # Dev server with hot reload
 
-# CLI commands (minimal - use Web UI for most features)
-uv run catsyphon ingest <path> --project "name"              # One-time log import
-uv run catsyphon ingest <path> --enable-tagging              # Import with LLM tagging
-uv run catsyphon ingest <path> --force                       # Force re-ingest (skip dedup & replace existing)
-# Note: --no-skip-duplicates is deprecated, use --force instead
-# Note: For database status/stats, use Web UI Dashboard (http://localhost:8000)
-# Note: For version info, use: pip show catsyphon
+# Ingest
+uv run catsyphon ingest <path> --project "name"        # One-time import
+uv run catsyphon ingest <path> --enable-tagging         # With LLM tagging
+uv run catsyphon ingest <path> --force                  # Force re-ingest (skip dedup)
 
-# Watch directories (via Web UI or API)
-# Navigate to http://localhost:8000 → Ingestion → Watch Directories
-# Click "Add Directory" to configure automatic monitoring
-# Daemons start/stop via UI buttons or POST /watch/configs/{id}/start endpoint
+# Test & quality
+python3 -m pytest                                # All tests
+python3 -m pytest tests/test_api_conversations.py  # Single file
+python3 -m pytest -k "deduplication"              # Pattern match
+python3 -m mypy src/                              # Type checking (strict)
+python3 -m black src/ tests/                      # Format (88 cols)
+python3 -m ruff check src/ tests/                 # Lint (E/F/I/N/W rules)
+python3 -m ruff check --fix src/ tests/           # Lint with auto-fix
 
-# Testing & quality
-python3 -m pytest                                # Run all tests (more stable than uv)
-python3 -m pytest --cov=src/catsyphon           # With coverage
-python3 -m pytest tests/test_api_conversations.py  # Single test file
-python3 -m pytest tests/test_watch/             # Watch daemon tests
-python3 -m mypy src/                            # Type checking
-python3 -m black src/ tests/                    # Format code
-python3 -m ruff check src/ tests/               # Lint
-python3 -m ruff check --fix src/ tests/         # Lint with auto-fix
-
-# Database migrations
+# Migrations
 uv run alembic revision --autogenerate -m "Description"
 uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-### Frontend Development
+### Frontend
 
 ```bash
 cd frontend
 
-pnpm dev                # Development server with HMR (Vite)
+pnpm dev                # Dev server (Vite + HMR)
 pnpm build              # Production build (tsc + vite)
-pnpm test               # Run Vitest tests in watch mode
-pnpm test -- --run      # Run tests once (CI mode)
-pnpm run test:coverage  # Run tests with coverage report
-pnpm run test:ui        # Interactive test UI
+pnpm test               # Vitest watch mode
+pnpm test -- --run      # Tests once (CI)
+pnpm run test:coverage  # Coverage report
 pnpm lint               # ESLint
-pnpm tsc --noEmit       # TypeScript type checking
-pnpm preview            # Preview production build
+pnpm tsc --noEmit       # TypeScript type check
 ```
 
-### API Documentation
+### API Docs
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
-- **Readiness**: http://localhost:8000/ready
+- Swagger UI: http://localhost:8000/docs
+- Health: http://localhost:8000/health
 
-### Database Management
+## Git Conventions
+
+Conventional Commits format: `type(scope): description`
+
+**Types**: feat, fix, refactor, docs, test, chore
+**Scopes**: parser, api, frontend, pipeline, watch, db, tagging, docs
 
 ```bash
-# Access PostgreSQL CLI
-docker exec -it catsyphon-postgres psql -U catsyphon -d catsyphon
-
-# View logs
-docker-compose logs -f postgres
-
-# Reset database (WARNING: deletes all data)
-docker-compose down -v
-docker-compose up -d
-cd backend && uv run alembic upgrade head
+feat(parser): add Cursor log format support
+fix(pipeline): prevent deadlock on concurrent session ingestion
 ```
 
-## Important Patterns & Conventions
+Beads state (`.beads/issues.jsonl`) must be committed separately from code changes. See [docs/guides/git-conventions.md](docs/guides/git-conventions.md) for full rules.
 
-### Issue Tracking with bd (beads)
+## Issue Tracking with bd (beads)
 
 **CRITICAL**: Always use `bd` for task tracking, never markdown TODOs.
 
 ```bash
 bd ready                                           # Show unblocked work
-bd create "Title" -t bug|feature|task -p 0-4      # Create issue
-bd update bd-42 --status in_progress              # Claim task
-bd close bd-42 --reason "Completed"               # Complete task
+bd create --title="Title" --type=bug|feature|task --priority=0-4  # Create issue
+bd update <id> --status=in_progress               # Claim task
+bd close <id> --reason="Completed"                # Complete task
 ```
 
-**Always commit `.beads/issues.jsonl` with code changes** to keep issue state synced.
+Priority: 0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Always commit `.beads/issues.jsonl` with code changes.
 
-### Code Quality Requirements
+## Configuration
 
-- **Black**: Line length 88, auto-format before commits
-- **Ruff**: Enforce E, F, I, N, W rules
-- **MyPy**: Strict type checking required (`strict = true`)
-- **Tests**: Maintain coverage, use pytest fixtures from `conftest.py`
-- **Async**: Use async/await throughout backend (FastAPI + SQLAlchemy)
-
-### Configuration Management
-
-Environment variables in `.env` (copy from `.env.example`):
-
-```bash
-# Required
-OPENAI_API_KEY=sk-xxx        # For AI tagging
-POSTGRES_DB=catsyphon
-POSTGRES_USER=catsyphon
-POSTGRES_PASSWORD=catsyphon_dev_password
-
-# Optional
-ENVIRONMENT=development
-API_PORT=8000
-WATCH_POLL_INTERVAL=2
-
-# Logging Configuration
-LOG_LEVEL=INFO                              # DEBUG, INFO, WARNING, ERROR, CRITICAL
-# LOG_DIR=/custom/log/path                  # Leave empty for XDG default (~/.local/state/catsyphon/logs)
-# LOG_FORMAT=standard                       # standard or json (for production/log aggregation)
-# LOG_CONSOLE_ENABLED=true                  # Enable console output
-# LOG_FILE_ENABLED=true                     # Enable file-based logging
-# LOG_MAX_BYTES=10485760                    # 10MB max per log file
-# LOG_BACKUP_COUNT=5                        # Keep 5 backup files when rotating
-# LOG_TO_STDOUT=true                        # Log INFO/DEBUG to stdout
-# LOG_TO_STDERR=true                        # Log WARNING/ERROR/CRITICAL to stderr
-
-# LLM Interaction Logging (for debugging and cost tracking)
-# LLM_LOGGING_ENABLED=false                 # Enable detailed OpenAI API logging
-# LLM_LOG_REQUESTS=true                     # Log API requests
-# LLM_LOG_RESPONSES=true                    # Log API responses
-# LLM_LOG_TOKENS=true                       # Log token usage
-
-# Tagging (optional)
-# Cache directory follows XDG Base Directory spec:
-#   - $XDG_CACHE_HOME/catsyphon/tags (if XDG_CACHE_HOME set)
-#   - $HOME/.cache/catsyphon/tags (default)
-#   - .catsyphon_cache/tags (fallback for dev/testing)
-TAGGING_CACHE_DIR=~/.cache/catsyphon/tags  # XDG-compliant cache directory
-TAGGING_CACHE_TTL_DAYS=30                   # Cache expiration
-TAGGING_ENABLE_CACHE=true                   # Enable caching (reduces OpenAI costs)
-```
-
-Managed via Pydantic Settings in `backend/src/catsyphon/config.py`.
-
-### Logging System
-
-CatSyphon uses a centralized logging system with separate log files and configurable output:
-
-**Log File Structure** (XDG-compliant: `~/.local/state/catsyphon/logs`):
-
-```
-logs/
-├── application.log           # INFO and DEBUG messages
-├── error.log                 # WARNING, ERROR, CRITICAL messages
-├── api-application.log       # API server logs
-├── api-error.log            # API errors
-├── watch-{id}-application.log  # Per-daemon logs
-├── watch-{id}-error.log
-└── llm/
-    └── requests.log          # OpenAI API interactions (when enabled)
-```
-
-**Features**:
-
-- Automatic log rotation (10MB max, 5 backups)
-- Separate stdout (INFO/DEBUG) and stderr (WARNING+) streams
-- Context-specific log files for watch daemons
-- Optional LLM interaction logging for debugging and cost tracking
-- XDG Base Directory compliant
-
-**LLM Logging**:
-When `LLM_LOGGING_ENABLED=true`, all OpenAI API interactions are logged to `llm/requests.log` with:
-
-- Request details (model, prompt preview, parameters)
-- Response details (content preview, token usage, timing)
-- Error information for failed requests
-- Cache hits (no API call made)
-
-Example LLM log entry:
-
-```
-[2025-11-18 13:45:23] [INFO] REQUEST: {"type": "request", "request_id": "test-123_1700318723000", "model": "gpt-4o-mini", "session_id": "test-123", "message_count": 5, "parameters": {"max_tokens": 2000, "temperature": 0.3}, "prompt_length": 1234}
-[2025-11-18 13:45:24] [INFO] RESPONSE: {"type": "response", "request_id": "test-123_1700318723000", "model": "gpt-4o-mini", "finish_reason": "stop", "duration_ms": 1250.5, "tokens": {"prompt": 156, "completion": 89, "total": 245}}
-```
-
-### Testing Guidelines
-
-- **Unit Tests**: Parser logic, models, utilities
-- **Integration Tests**: Database operations, repositories
-- **API Tests**: REST endpoints with in-memory DB
-- **Pipeline Tests**: Full ingestion workflow
-
-Run specific test categories:
-
-```bash
-uv run pytest tests/test_parsers/           # Parser tests only
-uv run pytest tests/test_api_*.py           # API endpoint tests
-uv run pytest -k "deduplication"            # Tests matching pattern
-```
-
-## Key Endpoints
-
-### REST API
-
-**Conversations:**
-
-- `GET /conversations` - List with pagination & filters
-- `GET /conversations/{id}` - Single conversation detail
-- `GET /conversations/{id}/messages` - Messages for conversation
-
-**Statistics:**
-
-- `GET /stats/overview` - Dashboard metrics
-- `GET /stats/by-project` - Project-level stats
-- `GET /stats/by-developer` - Developer patterns
-
-**Metadata:**
-
-- `GET /projects` - List projects
-- `GET /developers` - List developers
-
-**Upload:**
-
-- `POST /upload` - Multipart file upload with progress
-
-## Unique Features
-
-1. **Live Directory Watching**: Daemon monitors folders for new log files with automatic deduplication via content hashing
-
-2. **Real-Time Frontend Polling**: Dashboard and conversation list auto-refresh every 15 seconds with freshness indicators and new item highlighting
-
-3. **AI-Powered Tagging**: OpenAI gpt-4o-mini enriches conversations with metadata (opt-in via `--enable-tagging` flag):
-   - **Sentiment**: positive, neutral, negative, frustrated (with numeric score -1.0 to 1.0)
-   - **Intent**: feature_add, bug_fix, refactor, learning, debugging, other
-   - **Outcome**: success, partial, failed, abandoned, unknown
-   - **Features/Problems**: Lists of capabilities discussed and blockers encountered
-   - **Rule-Based Tags**: Automatic extraction of errors, tool usage, and patterns
-   - **File-Based Cache**: 30-day TTL cache reduces costs by 80-90% on re-ingestion (~$10 per 1,000 conversations uncached)
-
-4. **Deduplication System**: Hash-based duplicate detection prevents re-processing identical files
-
-5. **Flexible Metadata**: JSONB columns for extensible, backward-compatible metadata storage
-
-6. **Health Checks**: Startup validation for database connectivity, migration status, and readiness probes
-
-## Data Flow Example
-
-```
-User uploads log → Upload API validates → Ingest Pipeline
-  ↓
-ParserRegistry.parse() → Normalize to ParsedConversation
-  ↓
-Deduplication.check() → Hash existing files
-  ↓
-AITagger.enrich() → Add sentiment/intent/outcome
-  ↓
-ConversationRepository.save() → Persist to PostgreSQL
-  ↓
-REST API → Frontend queries data → User views analytics
-```
-
-## Common Development Scenarios
-
-### Adding a New Parser
-
-1. Create `backend/src/catsyphon/parsers/new_agent.py`
-2. Inherit from `BaseParser` with `parse()` method
-3. Register in `parsers/registry.py`
-4. Add tests in `tests/test_parsers/test_new_agent.py`
-5. Update parser priority if needed
-
-### Adding API Endpoints
-
-1. Define Pydantic schema in `api/schemas.py`
-2. Create route handler in `api/routes/`
-3. Register router in `api/app.py`
-4. Add tests in `tests/test_api_*.py`
-5. Document endpoint in OpenAPI (automatic via FastAPI)
-
-### Database Schema Changes
-
-1. Update ORM models in `models/db.py`
-2. Generate migration: `uv run alembic revision --autogenerate -m "Description"`
-3. Review generated migration in `db/migrations/versions/`
-4. Apply migration: `uv run alembic upgrade head`
-5. Update repository methods if needed
-
-### Running Tests Before Commits
-
-```bash
-cd backend
-uv run pytest                      # All tests
-uv run mypy src/                   # Type checking
-uv run black src/ tests/           # Format
-uv run ruff check src/ tests/      # Lint
-```
-
-## Git Workflow
-
-1. Check for work: `bd ready`
-2. Claim task: `bd update <id> --status in_progress`
-3. Create branch: `git checkout -b feature/your-feature`
-4. Make changes and test thoroughly
-5. Commit: `git add . && git commit -m "Description"` (includes `.beads/issues.jsonl`)
-6. Complete task: `bd close <id> --reason "Completed"`
-7. Push and create PR
-
-## Cost Estimates
-
-Using OpenAI gpt-4o-mini for tagging:
-
-- ~$10 per 1,000 conversations
-- ~$10-15/month for a team of 10 developers
+Copy `.env.example` to `.env`. Key variables: `OPENAI_API_KEY` (optional, for AI tagging), `POSTGRES_*` (database), `LOG_LEVEL`. Managed via Pydantic Settings in `backend/src/catsyphon/config.py`.
 
 ## Documentation
 
-- [Documentation Index](./docs/INDEX.md) - Navigation hub for all documentation
-- [Architecture](./docs/architecture/ARCHITECTURE.md) - System design and data flow
-- [ADR Index](./docs/adrs/README.md) - Architecture Decision Records
-- [Agent Guidelines](./AGENTS.md) - Issue tracking workflow for AI agents
-- [README.md](./README.md) - Project overview and quick start
-
-## Notes
-
-- Frontend uses shadcn/ui components (not Tremor) - check existing patterns in `frontend/src/pages/` before adding new components
-- Backend uses async SQLAlchemy - always use `async with get_db()` pattern
-- Watch daemon runs as background process - check PID file and logs in project root
-- Parsers must return `ParsedConversation` objects - see `models/parsed.py` for structure
-- Deduplication is hash-based on raw file content - do not modify `raw_logs` table directly
+- [docs/INDEX.md](docs/INDEX.md) — Navigation hub for all documentation
+- [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) — System design, pipeline, metrics
+- [docs/architecture/incremental-parsing.md](docs/architecture/incremental-parsing.md) — Chunked parsing details
+- [docs/reference/api-reference.md](docs/reference/api-reference.md) — REST API surface
+- [docs/guides/plugin-sdk.md](docs/guides/plugin-sdk.md) — Building new parser plugins
+- [docs/adrs/README.md](docs/adrs/README.md) — Architecture Decision Records
