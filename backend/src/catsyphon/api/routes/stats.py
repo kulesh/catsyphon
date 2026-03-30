@@ -327,25 +327,34 @@ async def get_workspace_costs(
 
     if snapshot and snapshot.body:
         body = snapshot.body
-        # Aggregate from dailyModelTokens within period
-        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        for day_entry in body.get("dailyModelTokens", []):
+        # Use modelUsage for accurate per-model costs (has input/output breakdown)
+        for model, usage in body.get("modelUsage", {}).items():
+            if not isinstance(usage, dict):
+                continue
+            inp = usage.get("inputTokens", 0)
+            out = usage.get("outputTokens", 0)
+            cache = usage.get("cacheReadInputTokens", 0)
+            total_input += inp
+            total_output += out
+            total_cache_read += cache
+            cost = estimate_cost_from_model(model, inp, out)
+            if cost is not None:
+                cost_by_model[model] = cost_by_model.get(model, 0.0) + cost
+
+        # Use dailyActivity for daily trend (messages as cost proxy since
+        # dailyModelTokens only has total counts without input/output split)
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        total_cost = sum(cost_by_model.values())
+        total_msgs = sum(d.get("messageCount", 0) for d in body.get("dailyActivity", []))
+
+        for day_entry in body.get("dailyActivity", []):
             date_str = day_entry.get("date", "")
             if date_str < cutoff_date:
                 continue
-            day_cost = 0.0
-            for model, tokens in day_entry.get("tokensByModel", {}).items():
-                inp = tokens.get("inputTokens", 0)
-                out = tokens.get("outputTokens", 0)
-                cache = tokens.get("cacheReadInputTokens", 0)
-                total_input += inp
-                total_output += out
-                total_cache_read += cache
-                cost = estimate_cost_from_model(model, inp, out)
-                if cost is not None:
-                    cost_by_model[model] = cost_by_model.get(model, 0.0) + cost
-                    day_cost += cost
+            msg_count = day_entry.get("messageCount", 0)
+            # Proportional daily cost estimate based on message count
+            day_cost = (msg_count / total_msgs * total_cost) if total_msgs > 0 else 0.0
             daily_costs.append({"date": date_str, "cost": round(day_cost, 4)})
 
     total_cost = round(sum(cost_by_model.values()), 4)
