@@ -1161,12 +1161,13 @@ class WatcherDaemon:
             signal.signal(signal.SIGINT, self._signal_handler)
             signal.signal(signal.SIGTERM, self._signal_handler)
 
-        # Start watchdog observer
+        # Scan existing files for changes during downtime BEFORE starting
+        # the observer — otherwise both race to process the same files.
+        self._scan_existing_files()
+
+        # Start watchdog observer (only new changes from this point forward)
         self.observer.start()
         logger.info("✓ Observer started")
-
-        # Scan existing files for changes during downtime
-        self._scan_existing_files()
 
         # Start retry thread (not daemon - we want clean shutdown)
         self.retry_thread = Thread(target=self._retry_loop, daemon=False)
