@@ -6,6 +6,7 @@ Provides a clean API for CRUD operations on database models.
 
 from catsyphon.db.repositories.analysis_run import AnalysisRunRepository
 from catsyphon.db.repositories.base import BaseRepository
+from catsyphon.scanner.repository import ArtifactRepository
 from catsyphon.db.repositories.canonical import CanonicalRepository
 from catsyphon.db.repositories.collector import CollectorRepository
 from catsyphon.db.repositories.collector_session import CollectorSessionRepository
@@ -26,6 +27,7 @@ from catsyphon.db.repositories.watch_config import WatchConfigurationRepository
 from catsyphon.db.repositories.workspace import WorkspaceRepository
 
 __all__ = [
+    "ArtifactRepository",
     "BaseRepository",
     "AnalysisRunRepository",
     "CanonicalRepository",

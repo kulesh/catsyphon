@@ -1697,3 +1697,106 @@ class TaggingJob(Base):
             f"status={self.status!r}, "
             f"attempts={self.attempts})>"
         )
+
+
+class ArtifactSnapshot(Base):
+    """Current state of a supplemental data source file.
+
+    Upserted on each scan cycle.  One row per (workspace, source_type, path).
+    """
+
+    __tablename__ = "artifact_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    file_mtime: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    body: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    scan_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="ok"
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scanned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "source_type", "source_path",
+            name="uq_artifact_snapshot_ws_type_path",
+        ),
+    )
+
+    history: Mapped[list["ArtifactHistory"]] = relationship(
+        back_populates="snapshot", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ArtifactSnapshot(id={self.id}, "
+            f"source_type={self.source_type!r}, "
+            f"source_path={self.source_path!r})>"
+        )
+
+
+class ArtifactHistory(Base):
+    """Append-only change log for artifact snapshots."""
+
+    __tablename__ = "artifact_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("artifact_snapshots.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    diff_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    prev_content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    new_content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_artifact_history_ws_type_detected",
+            "workspace_id", "source_type", "detected_at",
+        ),
+    )
+
+    snapshot: Mapped["ArtifactSnapshot"] = relationship(back_populates="history")
+
+    def __repr__(self) -> str:
+        return (
+            f"<ArtifactHistory(id={self.id}, "
+            f"source_type={self.source_type!r}, "
+            f"change_type={self.change_type!r})>"
+        )

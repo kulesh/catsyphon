@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from catsyphon.api.routes import (
+    artifacts,
     benchmarks,
     canonical,
     collectors,
@@ -34,6 +35,7 @@ from catsyphon.config import settings
 from catsyphon.daemon_manager import DaemonManager
 from catsyphon.logging_config import setup_logging
 from catsyphon.startup import run_all_startup_checks
+from catsyphon.scanner import start_scanner, stop_scanner
 from catsyphon.tagging import start_worker as start_tagging_worker
 from catsyphon.tagging import stop_worker as stop_tagging_worker
 
@@ -69,6 +71,11 @@ async def lifespan(app: FastAPI):
     # Start tagging worker for async tagging job processing
     start_tagging_worker()
     logger.info("✓ Tagging worker started")
+
+    # Start supplemental artifact scanner
+    if settings.scanner_enabled:
+        start_scanner()
+        logger.info("✓ Artifact scanner started")
 
     # Defer loading active configs until server is ready to handle requests.
     # This prevents deadlock when watch configs with use_api=True try to
@@ -126,6 +133,13 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: Stop all daemons and cleanup
     logger.info("Application shutdown initiated...")
+
+    # Stop artifact scanner
+    try:
+        stop_scanner(timeout=5)
+        logger.info("✓ Artifact scanner shutdown complete")
+    except Exception as e:
+        logger.error(f"Error stopping artifact scanner: {e}", exc_info=True)
 
     # Stop tagging worker
     try:
@@ -229,3 +243,4 @@ app.include_router(ingestion.router, prefix="", tags=["ingestion"])
 app.include_router(recommendations.router, prefix="", tags=["recommendations"])
 app.include_router(setup.router)
 app.include_router(otel.router)
+app.include_router(artifacts.router, prefix="/artifacts", tags=["artifacts"])

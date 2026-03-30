@@ -164,6 +164,11 @@ class Settings(BaseSettings):
     tagging_cache_ttl_days: int = 30  # Cache time-to-live in days
     tagging_enable_cache: bool = True  # Enable caching (reduces OpenAI costs)
 
+    # Supplemental scanner
+    scanner_enabled: bool = True
+    scanner_interval_seconds: int = 300  # 5 minutes
+    scanner_data_dirs: str = "/data/claude,/data/codex"
+
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
