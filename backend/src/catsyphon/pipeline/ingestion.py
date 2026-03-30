@@ -1721,6 +1721,7 @@ def link_orphaned_agents(
     session: Session,
     workspace_id: UUID,
     max_linking_attempts: int = 10,
+    max_orphan_age_hours: int = 24,
 ) -> int:
     """
     Link orphaned agent conversations to their parent conversations.
@@ -1730,13 +1731,15 @@ def link_orphaned_agents(
     conversations without parent links and attempts to link them using the
     parent_session_id from agent_metadata.
 
-    Orphans that exceed ``max_linking_attempts`` are skipped to avoid wasting
-    queries on permanently-unresolvable entries (e.g. parent log was deleted).
+    Orphans that meet the permanent-orphan policy (attempt count AND age
+    thresholds exceeded) are marked ``permanently_orphaned=True`` and excluded
+    from future queries.
 
     Args:
         session: Database session
         workspace_id: Workspace UUID to scope the linking
-        max_linking_attempts: Stop retrying after this many failed attempts
+        max_linking_attempts: Attempt threshold for permanent-orphan policy
+        max_orphan_age_hours: Age threshold (hours) for permanent-orphan policy
 
     Returns:
         Number of agents successfully linked
@@ -1747,17 +1750,23 @@ def link_orphaned_agents(
         database. By running this after all files are ingested, we can link
         agents that couldn't be linked during initial ingestion.
     """
+    from catsyphon.pipeline.orphan_policy import (
+        record_failed_attempt,
+        should_mark_permanent,
+    )
+
     logger.info(f"Starting post-ingestion agent linking for workspace {workspace_id}")
 
     conversation_repo = ConversationRepository(session)
 
-    # Find all orphaned agent conversations in this workspace
+    # Find linkable orphaned agent conversations (excludes permanently orphaned)
     orphaned_agents = (
         session.query(Conversation)
         .filter(
             Conversation.workspace_id == workspace_id,
             Conversation.conversation_type == "agent",
             Conversation.parent_conversation_id.is_(None),
+            Conversation.permanently_orphaned.is_(False),
         )
         .all()
     )
@@ -1769,18 +1778,9 @@ def link_orphaned_agents(
     logger.info(f"Found {len(orphaned_agents)} orphaned agent conversations to link")
 
     linked_count = 0
-    skipped_count = 0
+    marked_permanent_count = 0
 
     for agent in orphaned_agents:
-        # Check and increment linking attempt counter
-        attempts = agent.agent_metadata.get("_linking_attempts", 0)
-        if attempts >= max_linking_attempts:
-            skipped_count += 1
-            logger.debug(
-                f"Skipping agent {agent.id}: exceeded max linking attempts ({attempts}/{max_linking_attempts})"
-            )
-            continue
-
         # Get parent_session_id from agent_metadata
         parent_session_id = agent.agent_metadata.get("parent_session_id")
 
@@ -1802,13 +1802,32 @@ def link_orphaned_agents(
             )
 
         if not parent_conversation:
-            # Increment attempt counter so we eventually stop retrying
-            updated_metadata = {**agent.agent_metadata, "_linking_attempts": attempts + 1}
+            updated_metadata = record_failed_attempt(agent.agent_metadata)
             agent.agent_metadata = updated_metadata
-            logger.warning(
-                f"Parent conversation not found for agent {agent.id} "
-                f"(parent_session_id={parent_session_id}, attempt {attempts + 1}/{max_linking_attempts})"
-            )
+            attempts = updated_metadata.get("_linking_attempts", 0)
+
+            if should_mark_permanent(
+                updated_metadata,
+                max_attempts=max_linking_attempts,
+                max_age_hours=max_orphan_age_hours,
+            ):
+                agent.permanently_orphaned = True
+                marked_permanent_count += 1
+                logger.warning(
+                    "Marked agent %s as permanently orphaned "
+                    "(parent_session_id=%s, attempts=%d)",
+                    agent.id,
+                    parent_session_id,
+                    attempts,
+                )
+            else:
+                logger.debug(
+                    "Parent not found for agent %s "
+                    "(parent_session_id=%s, attempt %d)",
+                    agent.id,
+                    parent_session_id,
+                    attempts,
+                )
             continue
 
         # Link agent to parent
@@ -1822,9 +1841,11 @@ def link_orphaned_agents(
 
     session.flush()
 
-    logger.info(
+    parts = [
         f"Post-ingestion linking complete: linked {linked_count}/{len(orphaned_agents)} agents"
-        + (f", skipped {skipped_count} (max attempts)" if skipped_count else "")
-    )
+    ]
+    if marked_permanent_count:
+        parts.append(f"marked {marked_permanent_count} permanently orphaned")
+    logger.info(", ".join(parts))
 
     return linked_count

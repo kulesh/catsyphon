@@ -430,6 +430,9 @@ class Conversation(Base):
         String(50), nullable=False, server_default="open"
     )  # 'open', 'completed', 'abandoned'
     success: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, index=True)
+    permanently_orphaned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     iteration_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1"
     )

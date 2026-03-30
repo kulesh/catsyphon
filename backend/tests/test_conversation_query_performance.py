@@ -261,12 +261,12 @@ class TestCountByFiltersExcludesChildren:
 
 
 class TestOrphanLinkingMaxAttempts:
-    """Verify link_orphaned_agents tracks and respects attempt limits."""
+    """Verify link_orphaned_agents tracks attempts and marks permanent orphans."""
 
     def test_increments_linking_attempts_on_failure(
         self, db_session, sample_workspace
     ):
-        """Failed linking should increment _linking_attempts in agent_metadata."""
+        """Failed linking should increment _linking_attempts and set _first_orphaned_at."""
         now = datetime.now(UTC)
 
         # Agent with no matching parent
@@ -288,6 +288,7 @@ class TestOrphanLinkingMaxAttempts:
 
         db_session.refresh(agent)
         assert agent.agent_metadata.get("_linking_attempts") == 1
+        assert "_first_orphaned_at" in agent.agent_metadata
 
         # Second attempt
         linked = link_orphaned_agents(db_session, sample_workspace.id)
@@ -296,8 +297,10 @@ class TestOrphanLinkingMaxAttempts:
         db_session.refresh(agent)
         assert agent.agent_metadata.get("_linking_attempts") == 2
 
-    def test_skips_after_max_attempts(self, db_session, sample_workspace):
-        """Agents exceeding max_linking_attempts should be skipped entirely."""
+    def test_permanently_orphaned_excluded_from_query(
+        self, db_session, sample_workspace
+    ):
+        """Agents marked permanently_orphaned should not be loaded at all."""
         now = datetime.now(UTC)
 
         agent = _make_conversation(
@@ -307,7 +310,36 @@ class TestOrphanLinkingMaxAttempts:
             start_time=now,
             agent_metadata={
                 "parent_session_id": "nonexistent-session-id",
-                "_linking_attempts": 10,  # Already at max
+                "_linking_attempts": 10,
+            },
+            extra_data={"session_id": str(uuid.uuid4())},
+        )
+        agent.permanently_orphaned = True
+        db_session.flush()
+
+        linked = link_orphaned_agents(
+            db_session, sample_workspace.id, max_linking_attempts=10
+        )
+        assert linked == 0
+
+        # Attempts counter should NOT be incremented (excluded at query level)
+        db_session.refresh(agent)
+        assert agent.agent_metadata.get("_linking_attempts") == 10
+
+    def test_marks_permanent_when_policy_met(self, db_session, sample_workspace):
+        """Orphan should be marked permanently_orphaned when both thresholds met."""
+        now = datetime.now(UTC)
+        old_ts = (now - timedelta(hours=25)).isoformat()
+
+        agent = _make_conversation(
+            db_session,
+            sample_workspace.id,
+            conversation_type="agent",
+            start_time=now,
+            agent_metadata={
+                "parent_session_id": "nonexistent-session-id",
+                "_linking_attempts": 9,
+                "_first_orphaned_at": old_ts,
             },
             extra_data={"session_id": str(uuid.uuid4())},
         )
@@ -318,13 +350,44 @@ class TestOrphanLinkingMaxAttempts:
         )
         assert linked == 0
 
-        # Attempts counter should NOT be incremented (skipped entirely)
         db_session.refresh(agent)
         assert agent.agent_metadata.get("_linking_attempts") == 10
+        assert agent.permanently_orphaned is True
+
+    def test_does_not_mark_permanent_before_time_threshold(
+        self, db_session, sample_workspace
+    ):
+        """Orphan should NOT be marked permanent if time threshold not met."""
+        now = datetime.now(UTC)
+        recent_ts = (now - timedelta(hours=1)).isoformat()
+
+        agent = _make_conversation(
+            db_session,
+            sample_workspace.id,
+            conversation_type="agent",
+            start_time=now,
+            agent_metadata={
+                "parent_session_id": "nonexistent-session-id",
+                "_linking_attempts": 9,
+                "_first_orphaned_at": recent_ts,
+            },
+            extra_data={"session_id": str(uuid.uuid4())},
+        )
+        db_session.flush()
+
+        linked = link_orphaned_agents(
+            db_session, sample_workspace.id, max_linking_attempts=10
+        )
+        assert linked == 0
+
+        db_session.refresh(agent)
+        assert agent.agent_metadata.get("_linking_attempts") == 10
+        assert agent.permanently_orphaned is False
 
     def test_custom_max_attempts(self, db_session, sample_workspace):
         """max_linking_attempts parameter controls the threshold."""
         now = datetime.now(UTC)
+        old_ts = (now - timedelta(hours=25)).isoformat()
 
         agent = _make_conversation(
             db_session,
@@ -334,6 +397,7 @@ class TestOrphanLinkingMaxAttempts:
             agent_metadata={
                 "parent_session_id": "nonexistent-session-id",
                 "_linking_attempts": 2,
+                "_first_orphaned_at": old_ts,
             },
             extra_data={"session_id": str(uuid.uuid4())},
         )
@@ -347,15 +411,8 @@ class TestOrphanLinkingMaxAttempts:
 
         db_session.refresh(agent)
         assert agent.agent_metadata.get("_linking_attempts") == 3
-
-        # Now at max → should be skipped
-        linked = link_orphaned_agents(
-            db_session, sample_workspace.id, max_linking_attempts=3
-        )
-        assert linked == 0
-
-        db_session.refresh(agent)
-        assert agent.agent_metadata.get("_linking_attempts") == 3  # unchanged
+        # Now at max AND old enough → should be marked permanent
+        assert agent.permanently_orphaned is True
 
     def test_successful_link_does_not_increment(
         self, db_session, sample_workspace

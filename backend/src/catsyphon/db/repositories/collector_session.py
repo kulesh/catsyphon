@@ -545,13 +545,22 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
         Also updates conversation_type and inherits project/developer from parent
         for full semantic parity with direct ingestion.
 
+        Orphans that meet the permanent-orphan policy are marked
+        ``permanently_orphaned=True`` and excluded from future queries.
+
         Args:
             workspace_id: Workspace to process
 
         Returns:
             Number of sessions linked
         """
+        from catsyphon.pipeline.orphan_policy import (
+            record_failed_attempt,
+            should_mark_permanent,
+        )
+
         linked_count = 0
+        marked_permanent_count = 0
 
         # Find sessions without parent_conversation_id that have extra_data
         # We check parent_session_id in Python to be DB-agnostic (SQLite vs PostgreSQL)
@@ -560,6 +569,7 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
             .filter(
                 Conversation.workspace_id == workspace_id,
                 Conversation.parent_conversation_id.is_(None),
+                Conversation.permanently_orphaned.is_(False),
                 Conversation.extra_data.isnot(None),
             )
             .all()
@@ -591,9 +601,31 @@ class CollectorSessionRepository(BaseRepository[Conversation]):
                     logger.debug(f"Inherited developer_id from parent for {orphan.id}")
 
                 linked_count += 1
+            else:
+                # Track failed attempt and check permanent-orphan policy
+                updated = record_failed_attempt(orphan.extra_data)
+                orphan.extra_data = updated
 
-        if linked_count > 0:
+                if should_mark_permanent(updated):
+                    orphan.permanently_orphaned = True
+                    marked_permanent_count += 1
+                    logger.warning(
+                        "Marked collector orphan %s as permanently orphaned "
+                        "(parent_session_id=%s, attempts=%d)",
+                        orphan.id,
+                        parent_session_id,
+                        updated.get("_linking_attempts", 0),
+                    )
+
+        if linked_count > 0 or marked_permanent_count > 0:
             self.session.flush()
+
+        if marked_permanent_count:
+            logger.info(
+                "Collector linking: linked %d, marked %d permanently orphaned",
+                linked_count,
+                marked_permanent_count,
+            )
 
         return linked_count
 
