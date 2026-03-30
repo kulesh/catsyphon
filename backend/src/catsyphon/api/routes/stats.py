@@ -361,7 +361,8 @@ async def get_workspace_costs(
     cost_by_model = {k: round(v, 4) for k, v in sorted(cost_by_model.items(), key=lambda x: -x[1])}
     top_model = next(iter(cost_by_model), None)
     total_tokens = total_input + total_output
-    cache_ratio = round(total_cache_read / total_input, 4) if total_input > 0 else 0.0
+    total_reads = total_input + total_cache_read
+    cache_ratio = round(total_cache_read / total_reads, 4) if total_reads > 0 else 0.0
 
     # Trend: compare first half vs second half of period
     trend_pct = None
