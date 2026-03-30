@@ -5,11 +5,12 @@ Endpoints for project-level statistics, sessions, and file aggregations.
 """
 
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from catsyphon.analytics.cache import PROJECT_ANALYTICS_CACHE
@@ -40,12 +41,14 @@ from catsyphon.db.repositories import (
     ProjectRepository,
 )
 from catsyphon.models.db import (
+    ArtifactSnapshot,
     Conversation,
     Developer,
     Epoch,
     FileTouched,
     IngestionJob,
     Message,
+    Project,
 )
 
 _THINKING_TIME_MAX_LATENCY_SECONDS = 2 * 60 * 60  # 2 hours
@@ -1220,3 +1223,273 @@ async def get_project_files(
         )
 
     return files
+
+
+@router.get("/{project_id}/costs")
+async def get_project_costs(
+    project_id: UUID,
+    date_range: str = Query("30d", pattern="^(7d|30d|90d|all)$"),
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Per-project cost breakdown from message-level token usage."""
+    from catsyphon.llm.pricing import estimate_cost_from_model
+
+    workspace_id = auth.workspace_id
+
+    # Validate project belongs to workspace
+    project = session.query(Project).filter(
+        Project.id == project_id,
+        Project.workspace_id == workspace_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Date cutoff
+    if date_range != "all":
+        days = {"7d": 7, "30d": 30, "90d": 90}[date_range]
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    else:
+        cutoff = None
+
+    # Query message token_usage from JSONB
+    # Try PostgreSQL JSONB aggregation first
+    cost_by_model: dict[str, float] = {}
+    daily_costs: list[dict] = []
+    total_input = 0
+    total_output = 0
+    total_cache_read = 0
+    conversation_count = 0
+    total_files_changed = 0
+
+    try:
+        # Count conversations + files in period
+        conv_query = session.query(
+            func.count(Conversation.id),
+            func.coalesce(func.sum(Conversation.files_count), 0),
+        ).filter(
+            Conversation.project_id == project_id,
+            Conversation.workspace_id == workspace_id,
+        )
+        if cutoff:
+            conv_query = conv_query.filter(Conversation.start_time >= cutoff)
+        result = conv_query.first()
+        conversation_count = result[0] or 0
+        total_files_changed = result[1] or 0
+
+        # Aggregate tokens per model per day using PostgreSQL JSONB
+        token_query = text("""
+            SELECT
+                m.extra_data->>'model' as model,
+                date_trunc('day', m.timestamp)::date as day,
+                SUM(COALESCE((m.extra_data->'token_usage'->>'input_tokens')::bigint, 0)) as input_tokens,
+                SUM(COALESCE((m.extra_data->'token_usage'->>'output_tokens')::bigint, 0)) as output_tokens,
+                SUM(COALESCE((m.extra_data->'token_usage'->>'cache_read_input_tokens')::bigint, 0)) as cache_read
+            FROM messages m
+            JOIN conversations c ON m.conversation_id = c.id
+            WHERE c.project_id = :project_id
+              AND c.workspace_id = :ws_id
+              AND m.extra_data->>'model' IS NOT NULL
+              AND m.extra_data->'token_usage' IS NOT NULL
+        """)
+        params: dict[str, Any] = {
+            "project_id": str(project_id),
+            "ws_id": str(workspace_id),
+        }
+        if cutoff:
+            token_query = text(
+                str(token_query.text) + " AND c.start_time >= :cutoff"
+            )
+            params["cutoff"] = cutoff
+        token_query = text(
+            str(token_query.text) + " GROUP BY model, day ORDER BY day"
+        )
+
+        rows = session.execute(token_query, params).mappings().all()
+
+        daily_cost_map: dict[str, float] = {}
+        for row in rows:
+            model = row["model"]
+            inp = int(row["input_tokens"])
+            out = int(row["output_tokens"])
+            cache = int(row["cache_read"])
+            total_input += inp
+            total_output += out
+            total_cache_read += cache
+            cost = estimate_cost_from_model(model, inp, out)
+            if cost is not None:
+                cost_by_model[model] = cost_by_model.get(model, 0.0) + cost
+                day_str = str(row["day"])
+                daily_cost_map[day_str] = (
+                    daily_cost_map.get(day_str, 0.0) + cost
+                )
+
+        daily_costs = [
+            {"date": d, "cost": round(c, 4)}
+            for d, c in sorted(daily_cost_map.items())
+        ]
+
+    except Exception:
+        # SQLite fallback: Python-side aggregation
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "PostgreSQL JSONB query failed, using Python fallback"
+        )
+
+        msg_query = (
+            session.query(Message.extra_data, Message.timestamp)
+            .join(Conversation)
+            .filter(
+                Conversation.project_id == project_id,
+                Conversation.workspace_id == workspace_id,
+            )
+        )
+        if cutoff:
+            msg_query = msg_query.filter(Conversation.start_time >= cutoff)
+
+        for extra_data, ts in msg_query.limit(50000).all():
+            if not extra_data:
+                continue
+            model = extra_data.get("model")
+            tu = extra_data.get("token_usage")
+            if not model or not tu:
+                continue
+            inp = tu.get("input_tokens", 0) or 0
+            out = tu.get("output_tokens", 0) or 0
+            cache = tu.get("cache_read_input_tokens", 0) or 0
+            total_input += inp
+            total_output += out
+            total_cache_read += cache
+            cost = estimate_cost_from_model(model, inp, out)
+            if cost is not None:
+                cost_by_model[model] = cost_by_model.get(model, 0.0) + cost
+
+    total_cost = round(sum(cost_by_model.values()), 4)
+    cost_by_model = {
+        k: round(v, 4)
+        for k, v in sorted(cost_by_model.items(), key=lambda x: -x[1])
+    }
+    cache_ratio = (
+        round(total_cache_read / total_input, 4) if total_input > 0 else 0.0
+    )
+
+    return {
+        "total_cost_usd": total_cost,
+        "cost_by_model": cost_by_model,
+        "daily_costs": daily_costs,
+        "cost_per_conversation": (
+            round(total_cost / conversation_count, 4)
+            if conversation_count > 0
+            else None
+        ),
+        "cost_per_file_changed": (
+            round(total_cost / total_files_changed, 4)
+            if total_files_changed > 0
+            else None
+        ),
+        "conversation_count": conversation_count,
+        "total_files_changed": total_files_changed,
+        "cache_ratio": cache_ratio,
+        "date_range": date_range,
+    }
+
+
+@router.get("/{project_id}/memory")
+async def get_project_memory(
+    project_id: UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Memory depth analysis for a project."""
+    workspace_id = auth.workspace_id
+
+    project = session.query(Project).filter(
+        Project.id == project_id,
+        Project.workspace_id == workspace_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Find project_memory snapshots matching this project's directory
+    # Project directory_path is like "/Users/kulesh/dev/catsyphon"
+    # Memory snapshot source_path is like
+    # "/data/claude/projects/-Users-kulesh-dev-catsyphon/memory/MEMORY.md"
+    memory_snapshots = (
+        session.query(ArtifactSnapshot)
+        .filter(
+            ArtifactSnapshot.workspace_id == workspace_id,
+            ArtifactSnapshot.source_type == "project_memory",
+        )
+        .all()
+    )
+
+    # Match snapshots to this project by checking if the project directory
+    # appears in the source_path (with slashes replaced by hyphens)
+    project_dir = getattr(project, "directory_path", None) or ""
+    # Convert "/Users/kulesh/dev/catsyphon" to "-Users-kulesh-dev-catsyphon"
+    dir_slug = project_dir.replace("/", "-") if project_dir else ""
+
+    matched_files = []
+    total_bytes = 0
+    for snap in memory_snapshots:
+        if dir_slug and dir_slug in snap.source_path:
+            content = snap.body.get("content", "")
+            size = (
+                len(content.encode("utf-8")) if content else snap.file_size_bytes
+            )
+            matched_files.append({
+                "filename": snap.body.get(
+                    "filename", snap.source_path.split("/")[-1]
+                ),
+                "size_bytes": size,
+            })
+            total_bytes += size
+
+    file_count = len(matched_files)
+    # Depth score: capped at 5.0
+    depth_score = min(file_count + total_bytes / 1000, 5.0)
+    depth_score = round(depth_score, 1)
+
+    # Cross-reference with project conversation outcomes
+    conv_stats = (
+        session.query(
+            func.count(Conversation.id).label("total"),
+            func.count(Conversation.id)
+            .filter(Conversation.success == True)  # noqa: E712
+            .label("success"),
+            func.avg(
+                func.extract(
+                    "epoch", Conversation.end_time - Conversation.start_time
+                )
+            ).label("avg_duration"),
+        )
+        .filter(
+            Conversation.project_id == project_id,
+            Conversation.workspace_id == workspace_id,
+        )
+        .first()
+    )
+
+    total_convs = conv_stats.total if conv_stats else 0
+    success_convs = conv_stats.success if conv_stats else 0
+    success_rate = (
+        round(success_convs / total_convs * 100, 1) if total_convs > 0 else None
+    )
+    avg_duration = (
+        round(float(conv_stats.avg_duration or 0))
+        if conv_stats and conv_stats.avg_duration
+        else None
+    )
+
+    return {
+        "depth_score": depth_score,
+        "file_count": file_count,
+        "total_bytes": total_bytes,
+        "files": matched_files,
+        "correlation": {
+            "success_rate": success_rate,
+            "avg_session_length_seconds": avg_duration,
+            "total_conversations": total_convs,
+        },
+    }

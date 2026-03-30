@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any, Optional
 from uuid import UUID
 
@@ -50,6 +51,80 @@ def list_sources(
             "last_scanned_at": s.get("last_scanned_at"),
         })
     return result
+
+
+@router.get("/settings_config/impact")
+def get_settings_impact(
+    auth: AuthContext = Depends(get_auth_context),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Correlate settings changes with conversation outcome metrics."""
+    from catsyphon.models.db import ArtifactHistory, Conversation
+
+    workspace_id = auth.workspace_id
+
+    # Get config change history
+    changes = (
+        session.query(ArtifactHistory)
+        .filter(
+            ArtifactHistory.workspace_id == workspace_id,
+            ArtifactHistory.source_type == "settings_config",
+        )
+        .order_by(ArtifactHistory.detected_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    if not changes:
+        return {"changes": []}
+
+    result = []
+    for change in changes:
+        detected_at = change.detected_at
+        if not detected_at:
+            continue
+
+        # 7-day windows before and after
+        before_start = detected_at - timedelta(days=7)
+        after_end = detected_at + timedelta(days=7)
+
+        def _window_metrics(start, end):
+            from sqlalchemy import func as sqla_func
+            q = session.query(
+                sqla_func.count(Conversation.id).label("session_count"),
+                sqla_func.avg(Conversation.message_count).label("avg_messages"),
+            ).filter(
+                Conversation.workspace_id == workspace_id,
+                Conversation.start_time >= start,
+                Conversation.start_time < end,
+            )
+            row = q.first()
+            count = row.session_count if row else 0
+            avg_msg = round(float(row.avg_messages or 0), 1) if row and row.avg_messages else 0
+
+            # Success rate
+            success_q = session.query(sqla_func.count(Conversation.id)).filter(
+                Conversation.workspace_id == workspace_id,
+                Conversation.start_time >= start,
+                Conversation.start_time < end,
+                Conversation.success == True,
+            ).scalar() or 0
+            rate = round(success_q / count * 100, 1) if count > 0 else None
+
+            return {"session_count": count, "avg_messages": avg_msg, "success_rate": rate}
+
+        before_metrics = _window_metrics(before_start, detected_at)
+        after_metrics = _window_metrics(detected_at, after_end)
+
+        result.append({
+            "detected_at": detected_at.isoformat() if detected_at else None,
+            "change_type": change.change_type,
+            "diff_summary": change.diff_summary,
+            "before": before_metrics,
+            "after": after_metrics,
+        })
+
+    return {"changes": result}
 
 
 @router.get("/{source_type}")

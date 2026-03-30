@@ -39,6 +39,12 @@ import type {
   WatchConfigurationResponse,
   WatchConfigurationUpdate,
   WatchStatus,
+  WorkspaceCostSummary,
+  ActivityTimeline,
+  ProjectCosts,
+  ConfigImpact,
+  ProjectMemory,
+  AgentPatterns,
 } from '@/types/api';
 
 // ===== Error Handling =====
@@ -680,4 +686,43 @@ export async function updateRecommendation(
       body: JSON.stringify(update),
     }
   );
+}
+
+// ── Analytics Features (a11–a17) ────────────────────────────────────
+
+export async function getWorkspaceCosts(
+  period: '7d' | '30d' | '90d' = '30d'
+): Promise<WorkspaceCostSummary> {
+  return apiFetch<WorkspaceCostSummary>(`/stats/costs?period=${period}`);
+}
+
+export async function getActivityTimeline(
+  days = 7,
+  limit = 100
+): Promise<ActivityTimeline> {
+  return apiFetch<ActivityTimeline>(
+    `/stats/timeline?days=${days}&limit=${limit}`
+  );
+}
+
+export async function getProjectCosts(
+  projectId: string,
+  dateRange?: string
+): Promise<ProjectCosts> {
+  const params = dateRange ? `?date_range=${dateRange}` : '';
+  return apiFetch<ProjectCosts>(`/projects/${projectId}/costs${params}`);
+}
+
+export async function getConfigImpact(): Promise<ConfigImpact> {
+  return apiFetch<ConfigImpact>('/artifacts/settings_config/impact');
+}
+
+export async function getProjectMemory(
+  projectId: string
+): Promise<ProjectMemory> {
+  return apiFetch<ProjectMemory>(`/projects/${projectId}/memory`);
+}
+
+export async function getAgentPatterns(): Promise<AgentPatterns> {
+  return apiFetch<AgentPatterns>('/patterns/agents');
 }

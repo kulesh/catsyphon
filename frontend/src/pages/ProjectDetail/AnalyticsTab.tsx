@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getProjectAnalytics } from '@/lib/api';
+import { getProjectAnalytics, getConfigImpact, getAgentPatterns } from '@/lib/api';
 import {
   MessageSquare,
   Clock,
@@ -16,7 +16,8 @@ import {
   ArrowLeftRight,
   Brain,
 } from 'lucide-react';
-import type { ProjectAnalytics } from '@/types/api';
+import type { ProjectAnalytics, ConfigImpact, AgentPatterns } from '@/types/api';
+import { Settings, Bot } from 'lucide-react';
 
 export default function AnalyticsTab({ projectId }: { projectId: string }) {
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
@@ -394,6 +395,116 @@ export default function AnalyticsTab({ projectId }: { projectId: string }) {
           )}
         </div>
       )}
+
+      {/* Config Impact */}
+      <ConfigImpactSection />
+
+      {/* Agent Delegation */}
+      <AgentDelegationSection />
+    </div>
+  );
+}
+
+function ConfigImpactSection() {
+  const { data } = useQuery<ConfigImpact>({
+    queryKey: ['config-impact'],
+    queryFn: () => getConfigImpact(),
+    staleTime: 300000,
+  });
+
+  if (!data || data.changes.length === 0) return null;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Settings className="w-5 h-5 text-amber-400/60" />
+        <h3 className="text-lg font-semibold text-foreground">Configuration Changes</h3>
+      </div>
+      <div className="space-y-3">
+        {data.changes.slice(0, 5).map((change, i) => {
+          const beforeRate = change.before.success_rate;
+          const afterRate = change.after.success_rate;
+          const delta = beforeRate != null && afterRate != null ? afterRate - beforeRate : null;
+          return (
+            <div key={i} className="observatory-card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-mono text-muted-foreground">
+                  {change.detected_at ? new Date(change.detected_at).toLocaleDateString() : '—'}
+                </span>
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-400/10 text-amber-400">
+                  {change.change_type}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-xs font-mono">
+                <div>
+                  <div className="text-muted-foreground mb-1">Before</div>
+                  <div>Sessions: <span className="text-foreground/80">{change.before.session_count}</span></div>
+                  <div>Avg msgs: <span className="text-foreground/80">{change.before.avg_messages}</span></div>
+                  <div>Success: <span className="text-foreground/80">{beforeRate != null ? `${beforeRate}%` : '—'}</span></div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground mb-1">After</div>
+                  <div>Sessions: <span className="text-foreground/80">{change.after.session_count}</span></div>
+                  <div>Avg msgs: <span className="text-foreground/80">{change.after.avg_messages}</span></div>
+                  <div>
+                    Success:{' '}
+                    <span className={delta != null ? (delta >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-foreground/80'}>
+                      {afterRate != null ? `${afterRate}%` : '—'}
+                      {delta != null && ` (${delta >= 0 ? '+' : ''}${delta.toFixed(1)})`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentDelegationSection() {
+  const { data } = useQuery<AgentPatterns>({
+    queryKey: ['agent-patterns'],
+    queryFn: () => getAgentPatterns(),
+    staleTime: 300000,
+  });
+
+  if (!data || data.agent_types.length === 0) return null;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Bot className="w-5 h-5 text-purple-400/60" />
+        <h3 className="text-lg font-semibold text-foreground">Agent Delegation</h3>
+        <span className="text-xs font-mono text-muted-foreground">
+          {data.total_agent_conversations} total • depth {data.max_delegation_depth}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {data.agent_types.slice(0, 8).map((agent) => (
+          <div key={agent.type} className="flex items-center gap-3 px-3 py-2 rounded-md border border-border/50 bg-slate-900/30">
+            <span className="text-xs font-mono font-semibold text-foreground w-24 shrink-0">
+              {agent.type}
+            </span>
+            <div className="flex-1">
+              <div className="relative h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                {agent.success_rate != null && (
+                  <div
+                    className={`absolute inset-y-0 left-0 rounded-full ${
+                      agent.success_rate >= 70 ? 'bg-emerald-400' : agent.success_rate >= 40 ? 'bg-amber-400' : 'bg-rose-400'
+                    }`}
+                    style={{ width: `${Math.min(agent.success_rate, 100)}%` }}
+                  />
+                )}
+              </div>
+            </div>
+            <span className="text-xs font-mono text-muted-foreground w-16 text-right">
+              {agent.success_rate != null ? `${agent.success_rate}%` : '—'} ({agent.conversation_count})
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

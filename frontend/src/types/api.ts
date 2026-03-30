@@ -922,3 +922,97 @@ export interface WorkflowPatternItem {
 export interface WorkflowPatternResponse {
   items: WorkflowPatternItem[];
 }
+
+// ── Analytics Features (a11–a17) ────────────────────────────────────
+
+export interface WorkspaceCostSummary {
+  total_cost_usd: number;
+  cost_by_model: Record<string, number>;
+  daily_costs: Array<{ date: string; cost: number }>;
+  cache_ratio: number;
+  top_model: string | null;
+  trend_pct: number | null;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  period: string;
+}
+
+export interface ProjectCosts {
+  total_cost_usd: number;
+  cost_by_model: Record<string, number>;
+  daily_costs: Array<{ date: string; cost: number }>;
+  cost_per_conversation: number | null;
+  cost_per_file_changed: number | null;
+  conversation_count: number;
+  total_files_changed: number;
+  cache_ratio: number;
+  date_range: string;
+}
+
+export interface TimelineEntry {
+  display: string;
+  timestamp: number;
+  project: string | null;
+  session_id: string | null;
+  conversation_id: string | null;
+  conversation_type: string | null;
+  source: string;
+  project_switch: boolean;
+}
+
+export interface HeatmapCell {
+  hour: number;
+  count: number;
+}
+
+export interface ActivityTimeline {
+  entries: TimelineEntry[];
+  heatmap: HeatmapCell[];
+  total_entries: number;
+  period_days: number;
+}
+
+export interface ConfigChangeMetrics {
+  session_count: number;
+  avg_messages: number;
+  success_rate: number | null;
+}
+
+export interface ConfigChange {
+  detected_at: string;
+  change_type: string;
+  diff_summary: Record<string, any>;
+  before: ConfigChangeMetrics;
+  after: ConfigChangeMetrics;
+}
+
+export interface ConfigImpact {
+  changes: ConfigChange[];
+}
+
+export interface ProjectMemory {
+  depth_score: number;
+  file_count: number;
+  total_bytes: number;
+  files: Array<{ filename: string; size_bytes: number }>;
+  correlation: {
+    success_rate: number | null;
+    avg_session_length_seconds: number | null;
+    total_conversations: number;
+  };
+}
+
+export interface AgentDelegationPattern {
+  type: string;
+  metadata_count: number;
+  conversation_count: number;
+  success_rate: number | null;
+}
+
+export interface AgentPatterns {
+  agent_types: AgentDelegationPattern[];
+  max_delegation_depth: number;
+  total_agent_conversations: number;
+  total_metadata_files: number;
+  common_descriptions: Array<{ description: string; count: number }>;
+}

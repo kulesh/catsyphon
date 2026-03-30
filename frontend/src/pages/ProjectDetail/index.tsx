@@ -20,6 +20,7 @@ import {
   Brain,
   Lightbulb,
   Folder,
+  DollarSign,
 } from 'lucide-react';
 import { TabNavigation, type TabDefinition } from '@/components';
 import StatsTab from './StatsTab';
@@ -27,8 +28,9 @@ import AnalyticsTab from './AnalyticsTab';
 import InsightsTab from './InsightsTab';
 import SessionsTab from './SessionsTab';
 import FilesTab from './FilesTab';
+import CostTab from './CostTab';
 
-type Tab = 'stats' | 'analytics' | 'insights' | 'sessions' | 'files';
+type Tab = 'stats' | 'analytics' | 'insights' | 'sessions' | 'files' | 'costs';
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -58,6 +60,7 @@ export default function ProjectDetail() {
     { id: 'insights', label: 'AI Insights', icon: Lightbulb },
     { id: 'sessions', label: 'Sessions', icon: Activity },
     { id: 'files', label: 'Files', icon: FileText },
+    { id: 'costs', label: 'Cost & ROI', icon: DollarSign },
   ];
 
   return (
@@ -99,6 +102,7 @@ export default function ProjectDetail() {
         {activeTab === 'insights' && <InsightsTab projectId={id} />}
         {activeTab === 'sessions' && <SessionsTab projectId={id} />}
         {activeTab === 'files' && <FilesTab projectId={id} />}
+        {activeTab === 'costs' && <CostTab projectId={id} />}
       </div>
     </div>
   );

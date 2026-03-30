@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { getProjectStats, getProjectAnalytics, getProjectHealthReport } from '@/lib/api';
+import { getProjectStats, getProjectAnalytics, getProjectHealthReport, getProjectMemory } from '@/lib/api';
 import {
   Users,
   MessageSquare,
@@ -767,6 +767,71 @@ export default function StatsTab({ projectId }: { projectId: string }) {
       {Object.keys(stats.tool_usage).length > 0 && (
         <ToolUsageChart toolUsage={stats.tool_usage} />
       )}
+
+      {/* AI Memory Depth */}
+      <MemoryDepthCard projectId={projectId} />
+    </div>
+  );
+}
+
+function MemoryDepthCard({ projectId }: { projectId: string }) {
+  const { data: memory } = useQuery({
+    queryKey: ['project-memory', projectId],
+    queryFn: () => getProjectMemory(projectId),
+    staleTime: 300000,
+  });
+
+  if (!memory || memory.file_count === 0) return null;
+
+  const dots = Math.round(memory.depth_score);
+
+  return (
+    <div className="observatory-card p-6 group hover:border-purple-400/30 transition-all">
+      <div className="flex items-center gap-2 mb-4">
+        <Brain className="w-5 h-5 text-purple-400/60 group-hover:text-purple-400" />
+        <h3 className="text-sm font-mono font-semibold tracking-wider uppercase text-muted-foreground">
+          AI Memory
+        </h3>
+      </div>
+      <div className="flex items-baseline gap-3 mb-3">
+        <div className="flex gap-1">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className={`w-3 h-3 rounded-full ${
+                i <= dots ? 'bg-purple-400' : 'bg-slate-700'
+              }`}
+            />
+          ))}
+        </div>
+        <span className="text-sm font-mono text-muted-foreground">
+          {memory.depth_score.toFixed(1)} / 5.0
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-4 text-xs font-mono text-muted-foreground mb-3">
+        <div>
+          <div className="text-foreground/80">{memory.file_count}</div>
+          <div>files</div>
+        </div>
+        <div>
+          <div className="text-foreground/80">{(memory.total_bytes / 1024).toFixed(1)}KB</div>
+          <div>content</div>
+        </div>
+        <div>
+          <div className="text-foreground/80">
+            {memory.correlation.success_rate != null ? `${memory.correlation.success_rate}%` : '—'}
+          </div>
+          <div>success rate</div>
+        </div>
+      </div>
+      <div className="space-y-1">
+        {memory.files.map((f, i) => (
+          <div key={i} className="flex justify-between text-xs font-mono text-muted-foreground">
+            <span className="text-foreground/60">{f.filename}</span>
+            <span>{(f.size_bytes / 1024).toFixed(1)}KB</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import Setup from './pages/Setup.tsx';
 import FailedSessions from './pages/FailedSessions.tsx';
 import Benchmarks from './pages/Benchmarks.tsx';
 import Patterns from './pages/Patterns.tsx';
+import Timeline from './pages/Timeline.tsx';
 import { queryClient } from './lib/queryClient';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
 
@@ -64,6 +65,10 @@ const router = createBrowserRouter([
       {
         path: 'patterns',
         element: <Patterns />,
+      },
+      {
+        path: 'timeline',
+        element: <Timeline />,
       },
       {
         path: 'benchmarks',

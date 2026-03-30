@@ -5,13 +5,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles, Loader2 } from 'lucide-react';
-import { ApiError, generateWeeklyDigest, getBenchmarkAvailability, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest, hasBenchmarkToken } from '@/lib/api';
+import { Activity, MessageSquare, FolderOpen, Users, TrendingUp, AlertTriangle, Terminal, Gauge, ClipboardCopy, Sparkles, Loader2, DollarSign, Clock, ArrowRight } from 'lucide-react';
+import { ApiError, generateWeeklyDigest, getActivityTimeline, getBenchmarkAvailability, getBenchmarkStatus, getLatestBenchmarkResults, getOverviewStats, getWeeklyDigest, getWorkspaceCosts, hasBenchmarkToken } from '@/lib/api';
+import type { WorkspaceCostSummary, ActivityTimeline } from '@/types/api';
 import { Sparkline } from '@/components/Sparkline';
 import { useEffect, useMemo, useState } from 'react';
 
 export default function Dashboard() {
   const [benchmarksAvailable, setBenchmarksAvailable] = useState(true);
+  const [costPeriod, setCostPeriod] = useState<'7d' | '30d' | '90d'>('30d');
+
+  const { data: costs } = useQuery<WorkspaceCostSummary>({
+    queryKey: ['workspace-costs', costPeriod],
+    queryFn: () => getWorkspaceCosts(costPeriod),
+    staleTime: 300000,
+  });
+
+  const { data: timeline } = useQuery<ActivityTimeline>({
+    queryKey: ['activity-timeline-mini'],
+    queryFn: () => getActivityTimeline(1, 10),
+    staleTime: 60000,
+  });
 
   const benchmarkAvailabilityQuery = useQuery({
     queryKey: ['benchmarks', 'availability'],
@@ -171,6 +185,17 @@ export default function Dashboard() {
       console.error('Failed to copy digest', err);
     }
   };
+
+  function getRelativeTime(date: Date): string {
+    const now = Date.now();
+    const diff = now - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -448,6 +473,121 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Cost Intelligence */}
+      <div className="observatory-card p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-amber-400/60" />
+            <h3 className="text-sm font-mono font-semibold tracking-wider uppercase text-muted-foreground">
+              Cost Intelligence
+            </h3>
+          </div>
+          <div className="flex gap-1">
+            {(['7d', '30d', '90d'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setCostPeriod(p)}
+                className={`px-2 py-0.5 text-xs font-mono rounded ${
+                  costPeriod === p
+                    ? 'bg-amber-400/20 text-amber-400'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {p.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        {costs ? (
+          <div className="space-y-4">
+            <div className="flex items-baseline gap-3">
+              <span className="text-4xl font-mono font-bold text-amber-400 glow-amber">
+                ${costs.total_cost_usd.toFixed(2)}
+              </span>
+              {costs.trend_pct != null && (
+                <span className={`text-sm font-mono ${costs.trend_pct >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {costs.trend_pct >= 0 ? '↑' : '↓'} {Math.abs(costs.trend_pct)}%
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-xs font-mono text-muted-foreground">
+              <div>
+                <div className="text-foreground/80">{costs.top_model || '—'}</div>
+                <div>top model</div>
+              </div>
+              <div>
+                <div className="text-foreground/80">{(costs.cache_ratio * 100).toFixed(0)}%</div>
+                <div>cache hit</div>
+              </div>
+              <div>
+                <div className="text-foreground/80">{Object.keys(costs.cost_by_model).length}</div>
+                <div>models</div>
+              </div>
+            </div>
+            {costs.daily_costs.length > 1 && (
+              <Sparkline
+                data={costs.daily_costs.map(d => d.cost)}
+                width={320}
+                height={28}
+                color="#fbbf24"
+                variant="bar"
+              />
+            )}
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground font-mono">Loading cost data...</div>
+        )}
+      </div>
+
+      {/* Recent Activity */}
+      <div className="observatory-card p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-cyan-400/60" />
+            <h3 className="text-sm font-mono font-semibold tracking-wider uppercase text-muted-foreground">
+              Recent Activity
+            </h3>
+          </div>
+          <Link
+            to="/timeline"
+            className="flex items-center gap-1 text-xs font-mono text-cyan-400 hover:text-cyan-300 transition-colors"
+          >
+            Full Timeline <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        {timeline && timeline.entries.length > 0 ? (
+          <div className="space-y-2">
+            {timeline.entries.slice(0, 10).map((entry, i) => {
+              const time = new Date(entry.timestamp);
+              const relativeTime = getRelativeTime(time);
+              return (
+                <div key={i} className="flex items-start gap-3 text-xs font-mono">
+                  <span className="text-muted-foreground whitespace-nowrap w-16 shrink-0">
+                    {relativeTime}
+                  </span>
+                  {entry.project && (
+                    <span className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-400 whitespace-nowrap shrink-0">
+                      {entry.project.split('/').pop()}
+                    </span>
+                  )}
+                  <span className="text-foreground/80 truncate">
+                    {entry.conversation_id ? (
+                      <Link to={`/conversations/${entry.conversation_id}`} className="hover:text-cyan-400 transition-colors">
+                        {entry.display}
+                      </Link>
+                    ) : (
+                      entry.display
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground font-mono">No recent activity</div>
         )}
       </div>
 
