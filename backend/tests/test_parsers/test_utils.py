@@ -7,9 +7,11 @@ from datetime import datetime
 import pytest
 
 from catsyphon.parsers.utils import (
+    ThinkingResult,
     build_message_tree,
     extract_text_content,
     extract_thinking_content,
+    is_thinking_redacted,
     match_tool_calls_with_results,
     parse_iso_timestamp,
     safe_get_nested,
@@ -251,21 +253,47 @@ class TestExtractTextContent:
         assert result == ""
 
 
+class TestIsThinkingRedacted:
+    """Tests for is_thinking_redacted function."""
+
+    def test_normal_text_not_redacted(self):
+        assert not is_thinking_redacted("Let me analyze this problem step by step.")
+
+    def test_short_base64_not_redacted(self):
+        assert not is_thinking_redacted("abc123")
+
+    def test_empty_string_not_redacted(self):
+        assert not is_thinking_redacted("")
+
+    def test_signature_blob_detected(self):
+        blob = "A" * 600
+        assert is_thinking_redacted(blob)
+
+    def test_base64_like_blob_detected(self):
+        blob = "aB3+/cD4=" * 80
+        assert is_thinking_redacted(blob)
+
+    def test_long_text_with_spaces_not_redacted(self):
+        text = "word " * 100
+        assert not is_thinking_redacted(text)
+
+
 class TestExtractThinkingContent:
     """Tests for extract_thinking_content function."""
 
     def test_extract_from_array_with_thinking(self):
-        """Test extracting thinking content from array."""
         content = [
             {"type": "thinking", "thinking": "Let me analyze this..."},
             {"type": "text", "text": "Here's my answer"},
         ]
         result = extract_thinking_content(content)
 
-        assert result == "Let me analyze this..."
+        assert isinstance(result, ThinkingResult)
+        assert result.content == "Let me analyze this..."
+        assert not result.redacted
+        assert not result.is_summary
 
     def test_extract_multiple_thinking_blocks(self):
-        """Test extracting multiple thinking blocks."""
         content = [
             {"type": "thinking", "thinking": "First thought"},
             {"type": "text", "text": "Some text"},
@@ -273,13 +301,12 @@ class TestExtractThinkingContent:
         ]
         result = extract_thinking_content(content)
 
-        assert "First thought" in result
-        assert "Second thought" in result
-        # Multiple thinking blocks should be joined with double newlines
-        assert "\n\n" in result
+        assert "First thought" in result.content
+        assert "Second thought" in result.content
+        assert "\n\n" in result.content
+        assert not result.redacted
 
     def test_extract_ignores_non_thinking_items(self):
-        """Test that non-thinking items are ignored."""
         content = [
             {"type": "text", "text": "Hello"},
             {"type": "thinking", "thinking": "Thinking content"},
@@ -287,36 +314,32 @@ class TestExtractThinkingContent:
         ]
         result = extract_thinking_content(content)
 
-        assert result == "Thinking content"
-        assert "Hello" not in result
-        assert "tool_001" not in result
+        assert result.content == "Thinking content"
+        assert "Hello" not in result.content
 
     def test_extract_from_string_returns_none(self):
-        """Test that string content returns None."""
         content = "Just a string"
         result = extract_thinking_content(content)
 
-        assert result is None
+        assert result.content is None
+        assert not result.redacted
 
     def test_extract_from_empty_array_returns_none(self):
-        """Test extracting from empty array returns None."""
         content = []
         result = extract_thinking_content(content)
 
-        assert result is None
+        assert result.content is None
 
     def test_extract_from_array_without_thinking_returns_none(self):
-        """Test that array without thinking blocks returns None."""
         content = [
             {"type": "text", "text": "Hello"},
             {"type": "tool_use", "id": "tool_001"},
         ]
         result = extract_thinking_content(content)
 
-        assert result is None
+        assert result.content is None
 
     def test_extract_ignores_empty_thinking_blocks(self):
-        """Test that empty thinking blocks are ignored."""
         content = [
             {"type": "thinking", "thinking": ""},
             {"type": "thinking", "thinking": "Valid content"},
@@ -324,7 +347,54 @@ class TestExtractThinkingContent:
         ]
         result = extract_thinking_content(content)
 
-        assert result == "Valid content"
+        assert result.content == "Valid content"
+
+    def test_redacted_signature_blob_detected(self):
+        blob = "A" * 600
+        content = [
+            {"type": "thinking", "thinking": blob},
+            {"type": "text", "text": "Here's my answer"},
+        ]
+        result = extract_thinking_content(content)
+
+        assert result.content is None
+        assert result.redacted is True
+        assert not result.is_summary
+
+    def test_redacted_blob_with_real_thinking_mixed(self):
+        blob = "B" * 600
+        content = [
+            {"type": "thinking", "thinking": blob},
+            {"type": "thinking", "thinking": "Real reasoning here"},
+        ]
+        result = extract_thinking_content(content)
+
+        assert result.content == "Real reasoning here"
+        assert result.redacted is True
+
+    def test_thinking_summary_block(self):
+        content = [
+            {"type": "thinking_summary", "text": "Summary of reasoning"},
+            {"type": "text", "text": "Here's my answer"},
+        ]
+        result = extract_thinking_content(content)
+
+        assert result.content == "Summary of reasoning"
+        assert result.is_summary is True
+        assert not result.redacted
+
+    def test_redacted_with_summary_fallback(self):
+        blob = "C" * 600
+        content = [
+            {"type": "thinking", "thinking": blob},
+            {"type": "thinking_summary", "text": "Summary of what I thought"},
+            {"type": "text", "text": "Answer"},
+        ]
+        result = extract_thinking_content(content)
+
+        assert result.content == "Summary of what I thought"
+        assert result.redacted is True
+        assert result.is_summary is True
 
 
 class TestSafeGetNested:

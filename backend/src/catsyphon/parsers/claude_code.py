@@ -725,14 +725,20 @@ class ClaudeCodeParser:
         thinking_content = None
         thinking_metadata = None
         if role == "assistant":
-            thinking_content = extract_thinking_content(content)
+            thinking_result = extract_thinking_content(content)
+            thinking_content = thinking_result.content
             # Extract thinking metadata (level, disabled, triggers)
             raw_thinking_meta = msg_data.get("thinkingMetadata")
+            thinking_metadata = {}
             if raw_thinking_meta:
-                thinking_metadata = {
-                    "level": raw_thinking_meta.get("level"),  # "high", "normal", "low"
-                    "disabled": raw_thinking_meta.get("disabled", False),
-                }
+                thinking_metadata["level"] = raw_thinking_meta.get("level")
+                thinking_metadata["disabled"] = raw_thinking_meta.get("disabled", False)
+            if thinking_result.redacted:
+                thinking_metadata["redacted"] = True
+            if thinking_result.is_summary:
+                thinking_metadata["is_summary"] = True
+            if not thinking_metadata:
+                thinking_metadata = None
 
         # Extract model info and stop_reason (assistant messages only)
         model = message.get("model")

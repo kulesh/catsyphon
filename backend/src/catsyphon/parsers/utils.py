@@ -6,6 +6,8 @@ timestamp parsing, thread reconstruction, and tool call matching.
 """
 
 import json
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -131,39 +133,80 @@ def extract_text_content(content: Any) -> str:
     return ""
 
 
-def extract_thinking_content(content: Any) -> Optional[str]:
+@dataclass
+class ThinkingResult:
+    """Result of extracting thinking content from a message."""
+
+    content: Optional[str]
+    redacted: bool = False
+    is_summary: bool = False
+
+
+# Redacted thinking is a base64-like signature blob: long, no whitespace.
+_SIGNATURE_BLOB_RE = re.compile(r"^[A-Za-z0-9+/=\-_]{200,}$")
+
+
+def is_thinking_redacted(text: str) -> bool:
+    """Detect whether a thinking block contains a redacted signature blob."""
+    if not text or len(text) < 200:
+        return False
+    return bool(_SIGNATURE_BLOB_RE.match(text.strip()))
+
+
+def extract_thinking_content(content: Any) -> ThinkingResult:
     """
     Extract thinking content from a message's content field.
 
-    Thinking blocks are Claude's extended thinking feature that shows
-    internal reasoning before responding. They appear as type: "thinking"
-    content blocks in assistant messages.
+    Detects three states:
+    - Real thinking: readable text returned as-is
+    - Redacted thinking: signature blob (~600 chars, no whitespace) → content=None, redacted=True
+    - Thinking summary: shorter readable text from showThinkingSummaries → is_summary=True
 
     Args:
         content: The message content (string or array)
 
     Returns:
-        Extracted thinking content, or None if none found
-
-    Example:
-        >>> content = [
-        ...     {"type": "thinking", "thinking": "Let me analyze this..."},
-        ...     {"type": "text", "text": "Here's my answer"}
-        ... ]
-        >>> extract_thinking_content(content)
-        "Let me analyze this..."
+        ThinkingResult with content, redaction flag, and summary flag
     """
     if not isinstance(content, list):
-        return None
+        return ThinkingResult(content=None)
 
     thinking_parts = []
+    has_redacted = False
+    has_summary_block = False
+
     for item in content:
-        if isinstance(item, dict) and item.get("type") == "thinking":
+        if not isinstance(item, dict):
+            continue
+
+        if item.get("type") == "thinking":
             thinking_text = item.get("thinking", "")
-            if thinking_text:
+            if not thinking_text:
+                continue
+
+            if is_thinking_redacted(thinking_text):
+                has_redacted = True
+            else:
                 thinking_parts.append(thinking_text)
 
-    return "\n\n".join(thinking_parts) if thinking_parts else None
+        elif item.get("type") == "thinking_summary":
+            summary_text = item.get("text", "") or item.get("thinking", "")
+            if summary_text:
+                thinking_parts.append(summary_text)
+                has_summary_block = True
+
+    if not thinking_parts and not has_redacted:
+        return ThinkingResult(content=None)
+
+    if not thinking_parts and has_redacted:
+        return ThinkingResult(content=None, redacted=True)
+
+    joined = "\n\n".join(thinking_parts)
+    return ThinkingResult(
+        content=joined,
+        redacted=has_redacted,
+        is_summary=has_summary_block,
+    )
 
 
 def safe_get_nested(
