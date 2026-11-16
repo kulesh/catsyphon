@@ -6,7 +6,7 @@ Thank you for your interest in contributing to CatSyphon! This guide will help y
 
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
-- [Issue Tracking with bd (beads)](#issue-tracking-with-bd-beads)
+- [Issue Tracking](#issue-tracking)
 - [Code Style](#code-style)
 - [Testing](#testing)
 - [Pull Request Process](#pull-request-process)
@@ -19,8 +19,6 @@ Thank you for your interest in contributing to CatSyphon! This guide will help y
 - **Node.js 20 LTS**
 - **Docker Desktop** (for PostgreSQL)
 - **[mise](https://mise.jdx.dev/)** (recommended for tool version management)
-- **[bd (beads)](https://github.com/steveyegge/beads)** for issue tracking
-
 ### Development Setup
 
 ```bash
@@ -44,50 +42,9 @@ cd ../frontend
 pnpm install
 ```
 
-## Issue Tracking with bd (beads)
+## Issue Tracking
 
-This project uses **bd (beads)** for issue tracking instead of GitHub Issues or markdown TODOs.
-
-### Quick Reference
-
-```bash
-# View unblocked work ready to start
-bd ready
-
-# Create a new issue
-bd create "Add Cursor parser support" -t feature -p 2
-
-# Claim a task (start working on it)
-bd update catsyphon-42 --status in_progress
-
-# Complete a task
-bd close catsyphon-42 --reason "Implemented and tested"
-```
-
-### Issue Types
-
-- `bug` - Something isn't working
-- `feature` - New functionality
-- `task` - General work item
-
-### Priority Levels (0-4)
-
-- **0**: Critical (blocking issues)
-- **1**: High priority
-- **2**: Normal priority (default)
-- **3**: Low priority
-- **4**: Nice to have
-
-### Important: Commit Issue State
-
-**Always commit `.beads/issues.jsonl` with your code changes.** This keeps issue state synchronized across the team.
-
-```bash
-git add .beads/issues.jsonl
-git commit -m "feat: add cursor parser support"
-```
-
-See [AGENTS.md](./AGENTS.md) for detailed workflow documentation.
+Use [GitHub Issues](https://github.com/kulesh/catsyphon/issues) for all task tracking.
 
 ## Code Style
 
@@ -181,14 +138,7 @@ pnpm run test:coverage
 
 ### 1. Find or Create a Task
 
-```bash
-# Check for existing work
-bd ready
-
-# Or create a new issue
-bd create "Your contribution" -t feature -p 2
-bd update <issue-id> --status in_progress
-```
+Check [GitHub Issues](https://github.com/kulesh/catsyphon/issues) for existing work, or open a new issue.
 
 ### 2. Create a Feature Branch
 
@@ -222,20 +172,15 @@ pnpm tsc --noEmit               # TypeScript compiles
 ### 5. Commit and Push
 
 ```bash
-# Include .beads/issues.jsonl in your commit
 git add .
 git commit -m "feat: description of your change"
-
-# Mark task complete
-bd close <issue-id> --reason "Completed"
-
 git push origin feature/your-feature-name
 ```
 
 ### 6. Create Pull Request
 
 - Use a clear, descriptive title
-- Reference the bd issue ID (e.g., "Fixes catsyphon-42")
+- Reference the GitHub issue (e.g., "Fixes #42")
 - Describe what changed and why
 - List any breaking changes
 - Include screenshots for UI changes
@@ -247,7 +192,6 @@ git push origin feature/your-feature-name
 - [ ] Code is formatted (Black/ESLint)
 - [ ] Linting passes (Ruff/ESLint)
 - [ ] Documentation updated (if needed)
-- [ ] `.beads/issues.jsonl` committed
 - [ ] No unnecessary files included
 
 ## Adding a Parser Plugin
@@ -266,6 +210,6 @@ See [docs/parser-quickstart.md](./docs/parser-quickstart.md) for a 15-minute tut
 
 - Check existing documentation in [docs/](./docs/)
 - Review [AGENTS.md](./AGENTS.md) for workflow details
-- Open an issue with `bd create "Question: ..." -t task`
+- Open an issue on [GitHub](https://github.com/kulesh/catsyphon/issues)
 
 Thank you for contributing to CatSyphon!

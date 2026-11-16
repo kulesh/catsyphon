@@ -19,7 +19,7 @@ type(scope): description
 | `refactor` | Code restructuring without behavior change |
 | `docs` | Documentation only |
 | `test` | Adding or updating tests |
-| `chore` | Build, tooling, dependencies, beads sync |
+| `chore` | Build, tooling, dependencies |
 
 ### Scopes
 
@@ -42,22 +42,9 @@ fix(pipeline): prevent deadlock on concurrent session ingestion
 refactor(frontend): extract TabNavigation component from page files
 docs: create ADR framework with 7 decision records
 test(api): add error scenario coverage for conversation endpoints
-chore(beads): sync issue state
 ```
 
 ## Rules
-
-### Beads State Commits
-
-Beads issue state (`.beads/issues.jsonl`) must be committed separately from code changes:
-
-```bash
-# Good: separate commits
-git commit -m "feat(parser): add incremental codex parsing"
-bd sync  # creates its own "chore(beads): sync" commit
-```
-
-Do not mix `.beads/issues.jsonl` changes with feature/fix commits.
 
 ### Branch Hygiene
 

@@ -2,10 +2,6 @@
 
 This file provides guidance to AI coding assistants when working with code in this project.
 
-## First Things First
-
-BEFORE ANYTHING ELSE: run 'bd onboard' and follow the instructions
-
 ## Assistant's Role
 
 You are a world-class software engineer, product manager, and designer rolled into one skillful AI Assistant. Your human pairing buddy is Kulesh.
@@ -201,47 +197,6 @@ pnpm tsc --noEmit
 - docs/collectors/sdk.md and docs/collectors/protocol.md: external collector clients
 - docs/reference/api-reference.md: REST API surface
 
-## Issue Tracking with bd (beads)
+## Issue Tracking
 
-IMPORTANT: This project uses bd (beads) for ALL issue tracking.
-Do NOT use markdown TODOs, task lists, or external trackers.
-
-### Quick Start (always use --json)
-
-```bash
-bd ready --json
-
-bd create "Issue title" -t bug|feature|task|epic|chore -p 0-4 --json
-bd create "Issue title" -p 1 --deps discovered-from:catsyphon-123 --json
-
-bd update catsyphon-123 --status in_progress --json
-bd update catsyphon-123 --priority 1 --json
-
-bd close catsyphon-123 --reason "Completed" --json
-```
-
-### Priorities
-
-- 0: Critical (security, data loss, broken builds)
-- 1: High (major features, important bugs)
-- 2: Medium (default)
-- 3: Low (polish, optimization)
-- 4: Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. Check ready work: `bd ready --json`
-2. Claim the task: `bd update <id> --status in_progress --json`
-3. Implement, test, document
-4. If you discover new work:
-   `bd create "Found bug" -p 1 --deps discovered-from:<parent-id> --json`
-5. Complete: `bd close <id> --reason "Done" --json`
-6. Always commit `.beads/issues.jsonl` with code changes
-
-### Rules
-
-- Use bd for ALL task tracking.
-- Always include `--json`.
-- Link discovered work with `discovered-from` dependencies.
-- Check `bd ready --json` before asking "what should I work on?"
-- Do not create markdown TODO lists.
+Use [GitHub Issues](https://github.com/kulesh/catsyphon/issues) for all task tracking.

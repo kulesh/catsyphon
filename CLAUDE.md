@@ -2,10 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## First Things First
-
-BEFORE ANYTHING ELSE: run 'bd ready' and review available work
-
 ## Assistant's Role
 
 See [AGENTS.md](AGENTS.md) for philosophy, development guidelines, and communication style. Those rules apply here — do not duplicate them.
@@ -145,20 +141,11 @@ feat(parser): add Cursor log format support
 fix(pipeline): prevent deadlock on concurrent session ingestion
 ```
 
-Beads state (`.beads/issues.jsonl`) must be committed separately from code changes. See [docs/guides/git-conventions.md](docs/guides/git-conventions.md) for full rules.
+See [docs/guides/git-conventions.md](docs/guides/git-conventions.md) for full rules.
 
-## Issue Tracking with bd (beads)
+## Issue Tracking
 
-**CRITICAL**: Always use `bd` for task tracking, never markdown TODOs.
-
-```bash
-bd ready                                           # Show unblocked work
-bd create --title="Title" --type=bug|feature|task --priority=0-4  # Create issue
-bd update <id> --status=in_progress               # Claim task
-bd close <id> --reason="Completed"                # Complete task
-```
-
-Priority: 0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Always commit `.beads/issues.jsonl` with code changes.
+Use [GitHub Issues](https://github.com/kulesh/catsyphon/issues) for all task tracking.
 
 ## Configuration
 
