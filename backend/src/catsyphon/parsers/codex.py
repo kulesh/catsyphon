@@ -11,6 +11,7 @@ Key record types:
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,22 @@ from catsyphon.parsers.utils import parse_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
+_BASE64_RE = re.compile(r"^[A-Za-z0-9+/=]{64,}$")
+
+
+def _is_encrypted_content(item: Any) -> bool:
+    """Detect encrypted content blocks in Codex logs (v0.138.0+)."""
+    if not isinstance(item, dict):
+        return False
+    if item.get("type") == "encrypted" or item.get("encrypted"):
+        return True
+    if item.get("type") in ("ciphertext", "encrypted_delegation"):
+        return True
+    text = item.get("text") or item.get("data") or ""
+    if isinstance(text, str) and len(text) > 128 and _BASE64_RE.match(text.strip()):
+        return True
+    return False
+
 
 @dataclass
 class _CodexRecord:
@@ -50,7 +67,6 @@ class CodexParser:
             supported_formats=[".jsonl"],
             capabilities={
                 ParserCapability.BATCH,
-                ParserCapability.INCREMENTAL,
                 ParserCapability.STREAMING,
             },
             priority=60,  # Slightly above Claude to favor explicit Codex logs
@@ -157,11 +173,35 @@ class CodexParser:
             if rec.type == "response_item":
                 p_type = rec.payload.get("type")
                 role = rec.payload.get("role")
+
+                # Detect encrypted delegation records (Codex CLI 0.138.0+)
+                if rec.payload.get("encrypted") or p_type in (
+                    "encrypted",
+                    "encrypted_delegation",
+                    "ciphertext",
+                ):
+                    messages.append(
+                        ParsedMessage(
+                            role=role or "assistant",
+                            content="[encrypted delegation]",
+                            timestamp=rec.timestamp,
+                            message_type="encrypted",
+                            entities={"content_encrypted": True},
+                            tool_calls=[],
+                            code_changes=[],
+                        )
+                    )
+                    continue
+
                 if p_type == "message" and role in {"user", "assistant"}:
                     content_items = rec.payload.get("content") or []
                     text_parts = []
                     thinking_parts = []
+                    has_encrypted = False
                     for item in content_items:
+                        if _is_encrypted_content(item):
+                            has_encrypted = True
+                            continue
                         if isinstance(item, dict):
                             if item.get("type") in {"input_text", "output_text"}:
                                 text_parts.append(item.get("text", ""))
@@ -169,6 +209,9 @@ class CodexParser:
                                 thinking_parts.append(item.get("text", ""))
                         elif isinstance(item, str):
                             text_parts.append(item)
+                    entities: dict[str, Any] = {}
+                    if has_encrypted:
+                        entities["content_encrypted"] = True
                     messages.append(
                         ParsedMessage(
                             role=role,
@@ -176,7 +219,7 @@ class CodexParser:
                             timestamp=rec.timestamp,
                             tool_calls=[],
                             code_changes=[],
-                            entities={},
+                            entities=entities,
                             model=rec.payload.get("model"),
                             token_usage=rec.payload.get("token_usage")
                             or rec.payload.get("token_count"),
