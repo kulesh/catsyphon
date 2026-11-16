@@ -469,6 +469,9 @@ class FileWatcher(FileSystemEventHandler):
 
             logger.info(f"Detected file: {file_path.name}")
 
+            # Backup before processing (opt-in via CATSYPHON_WATCH_BACKUP_DIR)
+            self._maybe_backup(file_path)
+
             # If file already tracked, detect change type before parsing to allow fast skip
             if is_real_file:
                 try:
@@ -552,6 +555,30 @@ class FileWatcher(FileSystemEventHandler):
 
         finally:
             self.processing.discard(path_str)
+
+    def _maybe_backup(self, file_path: Path) -> None:
+        """Backup log file if backup is configured."""
+        if not settings.watch_backup_dir:
+            return
+
+        is_tracked = False
+        try:
+            with db_session() as session:
+                raw_log_repo = RawLogRepository(session)
+                is_tracked = raw_log_repo.get_by_file_path(str(file_path)) is not None
+        except Exception:
+            pass
+
+        if is_tracked and not settings.watch_backup_on_change:
+            return
+
+        from catsyphon.utils.log_backup import backup_log_file
+
+        backup_log_file(
+            file_path,
+            watch_directory=self.directory,
+            backup_dir=Path(settings.watch_backup_dir),
+        )
 
     def _handle_file_rename(self, src_path: Path, dest_path: Path) -> None:
         """

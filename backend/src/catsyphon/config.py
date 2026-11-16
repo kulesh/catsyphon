@@ -197,6 +197,12 @@ class Settings(BaseSettings):
     watch_stats_interval: int = Field(
         default=30, alias="CATSYPHON_WATCH_STATS_INTERVAL"
     )  # Stats push interval in seconds
+    watch_backup_dir: str | None = Field(
+        default=None, alias="CATSYPHON_WATCH_BACKUP_DIR"
+    )  # If set, copy log files here before processing
+    watch_backup_on_change: bool = Field(
+        default=True, alias="CATSYPHON_WATCH_BACKUP_ON_CHANGE"
+    )  # Also backup on file changes (appends), not just first detection
 
     # Daemon Manager Settings
     daemon_stats_sync_interval: int = Field(
