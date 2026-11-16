@@ -1,28 +1,22 @@
 """
-Incremental parsing infrastructure.
+Chunked parsing infrastructure (ADR-009).
 
-Provides two protocol layers:
-
-1. **ChunkedParser** (ADR-009) — the primary interface. Two methods:
-   - ``parse_metadata()`` reads the first few lines for session-level metadata.
-   - ``parse_messages(offset, limit)`` returns a bounded ``MessageChunk``.
-   First-time ingestion is chunked from offset=0; subsequent appends
-   resume from the stored offset. Peak memory is ~3 MB per chunk regardless
-   of file size.
-
-2. **IncrementalParser** (legacy, ADR-003) — deprecated but retained until
-   all callers migrate. Will be removed after Step 6 of the ADR-009 plan.
+**ChunkedParser** is the primary interface. Two methods:
+- ``parse_metadata()`` reads the first few lines for session-level metadata.
+- ``parse_messages(offset, limit)`` returns a bounded ``MessageChunk``.
+First-time ingestion is chunked from offset=0; subsequent appends
+resume from the stored offset. Peak memory is ~3 MB per chunk regardless
+of file size.
 
 Utility helpers (``detect_file_change_type``, ``calculate_partial_hash``)
-are shared by both layers.
+support change detection and integrity verification.
 """
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from catsyphon.models.parsed import ConversationMetadata, ParsedMessage
 
@@ -36,94 +30,9 @@ class ChangeType(str, Enum):
     UNCHANGED = "unchanged"  # No changes detected
 
 
-@dataclass
-class IncrementalParseResult:
-    """Result from incremental parsing operation.
-
-    .. deprecated:: ADR-009
-        Use ``MessageChunk`` from ``ChunkedParser.parse_messages()`` instead.
-
-    Contains only the NEW messages parsed since last offset, along with
-    updated state tracking information.
-    """
-
-    new_messages: List[ParsedMessage]
-    """Only the messages parsed in this incremental update."""
-
-    last_processed_offset: int
-    """Byte offset in file where parsing stopped."""
-
-    last_processed_line: int
-    """Line number where parsing stopped (for debugging)."""
-
-    file_size_bytes: int
-    """Current file size in bytes."""
-
-    partial_hash: str
-    """SHA-256 hash of content up to last_processed_offset."""
-
-    last_message_timestamp: Optional[datetime] = None
-    """Timestamp of the last message parsed (for validation)."""
-
-
-@runtime_checkable
-class IncrementalParser(Protocol):
-    """
-    Protocol for parsers that support incremental parsing.
-
-    Parsers implementing this protocol can parse only new content
-    appended to files, rather than reparsing the entire file.
-
-    Note:
-        This is a separate protocol from ConversationParser. Parsers can
-        implement both protocols to support both full and incremental modes.
-    """
-
-    def supports_incremental(self, file_path: Path) -> bool:
-        """
-        Check if incremental parsing is supported for this specific file.
-
-        Args:
-            file_path: Path to the log file
-
-        Returns:
-            True if incremental parsing is supported for this file, False otherwise
-
-        Note:
-            Some file formats may not support incremental parsing (e.g., binary
-            formats that require full reparse, or corrupted files). This method
-            allows parsers to opt-out on a per-file basis.
-
-            Default implementation should return True if the parser generally
-            supports incremental parsing.
-        """
-        ...
-
-    def parse_incremental(
-        self,
-        file_path: Path,
-        last_offset: int,
-        last_line: int,
-    ) -> IncrementalParseResult:
-        """
-        Parse only new content appended since last_offset.
-
-        Args:
-            file_path: Path to the log file
-            last_offset: Byte offset where parsing last stopped
-            last_line: Line number where parsing last stopped
-
-        Returns:
-            IncrementalParseResult with only new messages and updated state
-
-        Raises:
-            ValueError: If file format is invalid or offset is out of bounds
-        """
-        ...
-
 
 # ---------------------------------------------------------------------------
-# ADR-009: Chunked parsing protocol
+# Chunked parsing protocol (ADR-009)
 # ---------------------------------------------------------------------------
 
 

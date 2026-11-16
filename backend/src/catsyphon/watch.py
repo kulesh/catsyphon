@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from catsyphon.models.parsed import ParsedConversation, ParsedMessage
     from catsyphon.parsers.incremental import (
         ChunkedParser,
-        IncrementalParseResult,
         MessageChunk,
     )
     from catsyphon.tagging.pipeline import TaggingPipeline
@@ -761,7 +760,6 @@ class FileWatcher(FileSystemEventHandler):
                 file_path=file_path,
                 conversation_id=conversation_id,
                 parsed=parsed,
-                incremental_result=None,
                 has_existing_raw_log=existing_raw_log_state is not None,
             )
 
@@ -944,13 +942,12 @@ class FileWatcher(FileSystemEventHandler):
         file_path: Path,
         conversation_id: Optional[str],
         parsed: Optional["ParsedConversation"],
-        incremental_result: Optional["IncrementalParseResult"],
         has_existing_raw_log: bool,
     ) -> None:
         """
-        Update or create raw_log entry to track file state for incremental parsing.
+        Update or create raw_log entry to track file state for chunked parsing.
 
-        This enables future incremental parsing by storing:
+        This enables future chunked parsing by storing:
         - last_processed_offset: Where to resume parsing
         - file_size_bytes: For change detection
         - partial_hash: For integrity verification
@@ -966,12 +963,7 @@ class FileWatcher(FileSystemEventHandler):
                 # Get current file stats
                 file_size = file_path.stat().st_size
 
-                if incremental_result:
-                    # Update existing raw_log with new state
-                    new_offset = incremental_result.last_processed_offset
-                    new_line = incremental_result.last_processed_line
-                    partial_hash = incremental_result.partial_hash
-                elif parsed:
+                if parsed:
                     # Full parse: offset is entire file
                     new_offset = file_size
                     new_line = len(parsed.messages) if parsed.messages else 0

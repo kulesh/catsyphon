@@ -23,7 +23,6 @@ from catsyphon.models.parsed import (
 )
 from catsyphon.parsers.base import ParseDataError, ParseFormatError
 from catsyphon.parsers.incremental import (
-    IncrementalParseResult,
     MessageChunk,
     calculate_partial_hash,
 )
@@ -112,17 +111,6 @@ class CodexParser:
         return ProbeResult(
             can_parse=bool(reasons), confidence=confidence, reasons=reasons
         )
-
-    # ------------------------------------------------------------------
-    # Deprecated: IncrementalParser protocol (ADR-003)
-    # Use parse_metadata() + parse_messages() instead (ADR-009).
-    # ------------------------------------------------------------------
-
-    def supports_incremental(self, file_path: Path) -> bool:
-        """.. deprecated:: ADR-009
-        Use ``parse_messages(offset=N)`` instead.
-        """
-        return self.can_parse(file_path)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -252,7 +240,7 @@ class CodexParser:
     ) -> tuple[list[_CodexRecord], int, int, bool]:
         """Read up to *limit* valid JSONL records from *start_offset*.
 
-        Defers partial trailing lines at EOF (same as ``parse_incremental``).
+        Defers partial trailing lines at EOF.
 
         Returns:
             ``(records, new_offset, new_line, is_eof)``
@@ -412,87 +400,3 @@ class CodexParser:
             agent_metadata={},
         )
 
-    # ------------------------------------------------------------------
-    # Deprecated: parse_incremental (ADR-003)
-    # ------------------------------------------------------------------
-
-    def parse_incremental(
-        self,
-        file_path: Path,
-        last_offset: int,
-        last_line: int,
-    ) -> IncrementalParseResult:
-        """
-        Parse only new Codex log lines appended since last_offset.
-
-        Handles partial trailing lines by deferring them until the next pass.
-        """
-        if not file_path.exists():
-            raise ParseFormatError(f"File does not exist: {file_path}")
-
-        file_size = file_path.stat().st_size
-        if last_offset < 0 or last_offset > file_size:
-            raise ValueError(
-                f"Offset {last_offset} out of bounds for {file_path} (size={file_size})"
-            )
-
-        logger.info(
-            "Incremental parse (codex): %s from offset %s (line %s)",
-            file_path,
-            last_offset,
-            last_line,
-        )
-
-        new_records: list[_CodexRecord] = []
-        line_num = last_line
-        last_good_offset = last_offset
-        last_good_line = last_line
-
-        with file_path.open("r", encoding="utf-8") as f:
-            f.seek(last_offset)
-            while True:
-                line = f.readline()
-                if not line:
-                    break
-
-                line_num += 1
-                if not line.strip():
-                    last_good_offset = f.tell()
-                    last_good_line = line_num
-                    continue
-
-                rec = self._record_from_line(line)
-                if rec is None:
-                    # If we're at EOF, treat this as a partial line and retry next pass.
-                    if f.tell() >= file_size:
-                        logger.debug(
-                            "Deferring partial/invalid trailing line at %s:%s",
-                            file_path,
-                            line_num,
-                        )
-                        break
-                    # Otherwise skip malformed line but advance offset so we don't loop.
-                    last_good_offset = f.tell()
-                    last_good_line = line_num
-                    continue
-
-                new_records.append(rec)
-                last_good_offset = f.tell()
-                last_good_line = line_num
-
-        parsed_messages = self._build_messages(new_records)
-        parsed_messages.sort(key=lambda m: m.timestamp)
-        last_message_timestamp = (
-            parsed_messages[-1].timestamp if parsed_messages else None
-        )
-
-        partial_hash = calculate_partial_hash(file_path, last_good_offset)
-
-        return IncrementalParseResult(
-            new_messages=parsed_messages,
-            last_processed_offset=last_good_offset,
-            last_processed_line=last_good_line,
-            file_size_bytes=file_size,
-            partial_hash=partial_hash,
-            last_message_timestamp=last_message_timestamp,
-        )

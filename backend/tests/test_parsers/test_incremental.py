@@ -1,18 +1,16 @@
 """
-Tests for incremental parsing infrastructure.
+Tests for chunked parsing infrastructure.
 
-Tests the core incremental parsing utilities including change detection,
-partial hashing, and the IncrementalParseResult dataclass.
+Tests the core parsing utilities including change detection
+and partial hashing.
 """
 
 from pathlib import Path
 
 import pytest
 
-from catsyphon.models.parsed import ParsedMessage
 from catsyphon.parsers.incremental import (
     ChangeType,
-    IncrementalParseResult,
     calculate_content_partial_hash,
     calculate_partial_hash,
     detect_file_change_type,
@@ -243,49 +241,3 @@ class TestDetectFileChangeType:
         assert change_type == ChangeType.APPEND
 
 
-class TestIncrementalParseResult:
-    """Tests for IncrementalParseResult dataclass."""
-
-    def test_create_result_with_messages(self):
-        """Test creating result with new messages."""
-        from datetime import datetime
-
-        messages = [
-            ParsedMessage(
-                role="user",
-                content="Test message",
-                timestamp=datetime.now(),
-                model=None,
-                tool_calls=[],
-                token_usage=None,
-            )
-        ]
-
-        result = IncrementalParseResult(
-            new_messages=messages,
-            last_processed_offset=1500,
-            last_processed_line=10,
-            file_size_bytes=1500,
-            partial_hash="abc123",
-            last_message_timestamp=messages[0].timestamp,
-        )
-
-        assert len(result.new_messages) == 1
-        assert result.last_processed_offset == 1500
-        assert result.last_processed_line == 10
-        assert result.file_size_bytes == 1500
-        assert result.partial_hash == "abc123"
-
-    def test_create_empty_result(self):
-        """Test creating result with no new messages."""
-        result = IncrementalParseResult(
-            new_messages=[],
-            last_processed_offset=1000,
-            last_processed_line=5,
-            file_size_bytes=1000,
-            partial_hash="xyz789",
-            last_message_timestamp=None,
-        )
-
-        assert len(result.new_messages) == 0
-        assert result.last_message_timestamp is None

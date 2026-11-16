@@ -9,7 +9,6 @@ import pytest
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.base import ParseFormatError
 from catsyphon.parsers.claude_code import ClaudeCodeParser
-from catsyphon.parsers.incremental import IncrementalParser
 from catsyphon.parsers.registry import ParserRegistry, get_default_registry
 from catsyphon.parsers.types import ParseResult
 
@@ -132,93 +131,6 @@ class TestParserRegistry:
         assert result.conversation.agent_type == "claude-code"
         assert result.parser_name == "claude-code"
         assert result.parse_method == "full"
-
-
-class TestIncrementalParserFinding:
-    """Tests for finding incremental parsers.
-
-    REGRESSION TESTS: These tests prevent a critical bug where incremental
-    parsing was never used due to missing @runtime_checkable decorator on
-    IncrementalParser protocol (fixed in commit eba5cd5).
-    """
-
-    def test_find_incremental_parser_for_valid_file(self):
-        """Test finding incremental parser for valid file.
-
-        CRITICAL: This test verifies that isinstance(parser, IncrementalParser)
-        works correctly, which requires @runtime_checkable decorator.
-        """
-        registry = ParserRegistry()
-        registry.register(ClaudeCodeParser())
-
-        log_file = FIXTURES_DIR / "minimal_conversation.jsonl"
-        parser = registry.find_incremental_parser(log_file)
-
-        # Bug would cause this to be None due to TypeError in isinstance() check
-        assert parser is not None, (
-            "find_incremental_parser() returned None - check that "
-            "IncrementalParser has @runtime_checkable decorator"
-        )
-        assert isinstance(parser, ClaudeCodeParser)
-        assert hasattr(parser, "parse_incremental")
-
-    def test_incremental_parser_implements_protocol(self):
-        """Test that ClaudeCodeParser correctly implements IncrementalParser protocol.
-
-        This verifies the @runtime_checkable decorator allows isinstance() checks.
-        """
-        parser = ClaudeCodeParser()
-
-        # This would raise TypeError without @runtime_checkable
-        assert isinstance(parser, IncrementalParser), (
-            "ClaudeCodeParser should implement IncrementalParser protocol - "
-            "check that IncrementalParser has @runtime_checkable decorator"
-        )
-
-    def test_find_incremental_parser_returns_none_for_invalid_file(self):
-        """Test that find_incremental_parser returns None for invalid file."""
-        registry = ParserRegistry()
-        registry.register(ClaudeCodeParser())
-
-        log_file = FIXTURES_DIR / "not_a_log.txt"
-        parser = registry.find_incremental_parser(log_file)
-
-        assert parser is None
-
-    def test_find_incremental_parser_returns_none_for_nonexistent_file(self):
-        """Test that find_incremental_parser returns None for nonexistent file."""
-        registry = ParserRegistry()
-        registry.register(ClaudeCodeParser())
-
-        log_file = FIXTURES_DIR / "does_not_exist.jsonl"
-        parser = registry.find_incremental_parser(log_file)
-
-        assert parser is None
-
-    def test_find_incremental_parser_with_empty_registry(self):
-        """Test that find_incremental_parser returns None with empty registry."""
-        registry = ParserRegistry()
-
-        log_file = FIXTURES_DIR / "minimal_conversation.jsonl"
-        parser = registry.find_incremental_parser(log_file)
-
-        assert parser is None
-
-    def test_default_registry_finds_incremental_parser(self):
-        """Test that default registry can find incremental parsers.
-
-        This is the integration test for the real-world usage in watch daemon.
-        """
-        registry = get_default_registry()
-
-        log_file = FIXTURES_DIR / "minimal_conversation.jsonl"
-        parser = registry.find_incremental_parser(log_file)
-
-        assert (
-            parser is not None
-        ), "Default registry should find incremental parser for .jsonl files"
-        assert hasattr(parser, "parse_incremental")
-        assert hasattr(parser, "supports_incremental")
 
 
 class TestDefaultRegistry:

@@ -12,7 +12,7 @@ from typing import Optional
 
 from catsyphon.models.parsed import ParsedConversation
 from catsyphon.parsers.base import ConversationParser, EmptyFileError, ParseFormatError
-from catsyphon.parsers.incremental import ChunkedParser, IncrementalParser
+from catsyphon.parsers.incremental import ChunkedParser
 from catsyphon.parsers.metadata import ParserMetadata
 from catsyphon.parsers.types import ParseResult, ProbeResult
 
@@ -228,64 +228,6 @@ class ParserRegistry:
                     return parser
             except Exception as e:
                 logger.debug(f"Parser {type(parser).__name__} check failed: {e}")
-                continue
-
-        return None
-
-    def find_incremental_parser(self, file_path: Path) -> Optional[IncrementalParser]:
-        """
-        Find a parser that supports incremental parsing for the given file.
-
-        Args:
-            file_path: Path to the log file
-
-        Returns:
-            The first parser that supports incremental parsing for this file,
-            or None if no match found
-
-        Note:
-            This method checks both:
-            1. If the parser can handle the file format (can_parse)
-            2. If the parser implements IncrementalParser protocol
-            3. If the parser supports incremental mode for this specific file
-
-        Example:
-            >>> registry = get_default_registry()
-            >>> parser = registry.find_incremental_parser(Path("log.jsonl"))
-            >>> if parser:
-            ...     result = parser.parse_incremental(path, offset, line)
-        """
-        if not file_path.exists():
-            return None
-
-        for parser in self._sorted_parsers(file_path):
-            try:
-                # Check if parser can handle this file format
-                probe_fn = getattr(parser, "probe", None)
-                if callable(probe_fn):
-                    probe: ProbeResult = probe_fn(file_path)
-                    if not probe.can_parse:
-                        continue
-                else:
-                    if not parser.can_parse(file_path):
-                        continue
-
-                # Check if parser implements IncrementalParser protocol
-                if not isinstance(parser, IncrementalParser):
-                    continue
-
-                # Check if parser supports incremental parsing for this specific file
-                if hasattr(parser, "supports_incremental"):
-                    if not parser.supports_incremental(file_path):
-                        continue
-
-                # Found a matching incremental parser
-                return parser
-
-            except Exception as e:
-                logger.debug(
-                    f"Parser {type(parser).__name__} incremental check failed: {e}"
-                )
                 continue
 
         return None
