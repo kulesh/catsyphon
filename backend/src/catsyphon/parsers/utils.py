@@ -159,7 +159,7 @@ def extract_thinking_content(content: Any) -> ThinkingResult:
 
     Detects three states:
     - Real thinking: readable text returned as-is
-    - Redacted thinking: signature blob (~600 chars, no whitespace) → content=None, redacted=True
+    - Redacted thinking: has `signature` field, or signature blob heuristic → content=None, redacted=True
     - Thinking summary: shorter readable text from showThinkingSummaries → is_summary=True
 
     Args:
@@ -181,10 +181,14 @@ def extract_thinking_content(content: Any) -> ThinkingResult:
 
         if item.get("type") == "thinking":
             thinking_text = item.get("thinking", "")
+            has_signature_field = "signature" in item
+
             if not thinking_text:
+                if has_signature_field:
+                    has_redacted = True
                 continue
 
-            if is_thinking_redacted(thinking_text):
+            if has_signature_field or is_thinking_redacted(thinking_text):
                 has_redacted = True
             else:
                 thinking_parts.append(thinking_text)

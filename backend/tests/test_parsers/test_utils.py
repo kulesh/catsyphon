@@ -396,6 +396,30 @@ class TestExtractThinkingContent:
         assert result.redacted is True
         assert result.is_summary is True
 
+    def test_redacted_via_signature_field(self):
+        """Thinking block with `signature` field is redacted even if thinking text looks normal."""
+        content = [
+            {
+                "type": "thinking",
+                "thinking": "A" * 600,
+                "signature": "abc123signatureblob",
+            },
+            {"type": "text", "text": "Answer"},
+        ]
+        result = extract_thinking_content(content)
+        assert result.content is None
+        assert result.redacted is True
+
+    def test_empty_thinking_with_signature_field_is_redacted(self):
+        """Empty thinking text but signature present → redacted, not skipped."""
+        content = [
+            {"type": "thinking", "thinking": "", "signature": "sig"},
+            {"type": "text", "text": "Answer"},
+        ]
+        result = extract_thinking_content(content)
+        assert result.content is None
+        assert result.redacted is True
+
 
 class TestSafeGetNested:
     """Tests for safe_get_nested function."""
